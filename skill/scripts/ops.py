@@ -114,6 +114,28 @@ def set_layer_saturation(doc, layer, sat, guidance=1.0, selection=None, weights=
     return doc
 
 
+def tone_map(doc, gain=1.0, lift=0.0, gamma=1.0, layer=None, guidance=1.0, selection=None,
+             weights=None, seed=0, **_):
+    """色调映射：c' = 255 * clamp(((c/255) ** (1/gamma)) * gain + lift)。
+
+    改的是笔触颜色，所以 multiply 层（shadow/texture）的压暗也会一起被提起来——
+    这是"整幅偏暗"的通用修法。gain=1 / lift=0 / gamma=1 时逐字节不变；
+    guidance<1 时按强度在旧值与新值之间插值。
+    """
+    gain, lift, gamma = float(gain), float(lift), float(gamma)
+    if gain <= 0:
+        raise ValueError("tone_map: gain must be > 0")
+    if gamma <= 0:
+        raise ValueError("tone_map: gamma must be > 0")
+    if gain == 1.0 and lift == 0.0 and gamma == 1.0:
+        return doc
+    for _, s, st in _targets(doc, layer, selection, weights, guidance):
+        cur = np.clip(_to_rgb(s["color"]), 0.0, 255.0) / 255.0
+        target = np.clip(np.power(cur, 1.0 / gamma) * gain + lift, 0.0, 1.0) * 255.0
+        s["color"] = _set_rgb(np.clip(_to_rgb(s["color"]) + (target - _to_rgb(s["color"])) * st, 0.0, 255.0))
+    return doc
+
+
 def set_layer_brightness(doc, layer, factor, guidance=1.0, selection=None, weights=None, seed=0, **_):
     """明度乘因子（factor=1 不变，guidance=1 时精确乘 factor）。"""
     for _, s, st in _targets(doc, layer, selection, weights, guidance):
@@ -406,6 +428,7 @@ def recolor_palette(doc, palette, guidance=1.0, selection=None, weights=None, se
 
 OPS = {
     "set_layer_hue": set_layer_hue,
+    "tone_map": tone_map,
     "set_layer_saturation": set_layer_saturation,
     "set_layer_brightness": set_layer_brightness,
     "scale_stroke_size": scale_stroke_size,
@@ -429,6 +452,7 @@ REQUIRED = {
     "redraw": [],
     "recolor_palette": ["palette"],
     "draw_path": ["layer", "d"],
+    "tone_map": [],
 }
 
 
@@ -444,6 +468,7 @@ ALLOWED = {
     "redraw": {"fraction", "jitter", "layer", "order", "guidance"},
     "recolor_palette": {"palette", "guidance"},
     "draw_path": {"layer", "d", "color", "size", "opacity", "preset", "guidance"},
+    "tone_map": {"gain", "lift", "gamma", "layer", "guidance"},
 }
 INTERNAL = {"seed", "selection", "weights"}
 

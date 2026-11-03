@@ -98,5 +98,23 @@
   "layers": [
    "band"
   ]
+ },
+ {
+  "id": 11,
+  "instruction": "整幅太黑了，提亮一档，别把红玫瑰洗白",
+  "ops": [
+   "tone_map"
+  ],
+  "layers": []
+ },
+ {
+  "id": 12,
+  "instruction": "暗部太死黑，把黑场抬一点",
+  "ops": [
+   "tone_map"
+  ],
+  "layers": [
+   "shadow"
+  ]
  }
 ]

@@ -953,7 +953,7 @@ python scripts/paint_process.py ref.png process.html --size 876x1904 --duration 
 | masked inpainting | `masks.py`：rect / point / polygon / color + 羽化权重 | `feather` |
 | 从零绘制（不读参考图） | `draw_path` 算子：SVG path（M/L/H/V/C/Q/T/Z）展平成笔触追加到指定层 | `d`/`color`/`size`/`guidance` |
 
-只允许这 10 个算子（别的键一律拒绝，防模型瞎编）：`set_layer_hue`、`set_layer_saturation`、`set_layer_brightness`、`scale_stroke_size`、`swap_brush`、`densify`、`erase`、`redraw`、`recolor_palette`、`draw_path`。
+只允许这 11 个算子（别的键一律拒绝，防模型瞎编）：`set_layer_hue`、`set_layer_saturation`、`set_layer_brightness`、`scale_stroke_size`、`swap_brush`、`densify`、`erase`、`redraw`、`recolor_palette`、`draw_path`、`tone_map`。
 
 **draw_path（从零加笔）与语义改画是同一条链**——它同样受 `guidance` 控制、同样能算掩膜与脏矩形：
 
@@ -982,7 +982,39 @@ python scripts/paint_process.py ref.png process.html --size 876x1904 --duration 
 
 测试：`tests/test_draw_ops.py` 断言 draw_path 只加笔、guidance=0 不变、脏矩形框得住、order 三种优先级、坏输入被拒。
 
-**视觉 grounding（让模型看见画）**：编译默认只喂文本摘要，颜色/明暗只能靠编号猜。
+**tone_map（色调映射，专门修「整幅偏暗」）**：改的是笔触颜色，所以 shadow/texture 两层 multiply 的压暗会被一起抬起来：
+
+```json
+{"op": "tone_map", "gain": 1.8, "lift": 0.05, "gamma": 1.25}
+{"op": "tone_map", "layer": "shadow", "gain": 1.4}
+```
+
+- `gain`：亮度乘数（>0）；`lift`：加白（0..1，抬黑场）；`gamma`：>1 提亮中间调；`layer` 省略 = 所有层。
+- 恒等：`gain=1, lift=0, gamma=1` 逐字节不变；`guidance=0` 不变；guidance 0.5 = 旧值/新值各一半（`tests/test_tone_map.py` 全 PASS）。
+
+实测（900×1100 / 57,812 笔，全部层 + shadow/texture 再 ×1.25）：
+
+| 项 | 数值 |
+|---|---|
+| 平均亮度 | **11.2 → 47.9**（源图 60–73） |
+| 增量 vs 整份重画 | **0 px** |
+| 编辑（改 57,812 笔颜色 + 重打包） | 3.94 s |
+| 脏矩形重建 | 2.49 s |
+
+
+**本会话模型就是多模态编译器（不需要 API key）**：上面那条视觉 grounding 的链路我直接用自己跑通了——
+编译模型 = 当前会话模型，输入 = `render_thumb` 的图 + 计划摘要，输出 = ops JSON，再走 validate → apply → GPU 增量重渲染。
+
+| 指令（看图后写的） | 编译出的 ops | 结果 |
+|---|---|---|
+| 整幅太黑，提亮别洗白 | `tone_map gain 1.8 lift .05 gamma 1.25` + shadow/texture ×1.25 | luma 11.2 → **47.9**，diff 0 px |
+| 暗部太死黑，抬黑场 | `tone_map layer=shadow gain 1.5 lift .03` | 全图 luma 11.2 → 12.7（局部暗部抬起） |
+| 高光太冷，调暖 | `set_layer_hue highlight 40 + sat 0.35` | 高光由冷白转暖粉，图上可见 |
+
+子代理同样能跑（继承同一模型、能读图），只是这次没必要再走一遍；要"第二意见"时可以 fork 一个子代理独立编译同一张图对比。
+上一段"没 key 所以未验证"的说明对**外部 API 端点**仍然成立，但"多模态看图编译"这件事本身已经在本会话里验证过。
+
+**视觉 grounding（把预览图接进编译）**：编译默认只喂文本摘要，颜色/明暗只能靠编号猜。
 现在可以把渲染缩略图一起交给多模态模型：
 
 ```
@@ -1138,8 +1170,9 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 结论：GPU 与 CPU 的亮度差 **0.04/255**，不存在"GPU 把图压暗"。
 真正的原因是计划本身：源图 mean-luma ≈ **60–73**，而这份计划渲染出来只有 **11**——
 `shadow` 与 `texture` 两层都是 multiply，叠完把整体压掉约 5 倍（这正是油画暗调的来源，不是 bug）。
-要提亮得动色调映射（现在只有 `set_layer_brightness`，实测 texture×1.6 + shadow×1.35 + bed×1.15 只把 11.2 抬到 12.5），
-或者减少 multiply 层的覆盖/换 blend——这部分还没做。
+修法已落地：新算子 `tone_map`（gain/lift/gamma，可逐层）实测把 11.2 抬到 **47.9**（gain 1.8 + lift 0.05 + gamma 1.25，再对 shadow/texture 各 ×1.25），
+增量 == 整份重画 **0 px**。只调 `set_layer_brightness` 没用（texture×1.6 + shadow×1.35 + bed×1.15 只到 12.5）——
+因为那是乘 HSV 的 V，对 multiply 层的暗色几乎无效；要动 gamma/lift 才抬得动黑场。
 
 ## 性能现状（900×1100 / 57,812 笔 / 8 层，实测 3 次取中位）
 

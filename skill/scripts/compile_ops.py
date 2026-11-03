@@ -37,13 +37,17 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
   {"op": "redraw",              "fraction": 0..1, "jitter": 0..0.5}
   {"op": "recolor_palette",     "palette": [[r,g,b], ...],        "guidance": 0..1}
   {"op": "draw_path",           "layer": "<层名>", "d": "<SVG path>", "color": "#rrggbb", "size": >0, "opacity": 0..1, "preset": "<笔刷名>", "guidance": 0..1}
+  {"op": "tone_map",            "gain": >0, "lift": 0..1, "gamma": >0, "layer": "<层名，可省>", "guidance": 0..1}
 
 规则：
   * guidance=1 精确命中目标；0.5 = 折中；0 = 不动。拿不准就用 0.6~0.8。
   * 只改「花瓣」这类局部时，改画区域由外部 mask 提供，算子本身不要写坐标。
   * draw_path 是「从零加笔」：d 用 canvas 坐标写 SVG path（M/L/H/V/C/Q/T/Z），不需要 mask，
     只需要层名；想加在别处就把坐标写到那里。它和别的算子一样受 guidance 控制。
-  * 只允许上面 10 个算子，不要发明新字段；层名必须是下面列出的层。
+  * tone_map 是整体明暗的通用修法（专门对付 shadow/texture 两层 multiply 压暗）：
+    gain 乘亮度（1.5~2.0 通常明显提亮），lift 加白（0.03~0.08 抬黑场），gamma<1 提中间调，
+    layer 不给 = 所有层；不动颜色关系，只改明暗。
+  * 只允许上面 11 个算子，不要发明新字段；层名必须是下面列出的层。
 """
 
 
@@ -179,6 +183,14 @@ def validate_ops(doc, specs, allow_layers=None):
                     rgb = ops._to_rgb(spec["color"])
                     if rgb.shape[0] != 3 or rgb.min() < 0 or rgb.max() > 255:
                         raise ValueError("draw_path color must be #rrggbb or [r,g,b] in 0..255")
+            if spec["op"] == "tone_map":
+                if not (isinstance(spec.get("gain", 1.0), (int, float)) and float(spec.get("gain", 1.0)) > 0):
+                    raise ValueError("tone_map gain must be > 0")
+                if not (isinstance(spec.get("gamma", 1.0), (int, float)) and float(spec.get("gamma", 1.0)) > 0):
+                    raise ValueError("tone_map gamma must be > 0")
+                lf = spec.get("lift", 0.0)
+                if not (isinstance(lf, (int, float)) and 0.0 <= float(lf) <= 1.0):
+                    raise ValueError("tone_map lift must be within [0,1]")
             if spec["op"] == "redraw" and "order" in spec:
                 if spec["order"] not in ("random", "coverage", "layer", "zorder"):
                     raise ValueError("redraw order must be random/coverage/layer/zorder, got %r" % (spec["order"],))

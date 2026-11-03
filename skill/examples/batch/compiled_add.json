@@ -178,5 +178,29 @@
     "guidance": 1
    }
   ]
+ },
+ {
+  "id": 11,
+  "ops": [
+   {
+    "op": "tone_map",
+    "gain": 1.8,
+    "lift": 0.05,
+    "gamma": 1.25,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 12,
+  "ops": [
+   {
+    "op": "tone_map",
+    "gain": 1.4,
+    "lift": 0.03,
+    "layer": "shadow",
+    "guidance": 1
+   }
+  ]
  }
 ]
