@@ -1044,7 +1044,7 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 
 ### GPU 现状与缺口（2026-08 校准，按严重度）
 
-已达标（有实测）：混合模式与位图笔尖 CPU↔GPU 均 **mean 0.000 / px>4=0**；
+已达标（有实测）：混合模式 CPU↔GPU **mean 0.000 / px>4=0**；位图笔尖 mean 6e-6、px>4=0（个别像素差 1/255，浮点顺序）；
 动态参数（scatter/size/alpha/angle/taper/color_dyn）**已是每实例状态**（原先是文件级 static 全局，多 painter 会互相覆盖，见 tests/test_gpu_instance_state.py）；
 整张计划（57,812 笔 / 8 层）CPU 14.3 s vs GPU 3.9 s（3.7×），mean 0.028、px>4 = 707/990,000（0.07%，≤4 灰阶）。
 
