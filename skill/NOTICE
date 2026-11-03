@@ -28,3 +28,10 @@ scripts/native/README.md.
 
 vtracer (scripts/smooth_svg.py) is MIT-licensed and is NOT part of the GPL-bound
 tracing path; it is an optional alternative renderer.
+
+---------------------------------------------------------------------------
+笔刷素材（scripts/native/tips/）
+
+本仓库包含 279 个由 Krita / GIMP 开源笔刷包转换而来的笔刷 alpha 图，非商业素材。
+各笔刷包保留其原始许可证；来源文件名记录在 tips/index.json 的 src 字段，
+详见 scripts/native/tips/PROVENANCE.md。

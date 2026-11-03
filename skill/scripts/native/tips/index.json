@@ -1,0 +1,1682 @@
+[
+ {
+  "name": "01_canvas",
+  "w": 128,
+  "h": 128,
+  "src": "01_canvas.png"
+ },
+ {
+  "name": "02_rough-canvas",
+  "w": 128,
+  "h": 128,
+  "src": "02_rough-canvas.png"
+ },
+ {
+  "name": "02b_wooftissue",
+  "w": 128,
+  "h": 128,
+  "src": "02b_WoofTissue.png"
+ },
+ {
+  "name": "03_default-paper",
+  "w": 128,
+  "h": 128,
+  "src": "03_default-paper.png"
+ },
+ {
+  "name": "04_paper-c-grain",
+  "w": 128,
+  "h": 128,
+  "src": "04_paper-C-grain.png"
+ },
+ {
+  "name": "05_paper-torchon",
+  "w": 128,
+  "h": 128,
+  "src": "05_paper-torchon.png"
+ },
+ {
+  "name": "06_hard-grain",
+  "w": 128,
+  "h": 128,
+  "src": "06_hard-grain.png"
+ },
+ {
+  "name": "07_big-grain",
+  "w": 128,
+  "h": 128,
+  "src": "07_big-grain.png"
+ },
+ {
+  "name": "08_bump-relief",
+  "w": 128,
+  "h": 128,
+  "src": "08_bump-relief.png"
+ },
+ {
+  "name": "09_drawed_crosshatched",
+  "w": 128,
+  "h": 128,
+  "src": "09_drawed_crosshatched.png"
+ },
+ {
+  "name": "09b_drawed-crossedlines",
+  "w": 128,
+  "h": 128,
+  "src": "09b_drawed-CrossedLines.png"
+ },
+ {
+  "name": "10_drawed_dotted",
+  "w": 128,
+  "h": 128,
+  "src": "10_drawed_dotted.png"
+ },
+ {
+  "name": "11_drawed_furry",
+  "w": 128,
+  "h": 128,
+  "src": "11_drawed_furry.png"
+ },
+ {
+  "name": "12_drawed_vertical",
+  "w": 128,
+  "h": 128,
+  "src": "12_drawed_vertical.png"
+ },
+ {
+  "name": "13_drawed_swirl",
+  "w": 128,
+  "h": 128,
+  "src": "13_drawed_swirl.png"
+ },
+ {
+  "name": "14_texture-rock",
+  "w": 128,
+  "h": 128,
+  "src": "14_texture-rock.png"
+ },
+ {
+  "name": "15_texture-rockb",
+  "w": 128,
+  "h": 128,
+  "src": "15_texture-rockB.png"
+ },
+ {
+  "name": "16_texture-woody",
+  "w": 128,
+  "h": 128,
+  "src": "16_texture-woody.png"
+ },
+ {
+  "name": "17_texture-melt",
+  "w": 128,
+  "h": 128,
+  "src": "17_texture-melt.png"
+ },
+ {
+  "name": "18_texture-bark",
+  "w": 128,
+  "h": 128,
+  "src": "18_texture-bark.png"
+ },
+ {
+  "name": "18b_waveflex",
+  "w": 128,
+  "h": 128,
+  "src": "18b_WaveFlex.png"
+ },
+ {
+  "name": "19_texture-crackle",
+  "w": 128,
+  "h": 128,
+  "src": "19_texture-crackle.png"
+ },
+ {
+  "name": "20_texture-vegetal",
+  "w": 128,
+  "h": 128,
+  "src": "20_texture-vegetal.png"
+ },
+ {
+  "name": "21_texture-chainmail",
+  "w": 128,
+  "h": 128,
+  "src": "21_texture-chainmail.png"
+ },
+ {
+  "name": "22_texture-reptile",
+  "w": 128,
+  "h": 128,
+  "src": "22_texture-reptile.png"
+ },
+ {
+  "name": "23-dynamic-screentone-a",
+  "w": 25,
+  "h": 25,
+  "src": "23-dynamic-screentone-A.png"
+ },
+ {
+  "name": "24-dynamic-screentone-b",
+  "w": 27,
+  "h": 27,
+  "src": "24-dynamic-screentone-B.png"
+ },
+ {
+  "name": "25-dynamic-screentone-c",
+  "w": 33,
+  "h": 33,
+  "src": "25-dynamic-screentone-C.png"
+ },
+ {
+  "name": "3_brush",
+  "w": 27,
+  "h": 27,
+  "src": "3_brush.png"
+ },
+ {
+  "name": "3_dotted-flat",
+  "w": 8,
+  "h": 26,
+  "src": "3_dotted-flat.png"
+ },
+ {
+  "name": "3_eroded",
+  "w": 64,
+  "h": 64,
+  "src": "3_eroded.gih"
+ },
+ {
+  "name": "3_flat-brush",
+  "w": 12,
+  "h": 27,
+  "src": "3_flat-brush.png"
+ },
+ {
+  "name": "3_rake",
+  "w": 37,
+  "h": 128,
+  "src": "3_rake.png"
+ },
+ {
+  "name": "3_splat",
+  "w": 112,
+  "h": 111,
+  "src": "3_splat.png"
+ },
+ {
+  "name": "3_texture",
+  "w": 128,
+  "h": 128,
+  "src": "3_texture.png"
+ },
+ {
+  "name": "a_abstract-textured1",
+  "w": 200,
+  "h": 195,
+  "src": "A_abstract-textured1.gbr"
+ },
+ {
+  "name": "a_abstract-textured2",
+  "w": 168,
+  "h": 168,
+  "src": "A_abstract-textured2.gbr"
+ },
+ {
+  "name": "a_angular_church",
+  "w": 100,
+  "h": 100,
+  "src": "A_Angular_church.gbr"
+ },
+ {
+  "name": "a_angular_church_hr",
+  "w": 100,
+  "h": 100,
+  "src": "A_Angular_church_HR.gbr"
+ },
+ {
+  "name": "a_bamboo-leaves",
+  "w": 169,
+  "h": 170,
+  "src": "A_bamboo-leaves.gih"
+ },
+ {
+  "name": "a_bamboo",
+  "w": 168,
+  "h": 514,
+  "src": "A_bamboo.gih"
+ },
+ {
+  "name": "a_bokey",
+  "w": 256,
+  "h": 256,
+  "src": "A_bokey.gbr"
+ },
+ {
+  "name": "a_braids",
+  "w": 64,
+  "h": 64,
+  "src": "A_Braids.gbr"
+ },
+ {
+  "name": "a_braids_b",
+  "w": 64,
+  "h": 64,
+  "src": "A_Braids_b.gbr"
+ },
+ {
+  "name": "a_chain",
+  "w": 64,
+  "h": 64,
+  "src": "A_Chain.gbr"
+ },
+ {
+  "name": "a_cloudy",
+  "w": 167,
+  "h": 168,
+  "src": "A_cloudy.gbr"
+ },
+ {
+  "name": "a_concrete",
+  "w": 167,
+  "h": 168,
+  "src": "A_concrete.gbr"
+ },
+ {
+  "name": "a_crackled",
+  "w": 167,
+  "h": 168,
+  "src": "A_crackled.gbr"
+ },
+ {
+  "name": "a_craqules",
+  "w": 128,
+  "h": 128,
+  "src": "A_craqules.gbr"
+ },
+ {
+  "name": "a_crayon",
+  "w": 128,
+  "h": 128,
+  "src": "A_crayon.gbr"
+ },
+ {
+  "name": "a_dirty-brush",
+  "w": 200,
+  "h": 195,
+  "src": "A_dirty-brush.gih"
+ },
+ {
+  "name": "a_dirty-spot",
+  "w": 167,
+  "h": 168,
+  "src": "A_dirty-spot.gbr"
+ },
+ {
+  "name": "a_distant-mountain",
+  "w": 169,
+  "h": 170,
+  "src": "A_distant-mountain.gih"
+ },
+ {
+  "name": "a_dynamic-brush",
+  "w": 64,
+  "h": 64,
+  "src": "A_dynamic-brush.gih"
+ },
+ {
+  "name": "a_dynamic-brush3",
+  "w": 64,
+  "h": 64,
+  "src": "A_dynamic-brush3.gih"
+ },
+ {
+  "name": "a_eroded-brush2",
+  "w": 64,
+  "h": 64,
+  "src": "A_eroded-brush2.gih"
+ },
+ {
+  "name": "a_eroded-cercle-anim",
+  "w": 64,
+  "h": 64,
+  "src": "A_eroded-cercle-anim.gih"
+ },
+ {
+  "name": "a_eroded-cercle_2",
+  "w": 64,
+  "h": 64,
+  "src": "A_eroded-cercle_2.gbr"
+ },
+ {
+  "name": "a_eroded-chinese-anim",
+  "w": 64,
+  "h": 64,
+  "src": "A_eroded-chinese-anim.gih"
+ },
+ {
+  "name": "a_eroded-dirtybrush-anim",
+  "w": 64,
+  "h": 64,
+  "src": "A_eroded-dirtybrush-anim.gih"
+ },
+ {
+  "name": "a_eroded-knife-anim",
+  "w": 64,
+  "h": 64,
+  "src": "A_eroded-knife-anim.gih"
+ },
+ {
+  "name": "a_fairy-dust",
+  "w": 128,
+  "h": 128,
+  "src": "A_fairy-dust.gih"
+ },
+ {
+  "name": "a_floor",
+  "w": 255,
+  "h": 254,
+  "src": "A_floor.gih"
+ },
+ {
+  "name": "a_flowers",
+  "w": 128,
+  "h": 128,
+  "src": "A_flowers.gih"
+ },
+ {
+  "name": "a_forest",
+  "w": 256,
+  "h": 256,
+  "src": "A_forest.gih"
+ },
+ {
+  "name": "a_fur",
+  "w": 128,
+  "h": 128,
+  "src": "A_fur.gih"
+ },
+ {
+  "name": "a_grass-floor",
+  "w": 128,
+  "h": 128,
+  "src": "A_grass-floor.gih"
+ },
+ {
+  "name": "a_herbs",
+  "w": 128,
+  "h": 256,
+  "src": "A_herbs.gih"
+ },
+ {
+  "name": "a_leaves-mapple",
+  "w": 128,
+  "h": 128,
+  "src": "A_leaves-mapple.gih"
+ },
+ {
+  "name": "a_leaves",
+  "w": 128,
+  "h": 128,
+  "src": "A_leaves.gih"
+ },
+ {
+  "name": "a_lucky_star",
+  "w": 128,
+  "h": 128,
+  "src": "A_lucky_star.gbr"
+ },
+ {
+  "name": "a_mineral-cristal",
+  "w": 169,
+  "h": 170,
+  "src": "A_mineral-cristal.gih"
+ },
+ {
+  "name": "a_mountain-texture",
+  "w": 128,
+  "h": 128,
+  "src": "A_mountain-texture.gbr"
+ },
+ {
+  "name": "a_nice_sketch",
+  "w": 31,
+  "h": 31,
+  "src": "A_Nice_sketch.gbr"
+ },
+ {
+  "name": "a_nice_sketch2",
+  "w": 93,
+  "h": 93,
+  "src": "A_Nice_sketch2.gbr"
+ },
+ {
+  "name": "a_pin",
+  "w": 128,
+  "h": 128,
+  "src": "A_pin.gih"
+ },
+ {
+  "name": "a_provencal",
+  "w": 168,
+  "h": 168,
+  "src": "A_provencal.gbr"
+ },
+ {
+  "name": "a_rake",
+  "w": 68,
+  "h": 68,
+  "src": "A_Rake.gbr"
+ },
+ {
+  "name": "a_random-vegetal",
+  "w": 169,
+  "h": 170,
+  "src": "A_random-vegetal.gih"
+ },
+ {
+  "name": "a_random-vegetal2",
+  "w": 169,
+  "h": 170,
+  "src": "A_random-vegetal2.gih"
+ },
+ {
+  "name": "a_random-vegetal3",
+  "w": 169,
+  "h": 170,
+  "src": "A_random-vegetal3.gbr"
+ },
+ {
+  "name": "a_reptile-skin",
+  "w": 164,
+  "h": 166,
+  "src": "A_reptile-skin.gbr"
+ },
+ {
+  "name": "a_rocks-floor-neg",
+  "w": 169,
+  "h": 170,
+  "src": "A_rocks-floor-neg.gih"
+ },
+ {
+  "name": "a_rocks",
+  "w": 225,
+  "h": 213,
+  "src": "A_rocks.gih"
+ },
+ {
+  "name": "a_smoke",
+  "w": 167,
+  "h": 168,
+  "src": "A_smoke.gbr"
+ },
+ {
+  "name": "a_snow-pack",
+  "w": 128,
+  "h": 128,
+  "src": "A_snow-pack.gih"
+ },
+ {
+  "name": "a_sparkle1",
+  "w": 64,
+  "h": 64,
+  "src": "A_sparkle1.gbr"
+ },
+ {
+  "name": "a_sparkle2",
+  "w": 64,
+  "h": 64,
+  "src": "A_sparkle2.gbr"
+ },
+ {
+  "name": "a_sparkle3",
+  "w": 64,
+  "h": 64,
+  "src": "A_sparkle3.gbr"
+ },
+ {
+  "name": "a_splat1",
+  "w": 168,
+  "h": 168,
+  "src": "A_splat1.gbr"
+ },
+ {
+  "name": "a_splat2",
+  "w": 200,
+  "h": 195,
+  "src": "A_splat2.gih"
+ },
+ {
+  "name": "a_starfield",
+  "w": 169,
+  "h": 170,
+  "src": "A_starfield.gih"
+ },
+ {
+  "name": "a_starfield2",
+  "w": 169,
+  "h": 170,
+  "src": "A_starfield2.gbr"
+ },
+ {
+  "name": "a_wall-texture",
+  "w": 168,
+  "h": 169,
+  "src": "A_wall-texture.gih"
+ },
+ {
+  "name": "abominable_snowman",
+  "w": 113,
+  "h": 128,
+  "src": "abominable_snowman.png"
+ },
+ {
+  "name": "abstract_lines",
+  "w": 128,
+  "h": 128,
+  "src": "Abstract_lines.png"
+ },
+ {
+  "name": "bamboo_leaves_random",
+  "w": 169,
+  "h": 170,
+  "src": "bamboo_leaves_random.gih"
+ },
+ {
+  "name": "bokey_circle",
+  "w": 123,
+  "h": 126,
+  "src": "bokey_circle.gbr"
+ },
+ {
+  "name": "bristle",
+  "w": 52,
+  "h": 52,
+  "src": "bristle.png"
+ },
+ {
+  "name": "bristles_chisel_dense",
+  "w": 39,
+  "h": 128,
+  "src": "bristles_chisel_dense.png"
+ },
+ {
+  "name": "bristles_circle_dense",
+  "w": 128,
+  "h": 114,
+  "src": "bristles_circle_dense.png"
+ },
+ {
+  "name": "bristles_circle_medium",
+  "w": 128,
+  "h": 117,
+  "src": "bristles_circle_medium.png"
+ },
+ {
+  "name": "bristles_circle_random",
+  "w": 200,
+  "h": 195,
+  "src": "bristles_circle_random.gih"
+ },
+ {
+  "name": "bristles_circle_sparse",
+  "w": 128,
+  "h": 128,
+  "src": "bristles_circle_sparse.png"
+ },
+ {
+  "name": "bristles_grouped",
+  "w": 64,
+  "h": 64,
+  "src": "bristles_grouped.gbr"
+ },
+ {
+  "name": "c_cloud_1",
+  "w": 256,
+  "h": 256,
+  "src": "C_Cloud_1.gbr"
+ },
+ {
+  "name": "c_dirty_spot",
+  "w": 269,
+  "h": 249,
+  "src": "C_Dirty_Spot.gbr"
+ },
+ {
+  "name": "chalk",
+  "w": 128,
+  "h": 128,
+  "src": "chalk.png"
+ },
+ {
+  "name": "chalk_chisel",
+  "w": 300,
+  "h": 300,
+  "src": "chalk_chisel.gih"
+ },
+ {
+  "name": "chalk_chisel_random",
+  "w": 256,
+  "h": 256,
+  "src": "chalk_chisel_random.gih"
+ },
+ {
+  "name": "chalk_chisel_random_small",
+  "w": 64,
+  "h": 64,
+  "src": "chalk_chisel_random_small.gih"
+ },
+ {
+  "name": "chalk_round_hard",
+  "w": 128,
+  "h": 125,
+  "src": "chalk_round_hard.png"
+ },
+ {
+  "name": "chalk_sparse",
+  "w": 127,
+  "h": 128,
+  "src": "chalk_sparse.png"
+ },
+ {
+  "name": "chisel_bent_rough",
+  "w": 128,
+  "h": 128,
+  "src": "chisel_bent_rough.gih"
+ },
+ {
+  "name": "chisel_dense_smear",
+  "w": 86,
+  "h": 128,
+  "src": "chisel_dense_smear.png"
+ },
+ {
+  "name": "chisel_eroded",
+  "w": 53,
+  "h": 128,
+  "src": "chisel_eroded.png"
+ },
+ {
+  "name": "chisel_knife",
+  "w": 300,
+  "h": 300,
+  "src": "chisel_knife.gbr"
+ },
+ {
+  "name": "chisel_soft",
+  "w": 40,
+  "h": 123,
+  "src": "chisel_soft.png"
+ },
+ {
+  "name": "chisel_streaks",
+  "w": 37,
+  "h": 128,
+  "src": "chisel_streaks.png"
+ },
+ {
+  "name": "circle_hard_eroded",
+  "w": 256,
+  "h": 256,
+  "src": "circle_hard_eroded.gih"
+ },
+ {
+  "name": "crackles",
+  "w": 128,
+  "h": 128,
+  "src": "crackles.gbr"
+ },
+ {
+  "name": "craig_02",
+  "w": 126,
+  "h": 73,
+  "src": "Craig_02.png"
+ },
+ {
+  "name": "d_dust_1",
+  "w": 249,
+  "h": 269,
+  "src": "D_Dust_1.gbr"
+ },
+ {
+  "name": "d_dust_particles",
+  "w": 50,
+  "h": 50,
+  "src": "D_Dust_Particles.gih"
+ },
+ {
+  "name": "d_normal_dust",
+  "w": 30,
+  "h": 30,
+  "src": "D_Normal_dust.gbr"
+ },
+ {
+  "name": "da_rgba_bluegreen_small",
+  "w": 52,
+  "h": 128,
+  "src": "DA_RGBA bluegreen_small.png"
+ },
+ {
+  "name": "da_rgba_bluegreen_small1",
+  "w": 42,
+  "h": 128,
+  "src": "DA_RGBA bluegreen_small1.png"
+ },
+ {
+  "name": "da_triangle_grain",
+  "w": 128,
+  "h": 108,
+  "src": "DA_Triangle grain.png"
+ },
+ {
+  "name": "f_furr_fast",
+  "w": 10,
+  "h": 10,
+  "src": "F_Furr_fast.gbr"
+ },
+ {
+  "name": "flat_textured1",
+  "w": 300,
+  "h": 300,
+  "src": "Flat_textured1.gih"
+ },
+ {
+  "name": "flat_textured2",
+  "w": 300,
+  "h": 300,
+  "src": "Flat_textured2.gih"
+ },
+ {
+  "name": "floor",
+  "w": 256,
+  "h": 256,
+  "src": "floor.gih"
+ },
+ {
+  "name": "freckles",
+  "w": 103,
+  "h": 106,
+  "src": "freckles.png"
+ },
+ {
+  "name": "gradient",
+  "w": 20,
+  "h": 128,
+  "src": "gradient.png"
+ },
+ {
+  "name": "graphite_grain",
+  "w": 128,
+  "h": 128,
+  "src": "graphite_grain.gih"
+ },
+ {
+  "name": "grass",
+  "w": 256,
+  "h": 256,
+  "src": "grass.gih"
+ },
+ {
+  "name": "grass_patch",
+  "w": 128,
+  "h": 128,
+  "src": "grass_patch.gih"
+ },
+ {
+  "name": "hair",
+  "w": 80,
+  "h": 82,
+  "src": "hair.png"
+ },
+ {
+  "name": "hearts",
+  "w": 100,
+  "h": 100,
+  "src": "hearts.gih"
+ },
+ {
+  "name": "impressionism_brush",
+  "w": 256,
+  "h": 256,
+  "src": "impressionism_brush.gih"
+ },
+ {
+  "name": "l_coroballs",
+  "w": 269,
+  "h": 249,
+  "src": "L_Coroballs.gbr"
+ },
+ {
+  "name": "l_foliage_1",
+  "w": 170,
+  "h": 170,
+  "src": "L_Foliage_1.gbr"
+ },
+ {
+  "name": "l_leaf_2",
+  "w": 200,
+  "h": 200,
+  "src": "L_Leaf_2.gbr"
+ },
+ {
+  "name": "l_leaf_3",
+  "w": 85,
+  "h": 85,
+  "src": "L_Leaf_3.gbr"
+ },
+ {
+  "name": "l_trees",
+  "w": 186,
+  "h": 242,
+  "src": "L_Trees.gih"
+ },
+ {
+  "name": "leaves",
+  "w": 120,
+  "h": 128,
+  "src": "leaves.png"
+ },
+ {
+  "name": "ljf_foliage_brush_01",
+  "w": 250,
+  "h": 250,
+  "src": "LJF_Foliage_Brush_01.gbr"
+ },
+ {
+  "name": "ljf_foliage_brush_02",
+  "w": 250,
+  "h": 250,
+  "src": "LJF_Foliage_Brush_02.gbr"
+ },
+ {
+  "name": "ljf_smoke_c",
+  "w": 200,
+  "h": 200,
+  "src": "LJF_smoke_c.gih"
+ },
+ {
+  "name": "ljf_water_brush_02",
+  "w": 250,
+  "h": 250,
+  "src": "LJF_Water_Brush_02.gih"
+ },
+ {
+  "name": "ljf_water_brush_03",
+  "w": 250,
+  "h": 250,
+  "src": "LJF_Water_Brush_03.gih"
+ },
+ {
+  "name": "m_01",
+  "w": 256,
+  "h": 256,
+  "src": "M_01.gbr"
+ },
+ {
+  "name": "m_02",
+  "w": 256,
+  "h": 256,
+  "src": "M_02.gbr"
+ },
+ {
+  "name": "m_03",
+  "w": 256,
+  "h": 256,
+  "src": "M_03.gbr"
+ },
+ {
+  "name": "m_04",
+  "w": 128,
+  "h": 128,
+  "src": "M_04.gbr"
+ },
+ {
+  "name": "m_05",
+  "w": 128,
+  "h": 128,
+  "src": "M_05.gbr"
+ },
+ {
+  "name": "m_06",
+  "w": 229,
+  "h": 221,
+  "src": "M_06.gbr"
+ },
+ {
+  "name": "m_07",
+  "w": 256,
+  "h": 256,
+  "src": "M_07.gbr"
+ },
+ {
+  "name": "m_08",
+  "w": 256,
+  "h": 256,
+  "src": "M_08.gbr"
+ },
+ {
+  "name": "m_09",
+  "w": 256,
+  "h": 256,
+  "src": "M_09.gbr"
+ },
+ {
+  "name": "m_arrow",
+  "w": 128,
+  "h": 128,
+  "src": "M_Arrow.gbr"
+ },
+ {
+  "name": "m_bulb",
+  "w": 128,
+  "h": 128,
+  "src": "M_Bulb.gbr"
+ },
+ {
+  "name": "m_cage",
+  "w": 128,
+  "h": 128,
+  "src": "M_Cage.gbr"
+ },
+ {
+  "name": "m_pipe_1",
+  "w": 93,
+  "h": 93,
+  "src": "M_Pipe_1.gbr"
+ },
+ {
+  "name": "m_pipe_2",
+  "w": 128,
+  "h": 128,
+  "src": "M_Pipe_2.gbr"
+ },
+ {
+  "name": "m_pipe_3",
+  "w": 256,
+  "h": 256,
+  "src": "M_Pipe_3.gbr"
+ },
+ {
+  "name": "m_pipe_whiteflat",
+  "w": 68,
+  "h": 93,
+  "src": "M_Pipe_whiteflat.png"
+ },
+ {
+  "name": "maze_lines",
+  "w": 128,
+  "h": 128,
+  "src": "Maze_lines.png"
+ },
+ {
+  "name": "mountain_brush_01",
+  "w": 128,
+  "h": 67,
+  "src": "Mountain_Brush_01.png"
+ },
+ {
+  "name": "mountains_distant",
+  "w": 256,
+  "h": 256,
+  "src": "mountains_distant.gih"
+ },
+ {
+  "name": "mz_leaves",
+  "w": 264,
+  "h": 286,
+  "src": "MZ_leaves.gbr"
+ },
+ {
+  "name": "n_grass_1",
+  "w": 256,
+  "h": 256,
+  "src": "N_Grass_1.gih"
+ },
+ {
+  "name": "n_grass_2",
+  "w": 256,
+  "h": 256,
+  "src": "N_Grass_2.gih"
+ },
+ {
+  "name": "noise",
+  "w": 118,
+  "h": 118,
+  "src": "noise.gih"
+ },
+ {
+  "name": "o_oil_soft",
+  "w": 94,
+  "h": 90,
+  "src": "O_Oil_Soft.gbr"
+ },
+ {
+  "name": "o_oils_1",
+  "w": 66,
+  "h": 74,
+  "src": "O_Oils_1.gbr"
+ },
+ {
+  "name": "o_oils_1_gp",
+  "w": 66,
+  "h": 74,
+  "src": "O_Oils_1_GP.gbr"
+ },
+ {
+  "name": "o_oils_softer",
+  "w": 60,
+  "h": 60,
+  "src": "O_Oils_Softer.gbr"
+ },
+ {
+  "name": "oil_bristle",
+  "w": 300,
+  "h": 300,
+  "src": "oil_bristle.gbr"
+ },
+ {
+  "name": "oil_bristle",
+  "w": 72,
+  "h": 128,
+  "src": "oil_bristle.png"
+ },
+ {
+  "name": "oil_knife",
+  "w": 300,
+  "h": 300,
+  "src": "oil_knife.gbr"
+ },
+ {
+  "name": "oil_knife",
+  "w": 79,
+  "h": 128,
+  "src": "oil_knife.png"
+ },
+ {
+  "name": "p_2b_pencil_angled",
+  "w": 50,
+  "h": 50,
+  "src": "P_2B_Pencil_Angled.gih"
+ },
+ {
+  "name": "p_6b_pencil_angled",
+  "w": 50,
+  "h": 50,
+  "src": "P_6B_Pencil_Angled.gih"
+ },
+ {
+  "name": "p_graphite_black_grass",
+  "w": 118,
+  "h": 118,
+  "src": "P_Graphite_Black_Grass.gih"
+ },
+ {
+  "name": "p_graphite_pencil",
+  "w": 128,
+  "h": 128,
+  "src": "P_Graphite_Pencil.gih"
+ },
+ {
+  "name": "p_graphite_pencil_grainb",
+  "w": 128,
+  "h": 128,
+  "src": "P_Graphite_Pencil_grainb.gih"
+ },
+ {
+  "name": "p_realpencil10x10",
+  "w": 10,
+  "h": 10,
+  "src": "P_RealPencil10x10.gih"
+ },
+ {
+  "name": "p_realpencil16x16",
+  "w": 16,
+  "h": 16,
+  "src": "P_RealPencil16x16.gih"
+ },
+ {
+  "name": "paint_splats",
+  "w": 213,
+  "h": 193,
+  "src": "paint_splats.gih"
+ },
+ {
+  "name": "plain_rake",
+  "w": 40,
+  "h": 123,
+  "src": "plain_rake.png"
+ },
+ {
+  "name": "r_rake1",
+  "w": 100,
+  "h": 100,
+  "src": "R_Rake1.gbr"
+ },
+ {
+  "name": "r_rake2",
+  "w": 100,
+  "h": 100,
+  "src": "R_Rake2.gbr"
+ },
+ {
+  "name": "r_rake3",
+  "w": 100,
+  "h": 100,
+  "src": "R_Rake3.gbr"
+ },
+ {
+  "name": "r_rake4",
+  "w": 128,
+  "h": 128,
+  "src": "R_Rake4.gbr"
+ },
+ {
+  "name": "r_rake_small",
+  "w": 30,
+  "h": 30,
+  "src": "R_Rake_small.gbr"
+ },
+ {
+  "name": "rake_dense",
+  "w": 20,
+  "h": 128,
+  "src": "rake_dense.png"
+ },
+ {
+  "name": "rake_dotted",
+  "w": 7,
+  "h": 30,
+  "src": "rake_dotted.png"
+ },
+ {
+  "name": "rake_flat",
+  "w": 12,
+  "h": 27,
+  "src": "rake_flat.png"
+ },
+ {
+  "name": "rake_sparse",
+  "w": 35,
+  "h": 128,
+  "src": "rake_sparse.png"
+ },
+ {
+  "name": "rake_textured_01",
+  "w": 150,
+  "h": 150,
+  "src": "rake_textured_01.gbr"
+ },
+ {
+  "name": "rake_textured_02",
+  "w": 150,
+  "h": 150,
+  "src": "rake_textured_02.gbr"
+ },
+ {
+  "name": "random-debris",
+  "w": 153,
+  "h": 64,
+  "src": "random-debris.gbr"
+ },
+ {
+  "name": "random-vegetal",
+  "w": 169,
+  "h": 170,
+  "src": "random-vegetal.gih"
+ },
+ {
+  "name": "random_particles",
+  "w": 128,
+  "h": 90,
+  "src": "random_particles.png"
+ },
+ {
+  "name": "real_oil_1",
+  "w": 166,
+  "h": 164,
+  "src": "Real_oil_1.gbr"
+ },
+ {
+  "name": "real_oil_2",
+  "w": 200,
+  "h": 200,
+  "src": "Real_Oil_2.gbr"
+ },
+ {
+  "name": "rect_textured1",
+  "w": 300,
+  "h": 300,
+  "src": "Rect_textured1.gih"
+ },
+ {
+  "name": "rect_textured2",
+  "w": 300,
+  "h": 300,
+  "src": "Rect_textured2.gih"
+ },
+ {
+  "name": "rect_textured3",
+  "w": 300,
+  "h": 300,
+  "src": "Rect_textured3.gih"
+ },
+ {
+  "name": "rgba_anim_01",
+  "w": 178,
+  "h": 400,
+  "src": "RGBA anim 01.gih"
+ },
+ {
+  "name": "rock",
+  "w": 128,
+  "h": 63,
+  "src": "rock.png"
+ },
+ {
+  "name": "rock_light",
+  "w": 300,
+  "h": 300,
+  "src": "rock_light.gih"
+ },
+ {
+  "name": "rock_pitted",
+  "w": 300,
+  "h": 300,
+  "src": "rock_pitted.gih"
+ },
+ {
+  "name": "rock_scraped",
+  "w": 300,
+  "h": 300,
+  "src": "rock_scraped.gih"
+ },
+ {
+  "name": "rough_paper",
+  "w": 128,
+  "h": 128,
+  "src": "Rough_Paper.png"
+ },
+ {
+  "name": "rough_wall_with_impasto",
+  "w": 128,
+  "h": 128,
+  "src": "Rough_Wall_With_Impasto.png"
+ },
+ {
+  "name": "s_smudge_cheese",
+  "w": 108,
+  "h": 108,
+  "src": "S_Smudge_Cheese.gbr"
+ },
+ {
+  "name": "s_splats_02",
+  "w": 213,
+  "h": 193,
+  "src": "S_splats_02.gih"
+ },
+ {
+  "name": "sand_fine",
+  "w": 128,
+  "h": 128,
+  "src": "Sand_fine.png"
+ },
+ {
+  "name": "sc_scratch",
+  "w": 299,
+  "h": 220,
+  "src": "Sc_Scratch.gih"
+ },
+ {
+  "name": "sc_scratches",
+  "w": 30,
+  "h": 30,
+  "src": "Sc_Scratches.gbr"
+ },
+ {
+  "name": "sc_scratches_2",
+  "w": 60,
+  "h": 60,
+  "src": "Sc_Scratches_2.gbr"
+ },
+ {
+  "name": "sc_scratches_3",
+  "w": 60,
+  "h": 60,
+  "src": "Sc_Scratches_3.gbr"
+ },
+ {
+  "name": "scales",
+  "w": 128,
+  "h": 127,
+  "src": "scales.png"
+ },
+ {
+  "name": "scratches_rough",
+  "w": 300,
+  "h": 300,
+  "src": "scratches_rough.gih"
+ },
+ {
+  "name": "scribbles",
+  "w": 119,
+  "h": 128,
+  "src": "scribbles.png"
+ },
+ {
+  "name": "shapes_mech_random",
+  "w": 256,
+  "h": 256,
+  "src": "shapes_mech_random.gih"
+ },
+ {
+  "name": "shapes_round_random",
+  "w": 256,
+  "h": 256,
+  "src": "shapes_round_random.gih"
+ },
+ {
+  "name": "shapes_spiked_random",
+  "w": 256,
+  "h": 256,
+  "src": "shapes_spiked_random.gih"
+ },
+ {
+  "name": "smear_paint",
+  "w": 114,
+  "h": 128,
+  "src": "smear_paint.png"
+ },
+ {
+  "name": "smoke",
+  "w": 125,
+  "h": 128,
+  "src": "smoke.png"
+ },
+ {
+  "name": "snow",
+  "w": 128,
+  "h": 128,
+  "src": "snow.gih"
+ },
+ {
+  "name": "sparkle",
+  "w": 128,
+  "h": 117,
+  "src": "sparkle.png"
+ },
+ {
+  "name": "spike_blob",
+  "w": 32,
+  "h": 128,
+  "src": "spike_blob.png"
+ },
+ {
+  "name": "spike_eroded",
+  "w": 24,
+  "h": 128,
+  "src": "spike_eroded.png"
+ },
+ {
+  "name": "spines",
+  "w": 128,
+  "h": 122,
+  "src": "spines.png"
+ },
+ {
+  "name": "splat_dots",
+  "w": 112,
+  "h": 111,
+  "src": "splat_dots.png"
+ },
+ {
+  "name": "splats_large",
+  "w": 213,
+  "h": 193,
+  "src": "splats_large.gih"
+ },
+ {
+  "name": "square_eroded",
+  "w": 87,
+  "h": 115,
+  "src": "square_eroded.png"
+ },
+ {
+  "name": "square_rough",
+  "w": 128,
+  "h": 128,
+  "src": "square_rough.png"
+ },
+ {
+  "name": "square_rough_lightgrey",
+  "w": 128,
+  "h": 128,
+  "src": "square_rough_lightgrey.png"
+ },
+ {
+  "name": "starfield",
+  "w": 123,
+  "h": 128,
+  "src": "starfield.png"
+ },
+ {
+  "name": "stars_sized",
+  "w": 128,
+  "h": 128,
+  "src": "Stars_Sized.png"
+ },
+ {
+  "name": "t_fibers_1",
+  "w": 100,
+  "h": 100,
+  "src": "T_Fibers_1.gih"
+ },
+ {
+  "name": "t_fibers_2",
+  "w": 100,
+  "h": 100,
+  "src": "T_Fibers_2.gih"
+ },
+ {
+  "name": "t_texture_1",
+  "w": 225,
+  "h": 213,
+  "src": "T_Texture_1.gbr"
+ },
+ {
+  "name": "t_texture_2",
+  "w": 150,
+  "h": 150,
+  "src": "T_Texture_2.gih"
+ },
+ {
+  "name": "t_texture_3",
+  "w": 150,
+  "h": 150,
+  "src": "T_Texture_3.gih"
+ },
+ {
+  "name": "t_texture_4",
+  "w": 150,
+  "h": 150,
+  "src": "T_Texture_4.gih"
+ },
+ {
+  "name": "t_texture_5",
+  "w": 256,
+  "h": 256,
+  "src": "T_Texture_5.gih"
+ },
+ {
+  "name": "t_texture_6",
+  "w": 256,
+  "h": 256,
+  "src": "T_Texture_6.gih"
+ },
+ {
+  "name": "t_texture_7",
+  "w": 300,
+  "h": 300,
+  "src": "T_Texture_7.gih"
+ },
+ {
+  "name": "te_techno_1",
+  "w": 256,
+  "h": 256,
+  "src": "Te_Techno_1.gih"
+ },
+ {
+  "name": "te_techno_angular_cross",
+  "w": 300,
+  "h": 300,
+  "src": "Te_Techno_Angular_Cross.gbr"
+ },
+ {
+  "name": "texture-a",
+  "w": 122,
+  "h": 128,
+  "src": "texture-a.png"
+ },
+ {
+  "name": "u_circle_circuit",
+  "w": 250,
+  "h": 250,
+  "src": "U_Circle_circuit.gbr"
+ },
+ {
+  "name": "u_circle_shape_1",
+  "w": 238,
+  "h": 238,
+  "src": "U_Circle_shape_1.gbr"
+ },
+ {
+  "name": "u_circle_shape_2",
+  "w": 500,
+  "h": 500,
+  "src": "U_Circle_shape_2.gbr"
+ },
+ {
+  "name": "u_circle_shape_3",
+  "w": 500,
+  "h": 500,
+  "src": "U_Circle_shape_3.gbr"
+ },
+ {
+  "name": "u_circle_shape_4",
+  "w": 291,
+  "h": 288,
+  "src": "U_Circle_shape_4.gbr"
+ },
+ {
+  "name": "u_circle_shape_5",
+  "w": 123,
+  "h": 126,
+  "src": "U_Circle_shape_5.gbr"
+ },
+ {
+  "name": "u_circle_shape_5b",
+  "w": 123,
+  "h": 126,
+  "src": "U_Circle_shape_5b.gbr"
+ },
+ {
+  "name": "u_circle_shape_5c",
+  "w": 126,
+  "h": 123,
+  "src": "U_Circle_shape_5c.gbr"
+ },
+ {
+  "name": "v_vyle_rock",
+  "w": 269,
+  "h": 249,
+  "src": "V_Vyle_Rock.gih"
+ },
+ {
+  "name": "vegetal",
+  "w": 42,
+  "h": 38,
+  "src": "vegetal.gbr"
+ },
+ {
+  "name": "vegetal_stylised",
+  "w": 128,
+  "h": 128,
+  "src": "vegetal_stylised.gih"
+ },
+ {
+  "name": "water_still",
+  "w": 250,
+  "h": 250,
+  "src": "water_still.gih"
+ },
+ {
+  "name": "watercolor",
+  "w": 220,
+  "h": 220,
+  "src": "watercolor.gih"
+ },
+ {
+  "name": "z_chain_1",
+  "w": 256,
+  "h": 256,
+  "src": "Z_Chain_1.gbr"
+ },
+ {
+  "name": "z_pixel_4x4_rounded",
+  "w": 4,
+  "h": 4,
+  "src": "Z_Pixel_4x4_rounded.gbr"
+ },
+ {
+  "name": "z_pixel__4_pix__45a",
+  "w": 4,
+  "h": 4,
+  "src": "Z_Pixel__4_pix__45a.gbr"
+ },
+ {
+  "name": "z_study_pencil_2h",
+  "w": 50,
+  "h": 50,
+  "src": "z_study_pencil_2H.gih"
+ },
+ {
+  "name": "z_study_pencil_2h_horiz",
+  "w": 50,
+  "h": 50,
+  "src": "z_study_pencil_2H_horiz.gih"
+ },
+ {
+  "name": "z_study_pencil_2hb",
+  "w": 45,
+  "h": 21,
+  "src": "z_study_pencil_2Hb.gih"
+ },
+ {
+  "name": "z_study_pencil_h",
+  "w": 50,
+  "h": 50,
+  "src": "z_study_pencil_H.gih"
+ },
+ {
+  "name": "z_study_pencil_h_h",
+  "w": 50,
+  "h": 50,
+  "src": "z_study_pencil_H_h.gih"
+ },
+ {
+  "name": "z_test-pressure",
+  "w": 64,
+  "h": 64,
+  "src": "Z_Test-pressure.gih"
+ },
+ {
+  "name": "z_triangle_shape_1",
+  "w": 256,
+  "h": 256,
+  "src": "Z_Triangle_shape_1.gbr"
+ },
+ {
+  "name": "z_triangle_shape_2",
+  "w": 256,
+  "h": 256,
+  "src": "Z_Triangle_shape_2.gbr"
+ }
+]
