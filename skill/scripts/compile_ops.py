@@ -126,6 +126,62 @@ def validate_ops(doc, specs, allow_layers=None):
     return specs
 
 
+PROVIDERS = {
+    "deepseek": ("https://api.deepseek.com/v1", "deepseek-chat", "DEEPSEEK_API_KEY"),
+    "ark": ("https://ark.cn-beijing.volces.com/api/v3", "doubao-seed-1-6-250615", "ARK_API_KEY"),
+    "openai": ("https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY"),
+}
+
+
+def _strip_fences(text):
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.split(chr(10), 1)[1] if chr(10) in t else t
+        t = t.rsplit("```", 1)[0]
+    return t.strip()
+
+def compile_with_model(prompt, provider="deepseek", model=None, base_url=None,
+                       timeout=120, retries=2, verbose=False):
+    """调 OpenAI 兼容接口拿算子 JSON；失败抛 RuntimeError（调用方回退到 prompt 模式）。"""
+    import os
+    import time
+    import urllib.request
+    import urllib.error
+
+    base, default_model, env = PROVIDERS.get(provider, (None, None, None))
+    base = base_url or base
+    model = model or default_model
+    key = os.environ.get(env or "", "")
+    if not (base and model and key):
+        raise RuntimeError("provider %r not configured (need %s)" % (provider, env))
+    url = base.rstrip("/") + "/chat/completions"
+    body = json.dumps({
+        "model": model,
+        "temperature": 0,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, data=body, headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + key,
+            })
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            text = data["choices"][0]["message"]["content"]
+            ops = json.loads(_strip_fences(text))
+            if not isinstance(ops, list):
+                raise ValueError("model did not return a JSON array")
+            return ops
+        except Exception as ex:          # 网络/解析失败都重试
+            last = ex
+            if verbose:
+                sys.stderr.write("compile attempt %d failed: %s\n" % (attempt + 1, ex))
+            time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError("model call failed after %d attempts: %s" % (retries + 1, last))
+
+
 def _parse_mask(text):
     return masks.from_json(json.loads(text))
 
@@ -147,6 +203,27 @@ def main():
         specs = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
         validate_ops(doc, specs)
         print(json.dumps({"ok": True, "ops": len(specs)}))
+    elif cmd == "compile":
+        doc, w, h = plan_io.load_plan(sys.argv[2])
+        instruction = sys.argv[3]
+        mask = None
+        if "--mask-file" in sys.argv:
+            mask = _parse_mask(Path(sys.argv[sys.argv.index("--mask-file") + 1]).read_text(encoding="utf-8"))
+        prompt = build_prompt(summarize(doc), instruction, mask)
+        provider = sys.argv[sys.argv.index("--provider") + 1] if "--provider" in sys.argv else "deepseek"
+        model = sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv else None
+        out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
+        try:
+            specs = compile_with_model(prompt, provider=provider, model=model,
+                                       verbose="--verbose" in sys.argv)
+            validate_ops(doc, specs)
+        except Exception as ex:
+            sys.stderr.write("compile failed: %s\n\n--- prompt (use it manually) ---\n%s\n" % (ex, prompt))
+            raise SystemExit(2)
+        if out:
+            Path(out).write_text(json.dumps(specs, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(json.dumps({"ok": True, "ops": specs, "provider": provider, "model": model,
+                          "out": out}, ensure_ascii=False))
     elif cmd == "apply":
         doc, w, h = plan_io.load_plan(sys.argv[2])
         specs = validate_ops(doc, json.loads(Path(sys.argv[3]).read_text(encoding="utf-8")))

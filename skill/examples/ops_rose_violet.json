@@ -1,0 +1,25 @@
+[
+  {
+    "op": "set_layer_hue",
+    "layer": "bed",
+    "hue": 275,
+    "guidance": 0.9
+  },
+  {
+    "op": "set_layer_hue",
+    "layer": "band",
+    "hue": 275,
+    "guidance": 0.9
+  },
+  {
+    "op": "set_layer_hue",
+    "layer": "highlight",
+    "hue": 285,
+    "guidance": 0.8
+  },
+  {
+    "op": "densify",
+    "layer": "band",
+    "k": 1.15
+  }
+]

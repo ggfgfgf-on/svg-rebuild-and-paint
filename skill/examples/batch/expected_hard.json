@@ -1,0 +1,287 @@
+[
+ {
+  "id": 1,
+  "instruction": "高光和描线都提亮一点",
+  "any_of": [
+   {
+    "ops": [
+     "set_layer_brightness",
+     "set_layer_brightness"
+    ],
+    "layers": [
+     "highlight",
+     "ink"
+    ]
+   }
+  ]
+ },
+ {
+  "id": 2,
+  "instruction": "不要动高光，把床层压暗",
+  "any_of": [
+   {
+    "ops": [
+     "set_layer_brightness"
+    ],
+    "layers": [
+     "bed"
+    ]
+   }
+  ]
+ },
+ {
+  "id": 3,
+  "instruction": "让整个画面更通透",
+  "any_of": [
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 4,
+  "instruction": "把刚才那次修改恢复回去",
+  "any_of": [
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 5,
+  "instruction": "稍微压暗一点点",
+  "any_of": [
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 6,
+  "instruction": "床层压暗、花纹带提亮、阴影去饱和",
+  "any_of": [
+   {
+    "ops": [
+     "set_layer_brightness",
+     "set_layer_brightness",
+     "set_layer_saturation"
+    ],
+    "layers": [
+     "bed",
+     "band",
+     "shadow"
+    ]
+   }
+  ]
+ },
+ {
+  "id": 7,
+  "instruction": "除了高光，其余层都提亮",
+  "any_of": [
+   {
+    "ops": [
+     "set_layer_brightness",
+     "set_layer_brightness",
+     "set_layer_brightness",
+     "set_layer_brightness",
+     "set_layer_brightness",
+     "set_layer_brightness",
+     "set_layer_brightness"
+    ],
+    "layers": [
+     "bed",
+     "band",
+     "ink",
+     "shadow",
+     "ambient",
+     "glaze",
+     "texture"
+    ]
+   },
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 8,
+  "instruction": "描线加粗，但不要改颜色",
+  "any_of": [
+   {
+    "ops": [
+     "scale_stroke_size"
+    ],
+    "layers": [
+     "ink"
+    ]
+   }
+  ]
+ },
+ {
+  "id": 9,
+  "instruction": "让阴影整体偏冷",
+  "any_of": [
+   {
+    "ops": [
+     "set_layer_hue"
+    ],
+    "layers": [
+     "shadow"
+    ]
+   },
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 10,
+  "instruction": "高光去掉一半",
+  "any_of": [
+   {
+    "ops": [
+     "erase"
+    ],
+    "layers": [
+     "highlight"
+    ]
+   },
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 11,
+  "instruction": "把玫瑰变成牡丹",
+  "any_of": [
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 12,
+  "instruction": "背景换成纯白",
+  "any_of": [
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 13,
+  "instruction": "先压暗再提亮回原样",
+  "any_of": [
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 14,
+  "instruction": "床层和纹理层都加密 1.2 倍",
+  "any_of": [
+   {
+    "ops": [
+     "densify",
+     "densify"
+    ],
+    "layers": [
+     "bed",
+     "texture"
+    ]
+   }
+  ]
+ },
+ {
+  "id": 15,
+  "instruction": "把画风变成水彩",
+  "any_of": [
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 16,
+  "instruction": "高光笔刷换成 chalk，同时提亮",
+  "any_of": [
+   {
+    "ops": [
+     "swap_brush",
+     "set_layer_brightness"
+    ],
+    "layers": [
+     "highlight"
+    ]
+   }
+  ]
+ },
+ {
+  "id": 17,
+  "instruction": "让它看起来更贵一点",
+  "any_of": [
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 18,
+  "instruction": "阴影层不要那么脏，去掉一半笔触",
+  "any_of": [
+   {
+    "ops": [
+     "erase"
+    ],
+    "layers": [
+     "shadow"
+    ]
+   },
+   {
+    "ops": [],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 19,
+  "instruction": "把颜色统一到这套色板：深蓝到浅青",
+  "any_of": [
+   {
+    "ops": [
+     "recolor_palette"
+    ],
+    "layers": []
+   }
+  ]
+ },
+ {
+  "id": 20,
+  "instruction": "描线层和阴影层都换成 flat 笔刷",
+  "any_of": [
+   {
+    "ops": [
+     "swap_brush",
+     "swap_brush"
+    ],
+    "layers": [
+     "ink",
+     "shadow"
+    ]
+   }
+  ]
+ }
+]

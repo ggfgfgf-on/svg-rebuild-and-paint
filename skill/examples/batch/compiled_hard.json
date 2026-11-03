@@ -1,0 +1,223 @@
+[
+ {
+  "id": 1,
+  "ops": [
+   {
+    "op": "set_layer_brightness",
+    "layer": "highlight",
+    "factor": 1.1,
+    "guidance": 0.9
+   },
+   {
+    "op": "set_layer_brightness",
+    "layer": "ink",
+    "factor": 1.1,
+    "guidance": 0.9
+   }
+  ]
+ },
+ {
+  "id": 2,
+  "ops": [
+   {
+    "op": "set_layer_brightness",
+    "layer": "bed",
+    "factor": 0.85,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 3,
+  "ops": []
+ },
+ {
+  "id": 4,
+  "ops": []
+ },
+ {
+  "id": 5,
+  "ops": []
+ },
+ {
+  "id": 6,
+  "ops": [
+   {
+    "op": "set_layer_brightness",
+    "layer": "bed",
+    "factor": 0.85,
+    "guidance": 1
+   },
+   {
+    "op": "set_layer_brightness",
+    "layer": "band",
+    "factor": 1.1,
+    "guidance": 1
+   },
+   {
+    "op": "set_layer_saturation",
+    "layer": "shadow",
+    "sat": 0.5,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 7,
+  "ops": [
+   {
+    "op": "set_layer_brightness",
+    "layer": "bed",
+    "factor": 1.1,
+    "guidance": 1
+   },
+   {
+    "op": "set_layer_brightness",
+    "layer": "band",
+    "factor": 1.1,
+    "guidance": 1
+   },
+   {
+    "op": "set_layer_brightness",
+    "layer": "ink",
+    "factor": 1.1,
+    "guidance": 1
+   },
+   {
+    "op": "set_layer_brightness",
+    "layer": "shadow",
+    "factor": 1.1,
+    "guidance": 1
+   },
+   {
+    "op": "set_layer_brightness",
+    "layer": "ambient",
+    "factor": 1.1,
+    "guidance": 1
+   },
+   {
+    "op": "set_layer_brightness",
+    "layer": "glaze",
+    "factor": 1.1,
+    "guidance": 1
+   },
+   {
+    "op": "set_layer_brightness",
+    "layer": "texture",
+    "factor": 1.1,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 8,
+  "ops": [
+   {
+    "op": "scale_stroke_size",
+    "layer": "ink",
+    "k": 1.2,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 9,
+  "ops": [
+   {
+    "op": "set_layer_hue",
+    "layer": "shadow",
+    "hue": 210,
+    "guidance": 0.8
+   }
+  ]
+ },
+ {
+  "id": 10,
+  "ops": []
+ },
+ {
+  "id": 11,
+  "ops": []
+ },
+ {
+  "id": 12,
+  "ops": []
+ },
+ {
+  "id": 13,
+  "ops": []
+ },
+ {
+  "id": 14,
+  "ops": [
+   {
+    "op": "densify",
+    "layer": "bed",
+    "k": 1.2,
+    "guidance": 1
+   },
+   {
+    "op": "densify",
+    "layer": "texture",
+    "k": 1.2,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 15,
+  "ops": []
+ },
+ {
+  "id": 16,
+  "ops": [
+   {
+    "op": "swap_brush",
+    "layer": "highlight",
+    "preset": "chalk",
+    "guidance": 1
+   },
+   {
+    "op": "set_layer_brightness",
+    "layer": "highlight",
+    "factor": 1.1,
+    "guidance": 0.9
+   }
+  ]
+ },
+ {
+  "id": 17,
+  "ops": []
+ },
+ {
+  "id": 18,
+  "ops": []
+ },
+ {
+  "id": 19,
+  "ops": [
+   {
+    "op": "recolor_palette",
+    "palette": "深蓝到浅青",
+    "guidance": 0.9
+   }
+  ]
+ },
+ {
+  "id": 20,
+  "ops": [
+   {
+    "op": "swap_brush",
+    "layer": "ink",
+    "preset": "flat",
+    "guidance": 1
+   },
+   {
+    "op": "swap_brush",
+    "layer": "shadow",
+    "preset": "flat",
+    "guidance": 1
+   }
+  ]
+ }
+]

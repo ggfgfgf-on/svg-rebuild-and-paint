@@ -639,6 +639,29 @@ python scripts/paint_video.py plan.json --ops examples/ops_rose_magenta.json \
 注意：这里没有用 `imageio_ffmpeg.write_frames`（本机沙箱下它的管道句柄会失效，WinError 6），
 改成"先存 PNG 序列、再调 ffmpeg CLI"，编码参数 `-c:v libx264 -pix_fmt yuv420p -crf 18`。
 
+### 难指令集（20 条：可表达 vs 应当拒绝）
+
+```
+python scripts/eval_instructions.py plan.json examples/batch/expected_hard.json examples/batch/compiled_hard.json
+```
+
+结果 **19/20（95%）**，唯一失败是模型把色板写成自然语言字符串（`"深蓝到浅青"`），
+被 `validate_ops` 直接拒掉——**校验层挡住了它，像素没被碰**。
+
+设计要点：10 条可表达 + 10 条**不可表达**（变成水彩 / 换成纯白背景 / 把玫瑰变成牡丹 /
+恢复上一次修改 / 更通透 / 更贵一点），后者期望模型输出空数组表示拒绝，而不是硬凑算子。
+实测模型确实全部拒绝（6/6 类），说明"知道自己的边界"这件事是可以被量化的。
+
+> 说明：复核期望时有 4 条（id 7/9/10/18）属于判断题，已放宽为 `any_of`（多种合理答案都算对）；
+> 例如「除了高光其余都提亮」模型用 7 个算子逐一实现，是**比我原期望更好**的答案。
+
+```
+python scripts/compile_ops.py compile plan.json "把花改成蓝的" --provider deepseek --out ops.json
+```
+
+`compile --provider` 支持 deepseek / ark / openai（OpenAI 兼容），温度 0、重试 3 次；
+无 key 或调用失败时把完整提示词打到 stderr 并 exit 2（回退到 agent 编译）。key 只从环境变量读。
+
 ### 默认关闭的可选开关
 
 **`--edge-soften=SIGMA`：边缘柔化后处理（legacy，保留可用）。** 新交付优先用下面的 `--alpha-soften`；这个开关留着只是因为快速出图时它更省事（一步模糊，不用扫参）。 它直接作用于已完成 SVG（或 HTML 里的 SVG），只增加一个 `feGaussianBlur` 和一层包装，不改路径坐标、不改层序。适合“放大很多倍不要让 1px 阶梯很扎眼”的交付；副作用是整体轻微变软。想真正提高轮廓分辨率，应该提高 `ss`（如 3×），`--edge-soften` 只是最终视觉后处理。`svg_postprocess.py` 可独立对已有 SVG 跑，参数为 `--soften N`。

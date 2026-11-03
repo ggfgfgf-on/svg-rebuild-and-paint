@@ -38,23 +38,26 @@ def main():
             schema_ok, err = False, str(ex)[:120]
         names = {s.get("op") for s in (specs or []) if isinstance(s, dict)}
         layers = {s.get("layer") for s in (specs or []) if isinstance(s, dict) and s.get("layer")}
-        op_ok = names == set(e["ops"])
-        layer_ok = layers == set(e["layers"])
+        alts = e.get("any_of") or [{"ops": e.get("ops", []), "layers": e.get("layers", [])}]
+        matched = [a for a in alts
+                   if names == set(a["ops"]) and layers == set(a["layers"])]
+        op_ok = bool(matched)
+        layer_ok = op_ok
         ok = bool(schema_ok and op_ok and layer_ok)
-        rec.update(ok=ok, why=err or ("" if ok else "ops/layers mismatch"),
+        rec.update(ok=ok, schema_ok=schema_ok, why=err or ("" if ok else "ops/layers mismatch"),
                    got_ops=sorted(x for x in names if x), got_layers=sorted(x for x in layers if x))
         rows.append(rec)
         if not ok:
             fails.append(rec)
 
     n = len(expected)
-    schema_pass = sum(1 for r in rows if "why" in r and r.get("why") != "missing" and not r["why"].startswith("ops/layers"))
+    schema_pass = sum(1 for r in rows if r.get("schema_ok"))
     print(json.dumps({
         "total": n,
         "correct": n - len(fails),
         "rate": round((n - len(fails)) / n, 3),
         "schema_ok": schema_pass,
-        "failures": [{k: v for k, v in f.items() if k != "id"} for f in fails[:6]],
+        "failures": [{k: v for k, v in f.items() if k not in ("id", "schema_ok")} for f in fails[:6]],
     }, ensure_ascii=False, indent=1))
 
 
