@@ -1,12 +1,15 @@
 ---
 name: svg-rebuild-and-paint
 description: >-
-  Two things, both runnable and both measured. (1) Redraw / vectorize a bitmap (PNG/JPEG) as real
-  SVG - flat-color <path> geometry, no <image>, no base64, no gradients - as a static .svg or a
-  single-file HTML step player, verified per pixel (mean / percentile / uncovered). (2) A
-  deterministic thick-paint engine: 8-layer plans, brush-stamp rasterization (CPU + DirectCompute
-  GPU backends), 30 fps video, plan-level diff and tile-level incremental repaint (bit-identical to
-  a full rebuild), per-stamp colour dynamics, smudge / impasto lighting, PSD and KRA interop.
+  Two things, both runnable and both measured. (1) Turn a bitmap (PNG/JPEG) into real vector SVG:
+  potrace curve reconstruction per colour mask with 2-3x supersampling, flat-colour <path> geometry
+  (no <image>, no base64, no gradients, no staircase when scaled), delivered as a static .svg or a
+  single-file HTML step player, with a renderer-consistent per-pixel error report (mean / <=5 /
+  <=10 / uncovered). The old pixel-run-length mode is DEPRECATED - kept only to reproduce historical
+  mean<2 numbers on flat art, never as a default or a deliverable. (2) A deterministic thick-paint
+  engine: 8-layer plans, brush-stamp rasterization (CPU + DirectCompute GPU backends), 30 fps video,
+  plan-level diff and tile-level incremental repaint (bit-identical to a full rebuild), per-stamp
+  colour dynamics, smudge / impasto lighting, PSD and KRA interop.
   Use it whenever the job is "turn this picture into SVG" OR "paint / render / animate this artwork",
   including plain "重绘这个 / 转成SVG / 画/渲染这个 / 出30fps视频" requests.
 whenToUse: >-

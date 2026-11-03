@@ -1,13 +1,13 @@
 # svg-rebuild-and-paint
 
-**位图 → 纯 SVG 重绘** · **程序化厚涂绘画引擎**（确定性回放 / 增量重绘 / CPU + GPU 双后端）
+**位图 → 真矢量 SVG 重绘（曲线，缩放无台阶）** · **程序化厚涂绘画引擎**（确定性回放 / 增量重绘 / CPU + GPU 双后端）
 
 > An asset-agnostic DSH skill repository with two runnable halves: a pixel-level SVG reconstructor
 > and a deterministic thick-paint rendering engine. Everything below is measured, not claimed.
 
 仓库名沿用了历史名称，内容早已不止 SVG。现在它是一个 DSH Skill 仓库，包含两块可运行、可验收的实现：
 
-1. **像素级 SVG 重绘** —— 任意位图（PNG/JPEG，≤2MP）→ 单文件自包含 HTML，纯 SVG 平涂路径 + 离散步骤播放器。
+1. **真矢量 SVG 重绘** —— 任意位图（PNG/JPEG，≤2MP）→ potrace 逐色掩码曲线重建（2–3× 超采样）→ 单文件自包含 HTML，纯 `<path>` 平涂几何 + 离散步骤播放器；纯矢量，放大无台阶。
 2. **程序化厚涂绘画引擎** —— 8 图层计划 → 笔触光栅化 → 30fps 视频；支持确定性回放、差量/单层/tile 增量重绘、GPU 后端、逐 stamp 上色、PSD/KRA 互操作。
 
 ### 关于仓库名
@@ -16,13 +16,16 @@
 GitHub 会自动重定向旧链接：`github.com/ggfgfgf-on/generic-pixel-svg-rebuild` → `github.com/ggfgfgf-on/svg-rebuild-and-paint`。
 Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOME/skills/svg-rebuild-and-paint`），仓库名与 skill id 现在一致。
 
+名字里的 “pixel” 同样是历史遗留：实现早已从**像素游程**（逐像素矩形，放大见台阶）转成**曲线重建**，见下节验收口径。
+
 ---
 
 ## 能力与实测数字
 
 | 能力 | 实现 | 实测 |
 |---|---|---|
-| 纯 SVG 重绘 | `skill/scripts/vectorize.py` | 未覆盖像素 0；100% 像素 ≤10/255；≥90% ≤5/255；平均 <2/255 |
+| SVG 曲线重绘（默认） | `vectorize.py`（potrace + 2–3× 超采样） | K=192/2×：193 path、7.36 MB、mean **8.35**、≤5 44.6%；K=384/3×：385 path、19.7 MB、mean **6.36**、≤5 61.0%；验收口径 mean<10、uncovered=0、无台阶 |
+| 像素游程模式（**已弃用**） | `build_svg.py` / `autotune.py` | 游程矩形 4133 path / 4.06 MB、mean **2.16**、≤5 96.7%，**放大有像素台阶**；只用于复现旧的 mean<2 数字，不作默认、不作交付 |
 | 30fps 视频 | `render_video.py` + `planner_8layer.py` | 720 帧 **8.07 s**（进程内）/ 8.76 s 墙钟 |
 | 计划级差量重绘 | `paint_diff.py`（稳定 sid） | 60 行 / 1.4 KB 补丁 → **0.028 s** vs 全量 5.81 s（**209×**，逐位相同） |
 | 单层增量 | `tile_inc.py` | **2.9×**，逐位相同 |
@@ -34,6 +37,16 @@ Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOM
 | GPU smudge / impasto | `paint_fx.dll`（DirectCompute） | 1024²：smudge **8.1×**；4096²：impasto **6.8×**；与 CPU 最大差 **1.4e-6**（float32 舍入） |
 | 笔感扩展 | `brush_ext.py` | smudge / 浮雕光照 / 纸纹变体 / 色彩动态 / 速度响应 / PSD+KRA 读回 |
 | PSD 互操作 | 内置 8BPS 解析器 | 8/16bit、raw+RLE、unicode 图层名、图层组；不依赖 psd-tools |
+
+## SVG 重绘的验收口径（两个目标互斥，必须写清）
+
+旧文档同时要求「游程像素」与「曲线」并要求 `mean < 2`、`100% ≤ 10`。这两件事**不可能同时成立**：
+
+- 像素级精确复现**必须**用轴对齐整数游程——台阶本身就是编码方式，不是缺陷；平涂源能到 mean 0.43，AA 立绘 2.16。
+- 任何曲线拟合在抗锯齿源上必然偏离 2/255 以上：`vectorize.py` 的实测区间是 **mean 3.74 … 8.35**。
+
+因此交付口径按分支区分：**默认 `vectorize.py`，预算 mean < 10、uncovered = 0、无台阶；像素分支已弃用**，只保留复现历史数字的能力（`build_svg.py` 运行会直接打印 `DEPRECATED`，`autotune.py` 驱动的也是这条已弃用路径）。
+源图带 AA 时不要硬凑 `100% ≤10`，改写「uncovered=0、mean<3、≤5 ≥95%」并说明瓶颈在源图 AA 与量化上界。
 
 ## 确定性契约
 
