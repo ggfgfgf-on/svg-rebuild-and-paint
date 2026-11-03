@@ -616,6 +616,29 @@ python scripts/instruction_demo.py plan.json --ops examples/ops_rose_magenta.jso
 不必逐笔回读像素；`tests/test_masks_image.py` 断言只选中色块内的笔触。
 另加了包围盒预筛：多边形掩膜对 5 万笔逐笔算距离从 5.2 s 降到 **2.4 s**。
 
+### 改画 → 30fps 视频（`paint_video.py`）
+
+```
+python scripts/paint_video.py plan.json --ops examples/ops_rose_magenta.json \
+    --mask-file examples/mask_rose_head.json --feather 24 \
+    --frames 600 --fps 30 --groups 48 --edit-at 0.78 --out rose_edit.mp4
+```
+
+先按计划把画"画起来"，到 `--edit-at` 指定进度时对脏矩形执行一次 `clear_rect + 重画`，
+最后若干帧继续补完未改动层。实测（900×1100、57,812 笔、位图笔尖）：
+
+| 项 | 数值 |
+|---|---|
+| 帧数 / 帧率 / 时长 | 600 / **30 fps** / 20.0 s（帧数固定，不丢帧） |
+| 渲染 + 存帧 | 54.0 s |
+| x264 编码 | 2.53 s |
+| 总耗时 | **59.8 s** |
+| 文件 | 1.38 MB |
+| 失败条件 | 末帧与"整份重画改后计划"必须逐位相同——实测 **0 px**，否则脚本报错退出 |
+
+注意：这里没有用 `imageio_ffmpeg.write_frames`（本机沙箱下它的管道句柄会失效，WinError 6），
+改成"先存 PNG 序列、再调 ffmpeg CLI"，编码参数 `-c:v libx264 -pix_fmt yuv420p -crf 18`。
+
 ### 默认关闭的可选开关
 
 **`--edge-soften=SIGMA`：边缘柔化后处理（legacy，保留可用）。** 新交付优先用下面的 `--alpha-soften`；这个开关留着只是因为快速出图时它更省事（一步模糊，不用扫参）。 它直接作用于已完成 SVG（或 HTML 里的 SVG），只增加一个 `feGaussianBlur` 和一层包装，不改路径坐标、不改层序。适合“放大很多倍不要让 1px 阶梯很扎眼”的交付；副作用是整体轻微变软。想真正提高轮廓分辨率，应该提高 `ss`（如 3×），`--edge-soften` 只是最终视觉后处理。`svg_postprocess.py` 可独立对已有 SVG 跑，参数为 `--soften N`。
