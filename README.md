@@ -1,4 +1,4 @@
-# generic-pixel-svg-rebuild
+# svg-rebuild-and-paint
 
 **位图 → 纯 SVG 重绘** · **程序化厚涂绘画引擎**（确定性回放 / 增量重绘 / CPU + GPU 双后端）
 
@@ -12,7 +12,9 @@
 
 ### 关于仓库名
 
-仓库名沿用最早的 `generic-pixel-svg-rebuild`，但内容已经扩展到完整绘画引擎。若要改名（GitHub 需在 Settings → Rename 操作，或 `gh repo rename`），建议候选：`dsh-paint-and-vectorize`、`pixel-paint-engine`、`svg-rebuild-and-paint`。改名会自动重定向旧链接。
+仓库原名为 `generic-pixel-svg-rebuild`，现已更名为 **`svg-rebuild-and-paint`**（内容早已从纯 SVG 扩展到完整绘画引擎）。
+GitHub 会自动重定向旧链接：`github.com/ggfgfgf-on/generic-pixel-svg-rebuild` → `github.com/ggfgfgf-on/svg-rebuild-and-paint`。
+Skill 的内部名称仍叫 `generic-pixel-svg-rebuild`（安装目录 `$DSH_HOME/skills/generic-pixel-svg-rebuild`），因为那是 skill id，与仓库名解耦。
 
 ---
 
