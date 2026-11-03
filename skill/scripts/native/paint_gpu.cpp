@@ -32,7 +32,7 @@ struct Params {
     float kw, tw, tc, thr;
     float color_dyn;
     uint use_color;
-    float cpad0, cpad1;
+    uint seed; float cpad1;
 };
 cbuffer P : register(b0) { Params p; };
 StructuredBuffer<float> lutbuf : register(t3);
@@ -179,6 +179,12 @@ float3 hsl2rgb_c(float h, float s, float l) {
     float p = 2.0f * l - q;
     return float3(hue2rgb_c(p, q, h + 1.0f / 3.0f), hue2rgb_c(p, q, h), hue2rgb_c(p, q, h - 1.0f / 3.0f));
 }
+float hash_c(uint x, uint y, uint s) {
+    uint h = x * 374761393u + y * 668265263u + s * 2246822519u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    h ^= h >> 16;
+    return (float)(h & 0xFFFFFFu) / 16777216.0f;
+}
 float cb_c(float s, float d) {           // 与 CPU 的 cb lambda 同式
     if (d <= 0.0f) return 0.0f;
     if (s >= 1.0f) return d;
@@ -308,12 +314,11 @@ void cs_over(uint3 dt : SV_DispatchThreadID) {
             if (ok) {
                 float3 col = p.color.rgb;
                 if (p.use_color) {
-                    uint win_k = p.stamp_base + (65535u - (bits & 0xFFFFu));
-                    uint bucket = (uint)(stamps[win_k * 2 + 1].z + 0.5f);
-                    float bm = (float)((bucket >> 4) & 0xFu) / 15.0f;
-                    float bw = (float)(bucket & 0xFu) / 15.0f;
-                    float m = (1.0f - p.color_dyn) + 2.0f * p.color_dyn * bm;
-                    float twk = -p.color_dyn * 0.25f + p.color_dyn * 0.5f * bw;
+                    uint k = 65535u - (bits & 0xFFFFu);      // 该像素获胜 stamp 在本笔内的序号
+                    float h16 = hash_c(p.seed, k, 16u);
+                    float h17 = hash_c(p.seed, k, 17u);
+                    float m = 1.0f + p.color_dyn * (h16 * 2.0f - 1.0f);
+                    float twk = p.color_dyn * 0.25f * (h17 * 2.0f - 1.0f);
                     col = saturate(float3(col.r * m * (1.0f + twk), col.g * m, col.b * m * (1.0f - twk)));
                 }
                 if (p.wet > 0.0f) {
@@ -377,7 +382,7 @@ struct Params {
     float kw, tw, tc, thr;
     float color_dyn;
     unsigned int use_color;
-    float cpad0, cpad1;
+    uint32_t seed; float cpad1;
     unsigned int bs, bo;   // host only
 };
 
@@ -836,7 +841,7 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
     const int CHUNK = 256;
     std::vector<StampOut> stamps;
     std::vector<float> flat;
-    struct Plan { int start, count, bx0, by0, bx1, by1, use_tip, tip_base, tip_w, tip_h, lut_slot, region_id, branch, cosn; float kw, tw, tc, thr; float opacity, color[3]; };
+    struct Plan { int start, count, bx0, by0, bx1, by1, use_tip, tip_base, tip_w, tip_h, lut_slot, region_id, branch, cosn; unsigned seed; float kw, tw, tc, thr; float opacity, color[3]; };
     std::vector<Plan> plans;
     for (int c0 = 0; c0 < n_strokes; c0 += CHUNK) {
         int c1 = std::min(n_strokes, c0 + CHUNK);
@@ -849,6 +854,7 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
             expand_stroke(pts + b, (e - b) / 3, params[i * 8 + 0], stamps, (unsigned)i);
             if (stamps.empty()) continue;
             Plan sp{};
+            sp.seed = (unsigned)i;
             sp.start = (int)(flat.size() / 8);
             sp.count = (int)stamps.size();
             sp.region_id = rids ? rids[i] : 0;
@@ -916,6 +922,7 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
             cp.tip_base = sp.tip_base; cp.tip_w = sp.tip_w; cp.tip_h = sp.tip_h;
             cp.lut_slot = sp.lut_slot;
             cp.branch = sp.branch; cp.cosn = sp.cosn;
+            cp.seed = 0u;   // CPU band 路径 jitter_color(..., 0u, k)（paint_core.cpp:760）
             cp.color_dyn = g_color_dyn;
             cp.use_color = g_color_dyn > 0.0f ? 1u : 0u;
             cp.kw = sp.kw; cp.tw = sp.tw; cp.tc = sp.tc; cp.thr = sp.thr;
