@@ -805,11 +805,19 @@ python scripts/compile_ops.py apply plan.json ops.json out.json --mask "{...}" -
 python scripts/ops_demo.py plan.json --layer highlight --hue 260 --brightness 1.25 --rect "200,150,500,700" --feather 40
 ```
 
-实测（900×1100 / 8 层 / 57,812 笔的真实玫瑰计划，`painting.plan.json`）：
+实测（900×1100 / 8 层 / 57,812 笔的真实玫瑰计划 `painting.plan.json`，位图笔尖，CPU）：
 
-- 改画编辑 **0.83 s**（选中 1619 笔，+300 子笔触）
-- 渲染 **14.6 s 是 JSON 调试路径**；打包 npz + `tile_inc` 的生产路径 2.4 s，局部重算 0.4 s
-- 变 21,497 px，**脏矩形之外 0 px**（逐位相同），两次运行 fingerprint 一致
+| 项 | 时间 |
+|---|---|
+| 计划摘要 / 选掩膜 / 算子执行 | 0.04 s / 0.03 s / **0.05 s** |
+| 打包成数组快表（`plan_store.pack`） | 1.25 s |
+| 整份重画（57.8k 笔位图笔尖） | **14.5 s**（其中绘制 13.6 s，笔尖注册 0.04 s） |
+| **只重算脏矩形**（500×718，单层） | **0.995 s → 14.6×** |
+| 增量 vs 整份重画 | **逐位相同（0 px）** |
+| 脏矩形之外 vs 改画前 | **0 px** |
+
+JSON 调试路径渲染 14.6 s，和打包路径差不多——**慢在原生逐笔光栅化本身，不在 Python 装配**；
+要提速只能缩小重绘区域（增量）或换 GPU 后端。
 
 坑（已修在 `plan_io.resolve_preset`）：批量解析位图笔尖名时若每笔都调 `load_catalog`，复杂度是 O(笔触数 × 278 笔尖)，5.7 万笔会卡 8 分钟以上；必须把 catalog 传进去复用。
 
