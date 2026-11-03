@@ -1,0 +1,6 @@
+{
+ "_comment": "工作流路径默认值；命令行位置参数优先。输出路径不带扩展名，会生成 .png/.kra/.psd。",
+ "reference": "D:/DSHwork/flower/rose5-full.png",
+ "regions": "D:/DSHwork/flower/plan/regions2.npz",
+ "output": "D:/DSHwork/flower/plan/demo"
+}

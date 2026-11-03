@@ -1,0 +1,258 @@
+{
+ "_comment": "绘画风格数据：所有笔触尺寸/不透明度/取样密度/阈值都在这里，改这里不用动代码。0 表示关闭该层。",
+ "render": {
+  "threads": 4,
+  "paper": "02_rough-canvas",
+  "hardness_default": 0.7
+ },
+ "layers": [
+  {
+   "name": "bed",
+   "blend": "normal"
+  },
+  {
+   "name": "band",
+   "blend": "normal"
+  },
+  {
+   "name": "ink",
+   "blend": "normal"
+  },
+  {
+   "name": "shadow",
+   "blend": "multiply"
+  },
+  {
+   "name": "ambient",
+   "blend": "overlay"
+  },
+  {
+   "name": "highlight",
+   "blend": "screen"
+  },
+  {
+   "name": "glaze",
+   "blend": "softlight"
+  },
+  {
+   "name": "texture",
+   "blend": "multiply"
+  }
+ ],
+ "foreground": {
+  "bg_band": 20,
+  "color_diff": 26,
+  "dilate": 5
+ },
+ "light": {
+  "sigma_frac": 0.1
+ },
+ "deposit_profile": {
+  "spread": 0.12,
+  "ink_radius": 0.9,
+  "pools": {
+   "bed": [
+    "texture-rock",
+    "texture-woody",
+    "canvas",
+    "paper",
+    "grain"
+   ],
+   "band": [
+    "chalk",
+    "sponge",
+    "flat",
+    "pencil",
+    "grain"
+   ],
+   "edge": [
+    "chalk",
+    "dirty",
+    "rough",
+    "rock"
+   ],
+   "ink": [
+    "liner",
+    "dirty",
+    "ink",
+    "pencil"
+   ]
+  }
+ },
+ "ink": {
+  "blur_sigma": 1.6,
+  "canny": [
+   55,
+   140
+  ],
+  "min_len": 24,
+  "segments": 30,
+  "patch_radius": 2,
+  "dark_pct": 15,
+  "dark_mul": 0.75,
+  "pressure": 0.9,
+  "size": [
+   1.3,
+   2
+  ],
+  "opacity": 0.6,
+  "hardness": 0.85,
+  "tip_radius": 1,
+  "tip_alpha": 0.6
+ },
+ "region": {
+  "min_area": 50,
+  "bed_min": 60,
+  "bed_max": 80,
+  "bed_thick_mul": 1.6,
+  "bed_area_div": 3.2,
+  "bed_opacity": 0.98,
+  "bed_color_jitter": [
+   0.98,
+   1.02
+  ],
+  "bed_angle_jitter": 0.05,
+  "bed_hatch": {
+   "gap_frac": 0.55,
+   "minlen": 8,
+   "maxlen": 240
+  },
+  "rock_every": 3,
+  "rock_names": [
+   "14_texture-rock",
+   "16_texture-woody",
+   "15_texture-rockb"
+  ]
+ },
+ "edge_strokes": {
+  "enabled": true,
+  "contour_min": 12,
+  "segments": 36,
+  "len": [
+   4,
+   9
+  ],
+  "size": [
+   9,
+   14
+  ],
+  "opacity": 0.75,
+  "tint": 1,
+  "color_jitter": [
+   0.95,
+   1.05
+  ],
+  "pressure": 0.85,
+  "hardness": 0.8,
+  "chalk_names": [
+   "chalk",
+   "chalk_sparse",
+   "chalk_round_hard"
+  ]
+ },
+ "band": {
+  "count": 6,
+  "min_px": 40,
+  "size_div": 4,
+  "size_clamp": [
+   4,
+   16
+  ],
+  "size_scale": 1.5,
+  "thick_frac": 0.55,
+  "opacity": 0.85,
+  "color_jitter": [
+   0.94,
+   1.06
+  ],
+  "hardness": 0.7,
+  "hatch": {
+   "gap_frac": 0.95,
+   "stroke_scale": 1.1,
+   "minlen": 6,
+   "maxlen": 120
+  },
+  "dark_from": 1,
+  "dark_to": 3,
+  "dark_preset": "dry",
+  "light_preset": "flat",
+  "edge_tip_names": [
+   "chalk",
+   "chalk_sparse",
+   "chalk_round_hard"
+  ]
+ },
+ "shadow": {
+  "bands": 2,
+  "off_frac": 0.55,
+  "opacity": 0.42,
+  "color_mul": 0.72,
+  "preset": "flat",
+  "hardness": 0.8,
+  "hatch": {
+   "gap_mul": 1.6,
+   "stroke_scale": 1.4,
+   "minlen": 6,
+   "maxlen": 90
+  }
+ },
+ "ambient": {
+  "spacing": 120,
+  "half": 60,
+  "size": 260,
+  "opacity": 0.05,
+  "color_mul": [
+   0.82,
+   0.92,
+   1.15
+  ],
+  "preset": "round_soft",
+  "hardness": 0.5,
+  "pressure": 0.7
+ },
+ "highlight": {
+  "pct": 98,
+  "step": 6,
+  "len": [
+   5,
+   12
+  ],
+  "size": [
+   3,
+   6
+  ],
+  "opacity": 0.32,
+  "color_mul": 1.05,
+  "color_add": 8,
+  "pressure": 0.9,
+  "hardness": 0.9,
+  "tip_names": [
+   "splat_dots",
+   "3_splat",
+   "a_splat1"
+  ],
+  "fallback": "round_hard"
+ },
+ "glaze": {
+  "spacing": 150,
+  "half": 60,
+  "size": 280,
+  "opacity": 0.045,
+  "color": [
+   255,
+   214,
+   170
+  ],
+  "preset": "round_soft",
+  "hardness": 0.4,
+  "pressure": 0.7
+ },
+ "texture_layer": {
+  "spacing": 46,
+  "half": 24,
+  "size": 96,
+  "opacity": 0.3,
+  "pressure": 0.7,
+  "hardness": 0.5
+ }
+}

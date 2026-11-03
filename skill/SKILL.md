@@ -195,6 +195,39 @@ auto.py ref.png out.svg --region-poly "40,20 280,20 280,160 40,160:128,1"
 
 `--region-feather` 对矩形区域原本也是空的（dilation 被裁切框夹住），现在改为扩框，矩形区域接缝同样被盖住。
 
+## 局部改画（incremental repaint）
+
+改一块而不重画全图，三层能力：
+
+| 模块 | 作用 |
+|---|---|
+| `scripts/plan_store.py` | plan 二进制快存：每层 `pts / offs / params / rids / sid`；`offs` 是 **float 索引**，末尾带总长度 |
+| `scripts/paint_diff.py` | 差量：按稳定笔触 id 记录改参数 / 改几何 / 增删（含中段删除），跨版本结构差异也能还原 |
+| `scripts/tile_inc.py` | 只清一个矩形、只重放与它相交的笔触；CPU/GPU 同一套接口，支持多块脏区 |
+
+```python
+import plan_store, paint_diff, tile_inc
+
+plan, meta = plan_store.load("art.plan.npz")
+d = paint_diff.make(plan, edited_plan, spec)      # 只记录改动，KB 级
+paint_diff.save(d, "edit.diff.npz")
+plan2 = paint_diff.apply(plan, paint_diff.load("edit.diff.npz"), spec)
+
+tile_inc.rebuild(p, plan2, spec, {"band": [(320, 160, 479, 319)]}, base_of, gpu=True)
+```
+
+判定标准不是"看起来对"，而是 **局部重绘结果 == 整份重画结果逐位相同**：
+
+    python tests/test_incremental.py
+
+四个断言：差量 apply、单 tile、多 tile、缓存补片。
+
+边界：
+
+- 区域裁剪逐像素（`rv == region_id || rv == -2`）：跨区域笔触只更新目标区域，区域外保持原样；
+- 同一后端逐位可复现；CPU 与 GPU 之间存在约 1 像素的边缘判定差（视觉等效，非逐位）；
+- 成本与「脏区内的笔触数」成正比，与整幅尺寸无关。
+
 ### 独立工具（不参与默认管线）
 
 | 脚本 | 用途 | 用法 | 依赖 |

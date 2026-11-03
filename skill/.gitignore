@@ -1,0 +1,7 @@
+scripts/native/*.log
+scripts/native/tips_cache_*.npz
+scripts/native/*.obj
+*.tmp
+scripts/native/*.exe
+scripts/native/gpu_probe.*
+scripts/native/build_gpu_probe.bat
