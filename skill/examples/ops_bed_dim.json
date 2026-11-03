@@ -1,0 +1,14 @@
+[
+  {
+    "op": "set_layer_brightness",
+    "layer": "bed",
+    "factor": 0.75,
+    "guidance": 0.85
+  },
+  {
+    "op": "set_layer_saturation",
+    "layer": "bed",
+    "sat": 0.65,
+    "guidance": 0.85
+  }
+]
