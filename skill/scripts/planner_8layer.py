@@ -515,8 +515,9 @@ def main():
     comp = p.composite()
     p.close()
     Image.fromarray(comp, "RGBA").save(OUT + ".png")
-    write_kra(OUT + ".kra", outs, merged=comp)
-    write_psd(OUT + ".psd", outs, merged=comp)
+    _blends = {n: b for n, b in spec}
+    write_kra(OUT + ".kra", outs, merged=comp, blends=_blends)
+    write_psd(OUT + ".psd", outs, merged=comp, blends=_blends)
     print("timing: plan/build %.1fs | stamp+marshal %.1fs" % (_t_build, _t_render - _t_build))
     _plan_out = _arg("--plan")
     if _plan_out:

@@ -1157,6 +1157,24 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 5. `paint_hatch` **不是后端功能**：它是纯几何（mask → 折线），走 CPU DLL 的静态函数，
    与 painter 后端无关；之前列成"GPU 缺失"是分类错误，已改正。
 
+### 导出：.kra / .psd 现在带混合模式（以前 8 层全写 svg:src-over）
+
+`export_layers.write_kra` 之前把每层写死 `composite-op="svg:src-over"`、`write_psd` 写死 `norm`，
+于是 Krita/PS 里看到的预览和引擎按计划渲出来的不是同一张（计划里 `shadow`/`texture` 是 multiply、
+`ambient` overlay、`highlight` screen、`glaze` softlight）。
+
+现在两个导出函数都接受 `blends`（层名→模式 或与层并行的 list），映射表 `KRA_BLEND`/`PSD_BLEND`；
+不传 `blends` 时仍回落到 normal（向后兼容）。`planner_8layer.py` 已把 `spec` 里的模式传进去。
+实测导出一份真实计划：
+
+```
+bed svg:src-over | band svg:src-over | ink svg:src-over | shadow svg:multiply
+ambient svg:overlay | highlight svg:screen | glaze svg:soft-light | texture svg:multiply
+```
+
+`tests/test_export_blends.py`：kra 的 composite-op 逐层正确、不传 blends 时仍是 src-over、
+psd 写出 `8BIMmul `、softlight/overlay/未知模式映射，全 PASS。
+
 ### 亮度口径：画面偏暗不是 GPU 的锅（实测）
 
 同一份计划，CPU 与 GPU 各渲一次整图：
