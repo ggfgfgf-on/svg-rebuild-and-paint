@@ -32,10 +32,12 @@ struct Params {
     float kw, tw, tc, thr;
     float color_dyn;
     uint use_color;
+    int cos_off; int pad4;
     uint seed; float cpad1;
 };
 cbuffer P : register(b0) { Params p; };
 StructuredBuffer<float> lutbuf : register(t3);
+StructuredBuffer<float> cosT : register(t6);   // 预计算的 cos(t*cosn) 表（cosn=9 / 17 各 2049 项）
 StructuredBuffer<float4> srcLayer : register(t4);
 StructuredBuffer<float4> snap : register(t5);
 RWStructuredBuffer<float4> accbuf : register(u2);
@@ -382,6 +384,7 @@ struct Params {
     float kw, tw, tc, thr;
     float color_dyn;
     unsigned int use_color;
+    int cos_off, pad4;
     uint32_t seed; float cpad1;
     unsigned int bs, bo;   // host only
 };
@@ -418,6 +421,8 @@ struct Gpu {
     ID3D11Buffer* dummy = nullptr;
     ID3D11ShaderResourceView* dummySrv = nullptr;
     ID3D11Buffer* cb = nullptr;
+    ID3D11Buffer* cosb = nullptr;
+    ID3D11ShaderResourceView* cosSrv = nullptr;
     ID3D11Buffer* lutb = nullptr;
     ID3D11ShaderResourceView* lutSrv = nullptr;
     int lut_preset[64]; float lut_hard[64]; int lut_n = 0;
@@ -533,6 +538,25 @@ EXPORT void* pg_create(int w, int h) {
         sd.Buffer.NumElements = 32 * 256;
         g->dev->CreateShaderResourceView(g->lutb, &sd, &g->lutSrv);
     }
+    {
+        // cos(t*cosn) 预计算表：cosn=9（平笔）与 17（鬃毛）各 2049 项，替换内层两次 cos
+        std::vector<float> ct(2 * 2049);
+        for (int ci = 0; ci < 2; ++ci) {
+            float cosn = ci == 0 ? 9.0f : 17.0f;
+            for (int i = 0; i < 2049; ++i) {
+                float t = -0.62f + 1.24f * (float)i / 2048.0f;
+                ct[ci * 2049 + i] = (float)std::cos(t * cosn);
+            }
+        }
+        g->cosb = make_buf(g->dev, (UINT)(ct.size() * 4), 4, D3D11_BIND_SHADER_RESOURCE,
+                           D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+        D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+        sd.Format = DXGI_FORMAT_UNKNOWN;
+        sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+        sd.Buffer.NumElements = (UINT)ct.size();
+        g->dev->CreateShaderResourceView(g->cosb, &sd, &g->cosSrv);
+        g->ctx->UpdateSubresource(g->cosb, 0, nullptr, ct.data(), 0, 0);
+    }
     for (int i = 0; i < 64; ++i) { g->lut_preset[i] = -1; g->lut_hard[i] = -1.0f; }
     return g;
 }
@@ -547,9 +571,9 @@ EXPORT void pg_destroy(void* p) {
     if (g->snap) g->snap->Release();
     for (auto* b : { g->acc, g->base, g->acc8 }) if (b) b->Release();
     if (g->scratchUav) g->scratchUav->Release();
-    for (auto* v : { g->stampsSrv, g->regionSrv, g->dummySrv, g->tipSrv, g->lutSrv })
+    for (auto* v : { g->stampsSrv, g->regionSrv, g->dummySrv, g->tipSrv, g->lutSrv, g->cosSrv })
         if (v) v->Release();
-    for (auto* b : { g->scratch, g->stamps, g->regionBuf, g->dummy, g->cb, g->lutb, g->tipbuf })
+    for (auto* b : { g->scratch, g->stamps, g->regionBuf, g->dummy, g->cb, g->lutb, g->tipbuf, g->cosb })
         if (b) b->Release();
     if (g->cs_splat) g->cs_splat->Release();
     if (g->cs_over) g->cs_over->Release();
@@ -838,7 +862,7 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
     if (layer < 0 || layer >= (int)g->layers.size()) return 0;
     Layer& L = g->layers[layer];
     if (g->wet > 0.0f && g->snap) g->ctx->CopyResource(g->snap, L.buf);
-    const int CHUNK = 256;
+    const int CHUNK = 512;
     std::vector<StampOut> stamps;
     std::vector<float> flat;
     struct Plan { int start, count, bx0, by0, bx1, by1, use_tip, tip_base, tip_w, tip_h, lut_slot, region_id, branch, cosn; unsigned seed; float kw, tw, tc, thr; float opacity, color[3]; };
@@ -922,6 +946,7 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
             cp.tip_base = sp.tip_base; cp.tip_w = sp.tip_w; cp.tip_h = sp.tip_h;
             cp.lut_slot = sp.lut_slot;
             cp.branch = sp.branch; cp.cosn = sp.cosn;
+            cp.cos_off = (sp.cosn == 17) ? 2049 : 0;
             cp.seed = 0u;   // CPU band 路径 jitter_color(..., 0u, k)（paint_core.cpp:760）
             cp.color_dyn = g_color_dyn;
             cp.use_color = g_color_dyn > 0.0f ? 1u : 0u;
