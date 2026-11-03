@@ -50,6 +50,7 @@ def main():
     ap.add_argument("--mask-file", default=None)
     ap.add_argument("--rect", default=None)
     ap.add_argument("--feather", type=float, default=24.0)
+    ap.add_argument("--hard-mask", action="store_true")
     ap.add_argument("--frames", type=int, default=600)
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--groups", type=int, default=60)
@@ -95,6 +96,8 @@ def main():
         sel, wt, sel_by_layer = [], [], {}
         for name in sorted(touched):
             s1, w1 = masks.weights(doc, mask, a.feather, layer=name)
+            if a.hard_mask:
+                w1 = [1.0] * len(s1)
             sel += s1
             wt += w1
             sel_by_layer[name] = s1
