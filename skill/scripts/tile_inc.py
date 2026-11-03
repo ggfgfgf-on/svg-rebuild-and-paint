@@ -24,6 +24,28 @@ def bboxes(plan, name):
     return out
 
 
+def dirty_rects(doc, plan, sel_by_layer, w, h):
+    """按引擎真实的落笔范围算脏矩形（`size*0.7+2`，见 bboxes）。
+
+    不要用「笔触中心 ± size/2」估算：引擎的外扩更大，估小了会把旧颜色留在边缘
+    （实测末帧与整份重画差 312 px，见 tests/test_paint_video.py）。
+    """
+    pos, cnt = {}, {}
+    for i, st in enumerate(doc["strokes"]):
+        n = cnt.get(st["layer"], 0)
+        pos[i] = n
+        cnt[st["layer"]] = n + 1
+    out = {}
+    for name, idxs in sel_by_layer.items():
+        if not len(idxs):
+            continue
+        bb = bboxes(plan, name)
+        arr = bb[np.asarray([pos[i] for i in idxs], np.int64)]
+        out[name] = [(max(0, int(np.floor(arr[:, 0].min()))), max(0, int(np.floor(arr[:, 1].min()))),
+                      min(w - 1, int(np.ceil(arr[:, 2].max()))), min(h - 1, int(np.ceil(arr[:, 3].max()))))]
+    return out
+
+
 def _sub(plan, name, sel):
     d = plan[name]
     offs, pts = d["offs"], d["pts"]

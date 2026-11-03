@@ -71,11 +71,14 @@ def cmd_edit(a):
     mask = _mask_from_args(a, w, h)
 
     touched = {sp["layer"] for sp in specs if sp.get("layer")} or {l["name"] for l in doc["layers"]}
-    sel, wt = [], []
+    sel, wt, sel_by_layer = [], [], {}
     for name in sorted(touched):
         s1, w1 = masks.weights(doc, mask, a.feather, layer=name)
+        if getattr(a, "hard_mask", False):
+            w1 = [1.0] * len(s1)
         sel += s1
         wt += w1
+        sel_by_layer[name] = s1
     out = ops.apply(doc, specs, selection=sel, weights=wt)
 
     p, cat, w, h = D.new_painter(doc)
@@ -85,11 +88,11 @@ def cmd_edit(a):
     p.composite()
 
     plan2, spec2 = D.doc_to_plan(out, cat, base=plan1, only=touched)
-    box = masks.bbox(doc, sel) or (0.0, 0.0, float(w - 1), float(h - 1))
-    x0, y0, x1, y1 = [int(round(v)) for v in box]
-    x0, y0 = max(0, x0), max(0, y0)
-    x1, y1 = min(w - 1, x1), min(h - 1, y1)
-    dirty = {name: [(x0, y0, x1, y1)] for name in touched}
+    dirty = tile_inc.dirty_rects(doc, plan1, sel_by_layer, w, h)
+    x0 = min(r[0] for rs in dirty.values() for r in rs) if dirty else 0
+    y0 = min(r[1] for rs in dirty.values() for r in rs) if dirty else 0
+    x1 = max(r[2] for rs in dirty.values() for r in rs) if dirty else w - 1
+    y1 = max(r[3] for rs in dirty.values() for r in rs) if dirty else h - 1
     tile_inc.rebuild(p, plan2, spec2, dirty, lambda nm: region, gpu=a.gpu, nthreads=8)
     arr = np.ascontiguousarray(p.composite())
     p.close()
@@ -118,6 +121,8 @@ def cmd_edit(a):
         cmd += ["--feather", str(a.feather)]
         if a.gpu:
             cmd.append("--gpu")
+        if getattr(a, "hard_mask", False):
+            cmd.append("--hard-mask")
         res = subprocess.run(cmd, capture_output=True, text=True)
         report["video"] = a.video
         report["video_ok"] = res.returncode == 0
@@ -186,6 +191,7 @@ def main():
         p.add_argument("--mask-file", default=None)
         p.add_argument("--rect", default=None)
         p.add_argument("--feather", type=float, default=24.0)
+        p.add_argument("--hard-mask", action="store_true", help="掩膜权重二值化为 1（改色时要满强度）")
         p.add_argument("--gpu", action="store_true")
 
     e = sub.add_parser("edit", help="编译/加载算子 -> 编辑 -> 增量渲染（可选出视频）")

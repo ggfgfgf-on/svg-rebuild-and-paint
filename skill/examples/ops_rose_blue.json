@@ -1,0 +1,50 @@
+[
+ {
+  "op": "set_layer_hue",
+  "layer": "bed",
+  "hue": 218,
+  "guidance": 1
+ },
+ {
+  "op": "set_layer_saturation",
+  "layer": "bed",
+  "sat": 0.85,
+  "guidance": 1
+ },
+ {
+  "op": "set_layer_hue",
+  "layer": "band",
+  "hue": 218,
+  "guidance": 1
+ },
+ {
+  "op": "set_layer_saturation",
+  "layer": "band",
+  "sat": 0.85,
+  "guidance": 1
+ },
+ {
+  "op": "set_layer_hue",
+  "layer": "highlight",
+  "hue": 222,
+  "guidance": 1
+ },
+ {
+  "op": "set_layer_hue",
+  "layer": "shadow",
+  "hue": 218,
+  "guidance": 1
+ },
+ {
+  "op": "set_layer_hue",
+  "layer": "ink",
+  "hue": 218,
+  "guidance": 1
+ },
+ {
+  "op": "set_layer_hue",
+  "layer": "texture",
+  "hue": 218,
+  "guidance": 1
+ }
+]

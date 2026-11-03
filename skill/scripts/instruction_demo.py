@@ -28,35 +28,6 @@ import tile_inc
 
 
 
-def _positions_by_layer(doc):
-    """全局笔触下标 -> 该层内的位置（tile_inc.bboxes 用的是层内下标）。"""
-    pos, cnt = {}, {}
-    for i, st in enumerate(doc["strokes"]):
-        n = cnt.get(st["layer"], 0)
-        pos[i] = n
-        cnt[st["layer"]] = n + 1
-    return pos
-
-
-def _dirty_rects(plan, sel_by_layer, w, h, pos):
-    """按引擎真实的笔刷外扩（tile_inc.bboxes 的 r=size*0.7+2）算脏矩形。
-
-    注意：不能用笔画中心/半径估计——引擎的落笔范围更大，按小了会把旧颜色留在边缘。
-    """
-    import numpy as np
-    out = {}
-    for name, idxs in sel_by_layer.items():
-        if not len(idxs):
-            continue
-        bb = tile_inc.bboxes(plan, name)
-        arr = bb[np.asarray([pos[i] for i in idxs], np.int64)]
-        x0 = max(0, int(np.floor(arr[:, 0].min())))
-        y0 = max(0, int(np.floor(arr[:, 1].min())))
-        x1 = min(w - 1, int(np.ceil(arr[:, 2].max())))
-        y1 = min(h - 1, int(np.ceil(arr[:, 3].max())))
-        out[name] = [(x0, y0, x1, y1)]
-    return out
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("plan")
@@ -105,6 +76,8 @@ def main():
     sel, wt, sel_by_layer = [], [], {}
     for name in sorted(touched):                    # 按层取掩膜：只扫受影响的层
         s1, w1 = masks.weights(doc, mask, a.feather, layer=name)
+        if getattr(a, "hard_mask", False):
+            w1 = [1.0] * len(s1)
         sel += s1
         wt += w1
         sel_by_layer[name] = s1
@@ -112,7 +85,7 @@ def main():
     plan2, spec2 = D.doc_to_plan(out, cat, base=plan1, only=touched)
     edit_s = time.perf_counter() - t0
 
-    dirty = _dirty_rects(plan1, sel_by_layer, w, h, _positions_by_layer(doc))
+    dirty = tile_inc.dirty_rects(doc, plan1, sel_by_layer, w, h)
     x0 = min(r[0] for rs in dirty.values() for r in rs) if dirty else 0
     y0 = min(r[1] for rs in dirty.values() for r in rs) if dirty else 0
     x1 = max(r[2] for rs in dirty.values() for r in rs) if dirty else w - 1

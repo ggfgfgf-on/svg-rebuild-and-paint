@@ -691,6 +691,40 @@ python scripts/paint_cli.py eval plan.json examples/batch/expected_hard.json exa
    差 322 px。修法是把绘制安排在 `--draw-until`（默认 0.8）之前全部画完，`--edit-at`（默认 0.85）
    之后才做 `clear_rect + 重画`，保证编辑后不再有落笔。
 
+### 改色（红玫瑰 → 蓝玫瑰）：按颜色选笔，不要用几何掩膜
+
+这张画里**大笔触同时盖住花头和背景**，几何掩膜（多边形/矩形）选笔只有两种结果：漏掉大部分红色笔触
+（红斑上飘蓝点），或把背景一起染。正确做法是按**颜色**选笔（绿背景、绿叶子天然被排除）：
+
+```
+python scripts/paint_cli.py edit plan.json --ops examples/ops_rose_blue.json \
+    --mask-file examples/mask_red_petals.json --feather 0 --hard-mask --out rose_blue.png
+```
+
+- `examples/mask_red_petals.json` = `{"type":"color","rgb":[190,30,45],"tol":130}`：选中 **2,862 笔**红色笔触
+  （全库红色系 3,023 笔；另有约 160 笔暗红/棕被 tol 挡下，所以花心缝隙里还留一点红）。
+- `--hard-mask` 是改色的必要条件：颜色掩膜的权重是「距离 → 1..0」的软权重，不二值化时 hue 只旋转一部分，
+  同一组算子会得到**洋红**而不是蓝（实测：软权重 → 品红，硬权重 → 蓝）。
+- 算子：`set_layer_hue`(218) + `set_layer_saturation`(0.85)，`guidance: 1` 才精确命中。
+
+**走不通的思路（记录在案，别重走）**：试过用 Photoshop 的 `color` 混合模式罩一层蓝（保留底下明暗），
+但本引擎只实现了部分混合模式。探针（底层红 220,30,30 + 顶层蓝 30,60,220）：
+
+| blend | 合成中心像素 | 结论 |
+|---|---|---|
+| normal | 30,60,220 | ✓ |
+| multiply | 26,7,26 | ✓ |
+| screen | 224,83,224 | ✓ |
+| overlay | 193,14,52 | ✓ |
+| softlight | 197,16,69 | ✓ |
+| hue / saturation / luminosity | 220,30,30（底层不变） | ✗ 未实现，退化为无操作 |
+| color | 30,60,220（等价 normal） | ✗ 未实现 |
+
+所以「罩染层」不成立，改色只能落在笔触层（这也解释了为什么它天然是"改笔触"而不是"改图层"）。
+
+色相速查（实测渲染）：**218 蓝 / 275 紫罗兰 / 285 蓝紫 / 300 洋红**。注意红(0) → 275 跨过蓝区，
+沿最短弧走的是红→紫的反方向，不要以为"红+蓝=紫"就能用 240 凑出紫。
+
 ### 默认关闭的可选开关
 
 **`--edge-soften=SIGMA`：边缘柔化后处理（legacy，保留可用）。** 新交付优先用下面的 `--alpha-soften`；这个开关留着只是因为快速出图时它更省事（一步模糊，不用扫参）。 它直接作用于已完成 SVG（或 HTML 里的 SVG），只增加一个 `feGaussianBlur` 和一层包装，不改路径坐标、不改层序。适合“放大很多倍不要让 1px 阶梯很扎眼”的交付；副作用是整体轻微变软。想真正提高轮廓分辨率，应该提高 `ss`（如 3×），`--edge-soften` 只是最终视觉后处理。`svg_postprocess.py` 可独立对已有 SVG 跑，参数为 `--soften N`。
