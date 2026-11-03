@@ -73,6 +73,9 @@ void cs_splat(uint3 dt : SV_DispatchThreadID) {
                 float dy = (float)y + 0.5f - s.y;
                 for (int x = x0; x <= x1; ++x) {
                     float dx = (float)x + 0.5f - s.x;
+                    // CPU 的笔尖只画半径 1.3R 的圆内（paint_core.cpp stamp_band 的 R2 = R*R*1.69）；
+                    // 这里少了这个裁剪，方框四角会多出一圈像素 —— 位图笔尖 0.2 的 mean diff 就来自它。
+                    if (dx * dx + dy * dy > s.z * s.z * 1.69f) continue;
                     float u = (dx * dir.x + dy * dir.y) * tipInv + 0.5f;
                     float v = (-dx * dir.y + dy * dir.x) * tipInv + 0.5f;
                     if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f) continue;
