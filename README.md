@@ -26,6 +26,7 @@ Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOM
 | 能力 | 实现 | 实测 |
 |---|---|---|
 | SVG 曲线重绘（默认） | `vectorize.py`（potrace + 2–3× 超采样） | K=192/2×：193 path、7.36 MB、mean **8.35**、≤5 44.6%；K=384/3×：385 path、19.7 MB、mean **6.36**、≤5 61.0%；验收口径 mean<10、uncovered=0、无台阶 |
+| SVG 曲线重绘（vtracer 备选） | `smooth_svg.py` | 12,034 path / 3.47 MB、mean **7.20**、≤5 65.1%；比 potrace 结果更碎，适合追高保真 |
 | 像素游程模式（**已弃用**） | `build_svg.py` / `autotune.py` | 游程矩形 4133 path / 4.06 MB、mean **2.16**、≤5 96.7%，**放大有像素台阶**；只用于复现旧的 mean<2 数字，不作默认、不作交付 |
 | 30fps 视频 | `render_video.py` + `planner_8layer.py` | 720 帧 **8.07 s**（进程内）/ 8.76 s 墙钟 |
 | 计划级差量重绘 | `paint_diff.py`（稳定 sid） | 60 行 / 1.4 KB 补丁 → **0.028 s** vs 全量 5.81 s（**209×**，逐位相同） |
