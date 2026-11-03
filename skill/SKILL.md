@@ -590,6 +590,32 @@ python <skill>/scripts/paint_process.py ref.png out.html --size 876x1904 --durat
 
 > K 是**颜色层数**，不是绘画阶段数。过程模式的 11 个阶段是 `paint_process.py` 专有；`vectorize.py` 的 384 层是 384 个色块路径。静态 `.svg` 不写 `data-step`，只有 HTML 播放器/过程模式需要播放标记。
 
+### 指令编译评测（30 条）+ 视觉框选样例
+
+```
+python scripts/eval_instructions.py plan.json examples/batch/expected.json examples/batch/compiled.json
+```
+
+结果：**30/30 正确**（schema 全通过 + 算子集合 + 受影响层集合一致），产物在 `examples/batch/`。
+注意这 30 条是**自拟的、指向明确的**指令（用来验证 schema 与映射稳定性），不代表开放语义的天花板——
+含歧义/指代/复合目标的指令还需要另建更难的一套。
+
+**视觉框选（多模态掩膜）**：直接看图给多边形，不写坐标规则。
+
+```
+examples/mask_rose_head.json     # {"type":"polygon","points":[...]} 围着玫瑰花头
+examples/ops_rose_magenta.json   # 4 个算子：bed/band 转品红、highlight 偏紫、band 加密
+python scripts/instruction_demo.py plan.json --ops examples/ops_rose_magenta.json \
+       --mask-file examples/mask_rose_head.json --feather 24
+```
+
+实测：选中 4,056 笔，脏矩形 (275,0)-(775,504)，编辑 2.4 s、重算 8.65 s（bed/band 铺满全图，
+又是"改大层"的代价），**增量 == 整份重画 0 px**。
+
+**颜色连通域掩膜**（`masks.from_image`）：按颜色 + 容差找像素 → 连通域 → 最大块包围盒 → rect 掩膜，
+不必逐笔回读像素；`tests/test_masks_image.py` 断言只选中色块内的笔触。
+另加了包围盒预筛：多边形掩膜对 5 万笔逐笔算距离从 5.2 s 降到 **2.4 s**。
+
 ### 默认关闭的可选开关
 
 **`--edge-soften=SIGMA`：边缘柔化后处理（legacy，保留可用）。** 新交付优先用下面的 `--alpha-soften`；这个开关留着只是因为快速出图时它更省事（一步模糊，不用扫参）。 它直接作用于已完成 SVG（或 HTML 里的 SVG），只增加一个 `feGaussianBlur` 和一层包装，不改路径坐标、不改层序。适合“放大很多倍不要让 1px 阶梯很扎眼”的交付；副作用是整体轻微变软。想真正提高轮廓分辨率，应该提高 `ss`（如 3×），`--edge-soften` 只是最终视觉后处理。`svg_postprocess.py` 可独立对已有 SVG 跑，参数为 `--soften N`。

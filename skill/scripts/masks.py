@@ -156,12 +156,34 @@ def stroke_weight(mask, stroke, feather=0.0):
     return float(w.max()) if len(w) else 0.0
 
 
+def _mask_bbox(mask):
+    t = mask.get("type")
+    if t == "rect":
+        return (mask["x"], mask["y"], mask["x"] + mask["w"], mask["y"] + mask["h"])
+    if t == "point":
+        return (mask["x"] - mask["r"], mask["y"] - mask["r"],
+                mask["x"] + mask["r"], mask["y"] + mask["r"])
+    if t == "polygon":
+        p = np.asarray(mask["points"], np.float64)
+        return (float(p[:, 0].min()), float(p[:, 1].min()),
+                float(p[:, 0].max()), float(p[:, 1].max()))
+    return None
+
+
 def weights(doc, mask, feather=0.0, layer=None):
     """返回 (selection, weights)：全局笔触下标 + 对应 0..1 权重。"""
     sel, wt = [], []
+    mb = _mask_bbox(mask)
+    if mb is not None:
+        pad = float(feather) + 1.0
+        mb = (mb[0] - pad, mb[1] - pad, mb[2] + pad, mb[3] + pad)
     for i, s in enumerate(doc["strokes"]):
         if layer is not None and s["layer"] != layer:
             continue
+        if mb is not None:
+            b = stroke_bbox(s)
+            if b is None or b[2] < mb[0] or b[0] > mb[2] or b[3] < mb[1] or b[1] > mb[3]:
+                continue
         w = stroke_weight(mask, s, feather)
         if w > 0:
             sel.append(i)
@@ -184,6 +206,57 @@ def bbox(doc, selection):
         return None
     a = np.asarray(xs)
     return (float(a[:, 0].min()), float(a[:, 1].min()), float(a[:, 2].max()), float(a[:, 3].max()))
+
+
+def _label(mask_bool):
+    """4 连通标记；有 scipy 用它，没有就 BFS 兜底。返回 (labels, n)。"""
+    try:
+        from scipy import ndimage
+        return ndimage.label(mask_bool)
+    except Exception:
+        pass
+    h, w = mask_bool.shape
+    labels = np.zeros((h, w), np.int32)
+    n = 0
+    from collections import deque
+    for sy in range(h):
+        for sx in range(w):
+            if not mask_bool[sy, sx] or labels[sy, sx]:
+                continue
+            n += 1
+            q = deque([(sy, sx)])
+            labels[sy, sx] = n
+            while q:
+                y, x = q.popleft()
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < h and 0 <= nx < w and mask_bool[ny, nx] and not labels[ny, nx]:
+                        labels[ny, nx] = n
+                        q.append((ny, nx))
+    return labels, n
+
+
+def from_image(image, color, tol=40, keep_largest=True, pad=0):
+    """像素级颜色连通域 -> 计划空间矩形掩膜（取最大连通块的包围盒）。
+
+    这是「掩膜由模型/图像给出」的那条来源：先按颜色+容差找像素，再做连通域，
+    最后退化成 rect 掩膜交给笔触选择与脏矩形计算——不需要每笔回读像素。
+    """
+    from PIL import Image
+    arr = np.asarray(Image.open(image).convert("RGB"), np.int32)
+    d = np.abs(arr - np.asarray(color, np.int32)[:3]).max(axis=2)
+    labels, n = _label(d <= float(tol))
+    if n == 0:
+        return None
+    keep = labels > 0
+    if keep_largest:
+        sizes = np.bincount(labels.ravel())
+        sizes[0] = 0
+        keep = labels == int(sizes.argmax())
+    ys, xs = np.nonzero(keep)
+    x0, y0 = int(xs.min()) - pad, int(ys.min()) - pad
+    x1, y1 = int(xs.max()) + pad, int(ys.max()) + pad
+    return rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
 
 
 def to_json(mask):

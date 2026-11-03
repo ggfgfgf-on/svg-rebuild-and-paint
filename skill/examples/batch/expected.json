@@ -1,0 +1,300 @@
+[
+ {
+  "id": 1,
+  "instruction": "把高光层改成偏冷的紫色并提亮",
+  "ops": [
+   "set_layer_hue",
+   "set_layer_brightness"
+  ],
+  "layers": [
+   "highlight"
+  ]
+ },
+ {
+  "id": 2,
+  "instruction": "把床层压暗、降低饱和度",
+  "ops": [
+   "set_layer_brightness",
+   "set_layer_saturation"
+  ],
+  "layers": [
+   "bed"
+  ]
+ },
+ {
+  "id": 3,
+  "instruction": "花纹带层的色相转成橙红",
+  "ops": [
+   "set_layer_hue"
+  ],
+  "layers": [
+   "band"
+  ]
+ },
+ {
+  "id": 4,
+  "instruction": "描线层笔触加粗到 1.5 倍",
+  "ops": [
+   "scale_stroke_size"
+  ],
+  "layers": [
+   "ink"
+  ]
+ },
+ {
+  "id": 5,
+  "instruction": "阴影层整体压暗到 0.7",
+  "ops": [
+   "set_layer_brightness"
+  ],
+  "layers": [
+   "shadow"
+  ]
+ },
+ {
+  "id": 6,
+  "instruction": "高光层笔触加密 1.3 倍",
+  "ops": [
+   "densify"
+  ],
+  "layers": [
+   "highlight"
+  ]
+ },
+ {
+  "id": 7,
+  "instruction": "删掉纹理层",
+  "ops": [
+   "erase"
+  ],
+  "layers": [
+   "texture"
+  ]
+ },
+ {
+  "id": 8,
+  "instruction": "环境层整体提亮 1.2 倍",
+  "ops": [
+   "set_layer_brightness"
+  ],
+  "layers": [
+   "ambient"
+  ]
+ },
+ {
+  "id": 9,
+  "instruction": "釉层饱和度提到 0.9",
+  "ops": [
+   "set_layer_saturation"
+  ],
+  "layers": [
+   "glaze"
+  ]
+ },
+ {
+  "id": 10,
+  "instruction": "床层笔刷换成 round_soft",
+  "ops": [
+   "swap_brush"
+  ],
+  "layers": [
+   "bed"
+  ]
+ },
+ {
+  "id": 11,
+  "instruction": "花纹带层随机重抽 30% 的笔触",
+  "ops": [
+   "redraw"
+  ],
+  "layers": []
+ },
+ {
+  "id": 12,
+  "instruction": "高光层去饱和到 0.3",
+  "ops": [
+   "set_layer_saturation"
+  ],
+  "layers": [
+   "highlight"
+  ]
+ },
+ {
+  "id": 13,
+  "instruction": "床层色相转到 120 度",
+  "ops": [
+   "set_layer_hue"
+  ],
+  "layers": [
+   "bed"
+  ]
+ },
+ {
+  "id": 14,
+  "instruction": "阴影层笔刷换成 flat",
+  "ops": [
+   "swap_brush"
+  ],
+  "layers": [
+   "shadow"
+  ]
+ },
+ {
+  "id": 15,
+  "instruction": "墨线层尺寸缩到 0.8 倍",
+  "ops": [
+   "scale_stroke_size"
+  ],
+  "layers": [
+   "ink"
+  ]
+ },
+ {
+  "id": 16,
+  "instruction": "纹理层压暗到 0.6",
+  "ops": [
+   "set_layer_brightness"
+  ],
+  "layers": [
+   "texture"
+  ]
+ },
+ {
+  "id": 17,
+  "instruction": "高光层提亮 1.4 倍并加密",
+  "ops": [
+   "set_layer_brightness",
+   "densify"
+  ],
+  "layers": [
+   "highlight"
+  ]
+ },
+ {
+  "id": 18,
+  "instruction": "床层整体重画一半笔触",
+  "ops": [
+   "redraw"
+  ],
+  "layers": []
+ },
+ {
+  "id": 19,
+  "instruction": "花纹带层提亮 1.15 并把饱和度降到 0.7",
+  "ops": [
+   "set_layer_brightness",
+   "set_layer_saturation"
+  ],
+  "layers": [
+   "band"
+  ]
+ },
+ {
+  "id": 20,
+  "instruction": "把釉层亮度调到 0.8",
+  "ops": [
+   "set_layer_brightness"
+  ],
+  "layers": [
+   "glaze"
+  ]
+ },
+ {
+  "id": 21,
+  "instruction": "环境层换成 round_hard 笔刷",
+  "ops": [
+   "swap_brush"
+  ],
+  "layers": [
+   "ambient"
+  ]
+ },
+ {
+  "id": 22,
+  "instruction": "高光层色相转到 45 度，做金色高光",
+  "ops": [
+   "set_layer_hue"
+  ],
+  "layers": [
+   "highlight"
+  ]
+ },
+ {
+  "id": 23,
+  "instruction": "阴影层随机删掉一半笔触",
+  "ops": [
+   "erase"
+  ],
+  "layers": [
+   "shadow"
+  ]
+ },
+ {
+  "id": 24,
+  "instruction": "纹理层加密 1.5 倍",
+  "ops": [
+   "densify"
+  ],
+  "layers": [
+   "texture"
+  ]
+ },
+ {
+  "id": 25,
+  "instruction": "把整幅画的颜色吸附到冷色板",
+  "ops": [
+   "recolor_palette"
+  ],
+  "layers": []
+ },
+ {
+  "id": 26,
+  "instruction": "墨线层提亮到 1.3",
+  "ops": [
+   "set_layer_brightness"
+  ],
+  "layers": [
+   "ink"
+  ]
+ },
+ {
+  "id": 27,
+  "instruction": "床层饱和度降到 0.4",
+  "ops": [
+   "set_layer_saturation"
+  ],
+  "layers": [
+   "bed"
+  ]
+ },
+ {
+  "id": 28,
+  "instruction": "高光层笔刷换成 chalk",
+  "ops": [
+   "swap_brush"
+  ],
+  "layers": [
+   "highlight"
+  ]
+ },
+ {
+  "id": 29,
+  "instruction": "把花纹带层删掉",
+  "ops": [
+   "erase"
+  ],
+  "layers": [
+   "band"
+  ]
+ },
+ {
+  "id": 30,
+  "instruction": "阴影层色相转向蓝紫",
+  "ops": [
+   "set_layer_hue"
+  ],
+  "layers": [
+   "shadow"
+  ]
+ }
+]

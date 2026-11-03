@@ -33,6 +33,7 @@ def main():
     ap.add_argument("--ops", required=True, help="编译产物 JSON（算子数组）")
     ap.add_argument("--rect", default=None, help="改画区域 x,y,w,h（缺省全图）")
     ap.add_argument("--mask", default=None, help="完整掩膜 JSON，优先于 --rect")
+    ap.add_argument("--mask-file", default=None, help="掩膜 JSON 文件（多模态框选的产物）")
     ap.add_argument("--feather", type=float, default=32.0)
     ap.add_argument("--gpu", action="store_true")
     ap.add_argument("--no-check", action="store_true", help="跳过与整份重画的逐位对比")
@@ -45,7 +46,9 @@ def main():
     compile_ops.validate_ops(doc, specs)
     load_s = time.perf_counter() - t0
 
-    if a.mask:
+    if a.mask_file:
+        mask = masks.from_json(json.loads(Path(a.mask_file).read_text(encoding="utf-8")))
+    elif a.mask:
         mask = masks.from_json(json.loads(a.mask))
     elif a.rect:
         x, y, rw, rh = [float(v) for v in a.rect.split(",")]
