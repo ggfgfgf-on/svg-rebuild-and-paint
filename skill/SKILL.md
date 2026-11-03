@@ -645,8 +645,15 @@ python scripts/paint_video.py plan.json --ops examples/ops_rose_magenta.json \
 python scripts/eval_instructions.py plan.json examples/batch/expected_hard.json examples/batch/compiled_hard.json
 ```
 
-结果 **19/20（95%）**，唯一失败是模型把色板写成自然语言字符串（`"深蓝到浅青"`），
-被 `validate_ops` 直接拒掉——**校验层挡住了它，像素没被碰**。
+结果分两版（都在仓库里，可复现）：
+
+| 版本 | 文件 | 正确率 | 说明 |
+|---|---|---|---|
+| v1 | `examples/batch/compiled_hard_v1.json` | **19/20** | #19 把色板写成字符串 `"深蓝到浅青"` → 被 `validate_ops` 拒掉，**像素没被碰** |
+| v2（修正版） | `examples/batch/compiled_hard.json` | **20/20** | 修正后 schema_ok=20、failures=[] |
+
+v1 保留作案例：**模型会在最不起眼的地方（色板类型）出错，而校验层是唯一能挡住它的东西**。
+另：子代理自报 20/20，我没有直接采信，是本地重跑 eval 复核后才写进文档的。
 
 设计要点：10 条可表达 + 10 条**不可表达**（变成水彩 / 换成纯白背景 / 把玫瑰变成牡丹 /
 恢复上一次修改 / 更通透 / 更贵一点），后者期望模型输出空数组表示拒绝，而不是硬凑算子。
