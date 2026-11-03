@@ -1054,8 +1054,11 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 - GPU 创建失败会**自动回落 CPU**，并由 `p.gpu_used` 通知 tile_inc（不会按 GPU 的 offsets 切错）。
 
 仍不完善：
-1. 整张计划 0.07%（707/990,000 px >4）的差，来自 stamp 位置/累加顺序（CPU 增量 u/v + band 内 max，
-   GPU 每像素重算 + InterlockedMax）；要 0 diff 得把 stamp 生成统一成一份共享实现。
+1. 整张计划 0.07%（707/990,000 px >4）的差，**已定位到两个功能差异**（不是 stamp 位置）：
+   - `set_color_dynamics`：GPU 把抖动桶压进 alpha 低 8 位、再劈成 4+4 位（16 级），CPU 是连续 float →
+     单笔探针 diff 528 px / 396 px>4。修法：shader 里直接用 stamp 序号重算 hash（不再打包桶）。
+   - `set_wet`：GPU 的快照语义与 CPU 不同 → 单笔探针 560 px / 546 px>4。
+   其余路径（无 dynamic、无 wet、位图笔尖、26 种混合、单笔、批量、layer_rgba）都已逐位一致。
 2. `pg_composite_incremental` 仍无独立回归（测试只覆盖 full 与 dirty-rect 重建）。
 3. 只在 RTX 5070 Laptop 上验过，跨显卡/跨驱动确定性未测。
 4. paint_gpu.dll 需本机 VS BuildTools + clang 重编（build_gpu.bat / build_paint.bat）。
