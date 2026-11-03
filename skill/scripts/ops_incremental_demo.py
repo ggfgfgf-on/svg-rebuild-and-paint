@@ -38,14 +38,19 @@ def new_painter(doc):
     return p, cat, w, h
 
 
-def doc_to_plan(doc, cat):
-    """plan_io 的 JSON 契约 -> plan_store 的数组快表（全部 rids=0，单区域）。"""
+def doc_to_plan(doc, cat, base=None, only=None):
+    """plan_io 的 JSON 契约 -> plan_store 的数组快表（全部 rids=0，单区域）。
+
+    base 给出已打包的上一层结果时，只有 only 里的层会重新打包（改画只动一层，
+    没必要把 5.7 万笔全部重排一遍）。"""
     spec = [(l["name"], l.get("blend", "normal")) for l in (doc.get("layers") or [])]
     by_layer = {}
     for s in doc["strokes"]:
         by_layer.setdefault(s["layer"], []).append(s)
-    plan = {}
+    plan = dict(base) if base else {}
     for name, _ in spec:
+        if base is not None and only is not None and name not in only:
+            continue
         items = []
         for s in by_layer.get(name, []):
             pid = paint_native.PRESETS.get(s["preset"], cat.get(s["preset"]))
@@ -70,6 +75,8 @@ def main():
     ap.add_argument("--rect", default=None)
     ap.add_argument("--feather", type=float, default=32.0)
     ap.add_argument("--gpu", action="store_true")
+    ap.add_argument("--tiles", type=int, default=1,
+                    help="把脏矩形切成 N×N 块分别重算（N=1 表示整块）")
     ap.add_argument("--out", default=str(Path.home() / ".cache" / "ops_demo" / "inc.png"))
     a = ap.parse_args()
 
@@ -110,10 +117,30 @@ def main():
     x0, y0, x1, y1 = [int(round(v)) for v in box]
     x0, y0 = max(0, x0), max(0, y0)
     x1, y1 = min(w - 1, x1), min(h - 1, y1)
-    dirty = {a.layer: [(x0, y0, x1, y1)]}
+    if a.tiles <= 1:
+        rects = [(x0, y0, x1, y1)]
+    else:
+        n = int(a.tiles)
+        rects = []
+        for ty in range(n):
+            for tx in range(n):
+                rx0 = x0 + (x1 - x0 + 1) * tx // n
+                rx1 = x0 + (x1 - x0 + 1) * (tx + 1) // n - 1
+                ry0 = y0 + (y1 - y0 + 1) * ty // n
+                ry1 = y0 + (y1 - y0 + 1) * (ty + 1) // n - 1
+                if rx1 >= rx0 and ry1 >= ry0:
+                    rects.append((rx0, ry0, rx1, ry1))
+    dirty = {a.layer: rects}
 
+    touched = set()
+    for sp in specs:
+        touched.add(sp.get("layer"))   # None 表示全局算子（影响所有层）
+    touched.discard(None) if None not in touched else touched.update(
+        l["name"] for l in doc["layers"])
     t0 = time.perf_counter()
-    plan2, spec2 = doc_to_plan(out, cat)
+    plan2, spec2 = doc_to_plan(out, cat, base=plan1, only=touched)
+    pack2_s = time.perf_counter() - t0
+    t0 = time.perf_counter()
     tile_inc.rebuild(p, plan2, spec2, dirty, lambda nm: region, gpu=a.gpu, nthreads=8)
     arr_inc = np.ascontiguousarray(p.composite())
     rebuild_s = time.perf_counter() - t0
@@ -138,8 +165,10 @@ def main():
     print(json.dumps({
         "load_s": round(load_s, 2), "pack_and_full_render_s": round(pack_s, 2),
         "selected": len(sel), "select_s": round(sel_s, 3), "edit_s": round(edit_s, 3),
-        "dirty_rect": [x0, y0, x1, y1],
-        "rebuild_incremental_s": round(rebuild_s, 3), "full_render_after_s": round(full2_s, 2),
+        "dirty_rect": [x0, y0, x1, y1], "tiles": a.tiles, "gpu": bool(a.gpu),
+        "pack_after_edit_s": round(pack2_s, 3),
+        "rebuild_incremental_s": round(rebuild_s, 3),
+        "edit_plus_pack_plus_rebuild_s": round(edit_s + pack2_s + rebuild_s, 3), "full_render_after_s": round(full2_s, 2),
         "speedup_vs_full": round(full2_s / max(rebuild_s, 1e-6), 1),
         "inc_vs_full_diff_px": inc_vs_ref,
         "changed_px": int(before_vs_inc.sum()), "outside_dirty_rect_px": outside,

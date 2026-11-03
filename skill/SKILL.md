@@ -816,8 +816,23 @@ python scripts/ops_demo.py plan.json --layer highlight --hue 260 --brightness 1.
 | 增量 vs 整份重画 | **逐位相同（0 px）** |
 | 脏矩形之外 vs 改画前 | **0 px** |
 
-JSON 调试路径渲染 14.6 s，和打包路径差不多——**慢在原生逐笔光栅化本身，不在 Python 装配**；
-要提速只能缩小重绘区域（增量）或换 GPU 后端。
+端到端（编译产物 `examples/ops_highlight_cool.json` + `instruction_demo.py`，同一份计划）：
+
+| 步骤 | 时间 |
+|---|---|
+| 读 103 MB JSON + schema 校验 | 1.59 s |
+| 掩膜 + 算子 + 只重新打包改动层 | **0.087 s** |
+| 只重算脏矩形（单层，500×718） | **0.065 s** |
+| **编辑到出新像素（不含读盘）** | **0.15 s** |
+| 整份重画对照 | 14.2 s → 增量**逐位相同（0 px）** |
+
+```
+python scripts/instruction_demo.py plan.json --ops examples/ops_highlight_cool.json --rect "200,150,500,700" --feather 40
+python tests/test_e2e_edit.py
+```
+
+慢在原生逐笔光栅化本身，不在 Python 装配：整份 14 s 里绘制 13.6 s、打包 1.25 s、笔尖注册 0.04 s；
+要整份提速只能换 GPU 后端，要局部提速就是上面这条增量路径（0.15 s）。
 
 坑（已修在 `plan_io.resolve_preset`）：批量解析位图笔尖名时若每笔都调 `load_catalog`，复杂度是 O(笔触数 × 278 笔尖)，5.7 万笔会卡 8 分钟以上；必须把 catalog 传进去复用。
 
