@@ -38,7 +38,7 @@ def make_plan(seed=5):
 
 def gpu_painter():
     p = gpn.GpuPainter(W, H)
-    p.add_layer("normal")                 # 占位背景层（CPU 侧 layer 0 也是背景）
+    p.add_layer("normal")                 # pg_create 不建层：补一张背景，之后下标与 CPU 对齐
     p.clear_layer(0, (18, 18, 18), 1.0)
     for _, bl in SPECS:
         p.add_layer(bl)
@@ -47,8 +47,7 @@ def gpu_painter():
 
 def cpu_painter():
     p = paint_native.Painter(W, H)
-    p.add_layer("normal")
-    p.clear_layer(0, (18, 18, 18), 1.0)
+    p.clear_layer(0, (18, 18, 18), 1.0)  # paint_create 自带 layer 0（背景），不要再 add_layer
     for _, bl in SPECS:
         p.add_layer(bl)
     return p

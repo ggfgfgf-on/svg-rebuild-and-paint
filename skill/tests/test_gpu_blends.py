@@ -10,9 +10,13 @@ multiply/overlay/softlight 同样分别差 3.09 / 2.57 / 1.12（normal 仍是 0.
 所以这不是回归，而是**混合模式从未进入过对拍**：test_gpu_tile 只用了 normal 层，
 test_stamp_color 只测单层逐 stamp 色彩。
 
-判据：
-  normal 混合 + 位图笔尖  -> 必须几乎逐位一致（mean < 0.5）
-  非 normal 混合          -> 记录现状；mean > 1.0 记 KNOWN（不 FAIL，但打印）
+判据：全部必须逐位/近似逐位一致（mean < 0.5）。
+
+历史：这张探针曾经显示 multiply/screen/overlay/softlight 差 1–3 个灰阶，
+当时误判成"GPU 后端有问题"。真正的原因在 **CPU 侧**：`paint_create` 自带 layer 0 作背景，
+而 new_painter 又 add_layer("normal")，导致文档里的第 i 层被画进第 i+1 层、混合模式整体错位一位。
+GPU 的 `pg_create` 不建隐式层，同样的代码反而对齐——所以当年"GPU 与 CPU 不一致"其实是 CPU 的接线错了。
+修掉图层基准后，四种混合模式 mean 全部 = 0.000。
 """
 import sys
 from pathlib import Path
@@ -55,7 +59,8 @@ def strokes(seed=3):
 def render(blend, gpu, tip=None):
     specs = [("a", blend), ("b", "normal")]
     p = (gpn.GpuPainter if gpu else paint_native.Painter)(W, H)
-    p.add_layer("normal")
+    if gpu:
+        p.add_layer("normal")          # GPU 没有隐式背景层
     p.clear_layer(0, (18, 18, 18), 1.0)
     for _, bl in specs:
         p.add_layer(bl)
@@ -88,13 +93,9 @@ def main():
         mean_t, npx_t = diff("normal", tip=tips[0])
         check("bitmap tip: gpu ~= cpu", mean_t < 0.5, "mean=%.3f px>4=%d" % (mean_t, npx_t))
 
-    known = {}
     for blend in ("multiply", "screen", "overlay", "softlight"):
         m, n = diff(blend)
-        known[blend] = (m, n)
-        print("INFO %-10s mean=%.3f px>4=%d%s" % (blend, m, n, "  KNOWN-DIVERGENCE" if m > 1.0 else ""))
-    check("blend divergence recorded (not silently ignored)", len(known) == 4,
-          "worst=%s" % max(known.items(), key=lambda kv: kv[1][0])[0])
+        check("blend %s: gpu == cpu" % blend, m < 0.5, "mean=%.3f px>4=%d" % (m, n))
     print("RESULT", "OK" if ok else "FAILED")
 
 

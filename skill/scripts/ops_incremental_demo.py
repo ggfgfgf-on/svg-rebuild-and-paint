@@ -33,9 +33,9 @@ def new_painter(doc, gpu=False):
     if gpu:
         import paint_gpu_native
         p = paint_gpu_native.GpuPainter(w, h)
+        p.add_layer("normal")          # pg_create 不建层：先补一张背景，之后下标才能与 CPU 对齐
     else:
-        p = paint_native.Painter(w, h)
-    p.add_layer("normal")
+        p = paint_native.Painter(w, h)  # paint_create 自带 layer 0 作为背景
     p.clear_layer(0, (255, 255, 255), 0.0)
     for spec in doc.get("layers") or []:
         p.add_layer(spec.get("blend", "normal"))

@@ -90,7 +90,7 @@ def load_plan(path):
 def render_plan(path, out_png, threads=8):
     doc, w, h = load_plan(path)
     p = paint_native.Painter(w, h)
-    p.add_layer("normal"); p.clear_layer(0, (255, 255, 255), 0.0)
+    p.clear_layer(0, (255, 255, 255), 0.0)      # CPU 的 layer 0 就是背景，不要再 add_layer
     layers = doc.get("layers") or []
     for spec in layers:
         p.add_layer(spec.get("blend", "normal"))
