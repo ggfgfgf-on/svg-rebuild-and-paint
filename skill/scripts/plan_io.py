@@ -25,13 +25,16 @@ def _preset_map(painter=None):
     return m
 
 
-def resolve_preset(name, painter, allow_tips=True):
-    """名字 -> id。公式预设直接命中；位图笔尖需已注册；未知则报错并给候选。"""
+def resolve_preset(name, painter, allow_tips=True, catalog=None):
+    """名字 -> id。公式预设直接命中；位图笔尖需已注册；未知则报错并给候选。
+
+    catalog 可传入「已注册好的 {名字: id}」——批量解析时务必复用，
+    否则每笔都会重扫 native/tips/*.png 并重建 278 个笔尖（O(笔触数 × 笔尖数)）。"""
     presets = paint_native.PRESETS
     if name in presets:
         return presets[name]
     if allow_tips and painter is not None:
-        cat = paint_native.load_catalog(painter)
+        cat = catalog if catalog is not None else paint_native.load_catalog(painter)
         if name in cat:
             return cat[name]
         cands = difflib.get_close_matches(name, list(presets) + list(cat), n=3, cutoff=0.4)
@@ -98,7 +101,7 @@ def render_plan(path, out_png, threads=8):
         rid, fg = z["rid"], z["fg"]
         p.set_region(rid)
     subject = set(doc.get("subject_layers") or [])
-    paint_native.load_catalog(p)
+    catalog = paint_native.load_catalog(p)   # 每张计划只扫一次笔尖目录
     by_layer = {}
     for s in doc["strokes"]:
         by_layer.setdefault(s["layer"], []).append(s)
@@ -107,7 +110,7 @@ def render_plan(path, out_png, threads=8):
         strokes = []
         p.set_region(fg if (fg is not None and name in subject) else rid) if regions else None
         for s in by_layer.get(name, []):
-            pid = resolve_preset(s["preset"], p, allow_tips=True)
+            pid = resolve_preset(s["preset"], p, allow_tips=True, catalog=catalog)
             strokes.append({"points": np.asarray(s["points"], np.float32), "size": float(s["size"]),
                             "opacity": float(s["opacity"]), "color": np.asarray(_color(s["color"]), np.float32),
                             "preset": pid, "hardness": float(s.get("hardness", 0.7)),

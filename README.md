@@ -37,6 +37,7 @@ Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOM
 | 逐 stamp 上色（CPU） | `paint_set_color_dynamics` | alpha 逐位不变；同笔 20 种颜色；**+23%** 开销（2.41 → 2.97 s @947×1147×8层） |
 | 逐 stamp 上色（GPU） | 打包键 `(alpha16<<16) \| (65535-stampIdx)` | 与 CPU 均值差 **0.001**；关闭时走原路径逐位不变 |
 | GPU smudge / impasto | `paint_fx.dll`（DirectCompute） | 1024²：smudge **8.1×**；4096²：impasto **6.8×**；与 CPU 最大差 **1.4e-6**（float32 舍入） |
+| 计划空间改画（指令 → 算子） | `ops.py` / `masks.py` / `compile_ops.py` | 909×1100/57,812 笔：编辑 **0.83 s**，脏矩形外 **0 px**（逐位相同）；`guidance=0` → 计划逐字节不变 |
 | 笔感扩展 | `brush_ext.py` | smudge / 浮雕光照 / 纸纹变体 / 色彩动态 / 速度响应 / PSD+KRA 读回 |
 | PSD 互操作 | 内置 8BPS 解析器 | 8/16bit、raw+RLE、unicode 图层名、图层组；不依赖 psd-tools |
 

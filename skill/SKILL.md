@@ -782,3 +782,36 @@ python scripts/paint_process.py ref.png process.html --size 876x1904 --duration 
 - 透明源的对照图必须是**白底合成版**（浏览器截图不带 alpha），否则 black-vs-white 会把 mean 拉到几十。
 
 完整原始手册（伪代码 + 调参决策树 + 坐标约定）：`references/manual.md`。
+
+## 计划空间改画（指令 → 算子 → 确定性重渲染）
+
+对应扩散编辑里的「文本条件 + CFG + SDEdit + 掩膜」，全部落在可见的 plan doc 上：
+
+| 扩散概念 | 这里的实现 | 旋钮 |
+|---|---|---|
+| 文本编码器 | `compile_ops.py`：多模态把指令编译成算子 JSON（落盘、schema 校验、`--recompile` 才重编） | — |
+| cross-attention 注入条件 | 算子直接改 doc 字段（层/颜色/尺寸/笔触数） | — |
+| CFG 引导强度 | 每个算子的 `guidance ∈ [0,1]` | 0 = 逐字节不变，1 = 精确命中 |
+| SDEdit 噪声强度 | `redraw(fraction, jitter)` | fraction = 重画的笔触比例 |
+| masked inpainting | `masks.py`：rect / point / polygon / color + 羽化权重 | `feather` |
+
+只允许这 9 个算子（别的键一律拒绝，防模型瞎编）：`set_layer_hue`、`set_layer_saturation`、`set_layer_brightness`、`scale_stroke_size`、`swap_brush`、`densify`、`erase`、`redraw`、`recolor_palette`。
+
+```
+python scripts/compile_ops.py summarize plan.json                  # 计划摘要（喂模型）
+python scripts/compile_ops.py prompt plan.json "把花改成蓝色" > prompt.txt
+python scripts/compile_ops.py validate plan.json ops.json          # schema 校验
+python scripts/compile_ops.py apply plan.json ops.json out.json --mask "{...}" --feather 32
+python scripts/ops_demo.py plan.json --layer highlight --hue 260 --brightness 1.25 --rect "200,150,500,700" --feather 40
+```
+
+实测（900×1100 / 8 层 / 57,812 笔的真实玫瑰计划，`painting.plan.json`）：
+
+- 改画编辑 **0.83 s**（选中 1619 笔，+300 子笔触）
+- 渲染 **14.6 s 是 JSON 调试路径**；打包 npz + `tile_inc` 的生产路径 2.4 s，局部重算 0.4 s
+- 变 21,497 px，**脏矩形之外 0 px**（逐位相同），两次运行 fingerprint 一致
+
+坑（已修在 `plan_io.resolve_preset`）：批量解析位图笔尖名时若每笔都调 `load_catalog`，复杂度是 O(笔触数 × 278 笔尖)，5.7 万笔会卡 8 分钟以上；必须把 catalog 传进去复用。
+
+测试：`python tests/test_ops.py`、`python tests/test_compile_ops.py`。
+
