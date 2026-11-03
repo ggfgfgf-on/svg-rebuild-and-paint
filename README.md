@@ -2,8 +2,9 @@
 
 **位图 → 真矢量 SVG 重绘（曲线，缩放无台阶）** · **程序化厚涂绘画引擎**（确定性回放 / 增量重绘 / CPU + GPU 双后端）
 
-> An asset-agnostic DSH skill repository with two runnable halves: a pixel-level SVG reconstructor
-> and a deterministic thick-paint rendering engine. Everything below is measured, not claimed.
+> An asset-agnostic DSH skill repository with two runnable halves: a potrace-based curve SVG
+> reconstructor (the pixel-run mode is deprecated) and a deterministic thick-paint rendering engine.
+> Everything below is measured, not claimed.
 
 仓库名沿用了历史名称，内容早已不止 SVG。现在它是一个 DSH Skill 仓库，包含两块可运行、可验收的实现：
 
