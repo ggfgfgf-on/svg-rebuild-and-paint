@@ -281,8 +281,214 @@ def read_kra(path):
     return out
 
 
+
+
+# ---------------------------------------------------------------- 区域失效
+def smudge_rect(path, radius=16.0):
+    """smudge 影响的矩形（含 halo），供增量重算/补片用。"""
+    p = np.asarray(path, np.float32)
+    pad = float(radius) * 1.6 + 2.0
+    return (int(np.floor(p[:, 0].min() - pad)), int(np.floor(p[:, 1].min() - pad)),
+            int(np.ceil(p[:, 0].max() + pad)), int(np.ceil(p[:, 1].max() + pad)))
+
+
+def alpha_rect(rgba, thresh=1e-4):
+    """非透明区域包围盒；空图返回 None。"""
+    a = np.asarray(rgba)
+    m = a[..., 3] > thresh if a.ndim == 3 and a.shape[2] == 4 else np.asarray(a) > thresh
+    ys, xs = np.nonzero(m)
+    if xs.size == 0:
+        return None
+    return (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+
+
+def impasto_rect(rgba):
+    """光照影响范围：非透明区域外扩 2 像素（梯度需要 halo）。"""
+    r = alpha_rect(rgba)
+    if r is None:
+        return None
+    h, w = rgba.shape[:2]
+    return (max(0, r[0] - 2), max(0, r[1] - 2), min(w - 1, r[2] + 2), min(h - 1, r[3] + 2))
+
+
+def apply_in_rect(rgba, rect, fn, pad=0):
+    """只在 rect（外扩 pad）内应用 fn，返回 (新图, 实际矩形)。
+
+    fn(crop, ox, oy) 必须是局部的：只读 crop，坐标偏移由 ox/oy 换算，边界信息靠 pad 提供。
+    """
+    h, w = rgba.shape[:2]
+    x0, y0, x1, y1 = rect
+    cx0, cy0 = max(0, x0 - pad), max(0, y0 - pad)
+    cx1, cy1 = min(w - 1, x1 + pad), min(h - 1, y1 + pad)
+    crop = np.array(rgba[cy0:cy1 + 1, cx0:cx1 + 1], np.float32, copy=True)
+    res = fn(crop, cx0, cy0)
+    out = np.array(rgba, np.float32, copy=True)
+    # 只写回目标矩形本体，halo 仅用于提供边界信息
+    ax0, ay0 = x0 - cx0, y0 - cy0
+    ax1, ay1 = x1 - cx0, y1 - cy0
+    out[y0:y1 + 1, x0:x1 + 1] = res[ay0:ay1 + 1, ax0:ax1 + 1]
+    return out, (x0, y0, x1, y1)
+
+
+
+def apply_effect_tiled(rgba, rects, fn, pad=2):
+    """把像素局部的效果按矩形块分别应用（每块带 halo 裁剪），结果与整图应用逐位相同。
+
+    这就是「效果参与区域失效」的落地方式：把缓存/脏区列表直接传进来，
+    每块只重算自己的感受野（pad >= 效果的感受野半径）。
+    """
+    out = np.array(rgba, np.float32, copy=True)
+    for r in rects:
+        out, _ = apply_in_rect(out, r, fn, pad=pad)
+    return out
+
+# ---------------------------------------------------------------- 逐段色彩（逐 stamp 的近似）
+def split_color_dynamics(strokes, segments=6, hue=0.03, sat=0.12, val=0.10, seed=0, min_points=2):
+    """把每笔按点列切成若干子笔触，每段独立取色 —— 得到「逐 stamp 级」的色彩变化。
+
+    不需要改 shader：等价于在笔触内部按段换色，代价是笔触数×segments。
+    segments 会被限制在 max(1, len(points) - 1)。
+    """
+    out = []
+    idx = 0
+    for k, st in enumerate(strokes):
+        pts = np.asarray(st.get("points", []), np.float32).reshape(-1, 3)
+        n = len(pts)
+        segs = max(1, min(int(segments), n - 1)) if n > 1 else 1
+        if segs == 1:
+            s = stroke_seed(seed, idx); idx += 1
+            hsv = rgb_to_hsv(np.asarray(st["color"], np.float32) / 255.0)
+            hsv[0] = (hsv[0] + (_unit(s, 1) - 0.5) * 2 * hue) % 1.0
+            hsv[1] = np.clip(hsv[1] * (1 + (_unit(s, 2) - 0.5) * 2 * sat), 0, 1)
+            hsv[2] = np.clip(hsv[2] * (1 + (_unit(s, 3) - 0.5) * 2 * val), 0, 1)
+            st2 = dict(st); st2["points"] = pts
+            st2["color"] = tuple(int(round(v)) for v in np.clip(hsv_to_rgb(hsv) * 255, 0, 255))
+            out.append(st2)
+            continue
+        bounds = np.linspace(0, n - 1, segs + 1).astype(np.int64)
+        for j in range(segs):
+            a = int(bounds[j]); b = int(bounds[j + 1])
+            if b <= a:
+                continue
+            s = stroke_seed(seed, idx); idx += 1
+            hsv = rgb_to_hsv(np.asarray(st["color"], np.float32) / 255.0)
+            hsv[0] = (hsv[0] + (_unit(s, 1) - 0.5) * 2 * hue) % 1.0
+            hsv[1] = np.clip(hsv[1] * (1 + (_unit(s, 2) - 0.5) * 2 * sat), 0, 1)
+            hsv[2] = np.clip(hsv[2] * (1 + (_unit(s, 3) - 0.5) * 2 * val), 0, 1)
+            st2 = dict(st)
+            st2["points"] = pts[a:b + 1]
+            st2["color"] = tuple(int(round(v)) for v in np.clip(hsv_to_rgb(hsv) * 255, 0, 255))
+            out.append(st2)
+    return out
+
+
+# ---------------------------------------------------------------- PSD（不依赖 psd-tools）
+def _packbits(buf, need):
+    import numpy as np  # noqa: F401
+    out = bytearray()
+    i, n = 0, len(buf)
+    while i < n and len(out) < need:
+        h = buf[i]; i += 1
+        if h < 128:
+            out += buf[i:i + h + 1]; i += h + 1
+        elif h > 128:
+            if i >= n:
+                break
+            out += bytes([buf[i]]) * (257 - h); i += 1
+    return bytes(out[:need])
+
+
+def _psd_parse_layers(data):
+    import struct
+    pos = 0
+
+    def take(n):
+        nonlocal pos
+        b = data[pos:pos + n]; pos += n
+        return b
+
+    def u16():
+        return struct.unpack(">H", take(2))[0]
+
+    def i16():
+        return struct.unpack(">h", take(2))[0]
+
+    def u32():
+        return struct.unpack(">I", take(4))[0]
+
+    sig = take(4)
+    if sig != b"8BPS":
+        raise ValueError("not a PSD")
+    ver = u16()
+    if ver != 1:
+        raise ValueError("unsupported PSD version %d" % ver)
+    take(6)
+    channels, height, width, depth, mode = struct.unpack(">HIIHH", take(14))
+    if depth != 8:
+        raise ValueError("only 8-bit PSD supported (got %d)" % depth)
+    take(u32())             # color mode data
+    take(u32())             # image resources
+
+    lm_len = u32()
+    lm_end = pos + lm_len
+    li_len = u32()
+    li_end = pos + li_len
+    count = abs(i16())
+    records = []
+    for _ in range(count):
+        top, left, bottom, right = struct.unpack(">iiii", take(16))
+        nch = u16()
+        chans = []
+        for _ in range(nch):
+            cid = i16()
+            clen = u32()
+            chans.append([cid, clen])
+        take(4)             # '8BIM'
+        take(4)             # blend key
+        opacity = data[pos]; pos += 1
+        pos += 3            # clipping, flags, filler
+        extra_len = u32()
+        extra_end = pos + extra_len
+        take(u32())         # mask data
+        take(u32())         # blending ranges
+        nlen = data[pos]; pos += 1
+        name = take(nlen).decode("latin-1", "ignore")
+        pos = extra_end
+        records.append({"rect": (left, top, right, bottom), "chans": chans,
+                        "opacity": opacity, "name": name})
+
+    out = []
+    for rec in records:
+        left, top, right, bottom = rec["rect"]
+        w, h = right - left, bottom - top
+        planes = {}
+        for cid, _clen in rec["chans"]:
+            comp = struct.unpack(">H", take(2))[0]
+            if w <= 0 or h <= 0:
+                continue
+            if comp == 0:
+                raw = take(w * h)
+                planes[cid] = np.frombuffer(raw, np.uint8).reshape(h, w)
+            elif comp == 1:
+                counts = np.frombuffer(take(h * 2), ">u2")
+                rows = []
+                for c in counts:
+                    rows.append(_packbits(take(int(c)), w))
+                planes[cid] = np.frombuffer(b"".join(rows), np.uint8).reshape(h, w)
+            else:
+                raise ValueError("unsupported PSD compression %d" % comp)
+        rgba = np.zeros((h, w, 4), np.uint8)
+        for cid in (0, 1, 2):
+            if cid in planes:
+                rgba[..., cid] = planes[cid]
+        rgba[..., 3] = planes.get(-1, np.full((h, w), 255, np.uint8))
+        out.append({"name": rec["name"], "rgba": rgba,
+                    "opacity": rec["opacity"] / 255.0, "blend": "normal"})
+    return out
+
+
 def read_psd(path):
-    """读 PSD：有 psd-tools 就逐层读，否则退回 PIL 合成图。"""
+    """读 PSD：psd-tools → 内置 8BPS 解析器 → PIL 合成图。"""
     path = Path(path)
     try:
         from psd_tools import PSDImage
@@ -298,6 +504,10 @@ def read_psd(path):
                         if isinstance(getattr(layer, "blend_mode", ""), str) else "normal"})
         if out:
             return out
+    except Exception:
+        pass
+    try:
+        return _psd_parse_layers(Path(path).read_bytes())
     except Exception:
         pass
     from PIL import Image

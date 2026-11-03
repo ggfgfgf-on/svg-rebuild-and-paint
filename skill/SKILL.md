@@ -206,7 +206,7 @@ auto.py ref.png out.svg --region-poly "40,20 280,20 280,160 40,160:128,1"
 | `apply_color_dynamics(strokes, hue=0.02, sat=0.15, val=0.12, seed=0)` | 色相/饱和/明度幅度、seed | 逐笔触确定性色彩抖动 |
 | `grain_variant(tip, grain, amount=0.5, scale=1.0, seed=0)` | seed 决定纸纹相位 | 同一 grain 生成不同相位的笔尖变体 |
 | `apply_velocity_response(strokes, gain=0.3, boost=0.0, ref=None)` | gain 越大越快越细淡 | 按笔速缩放尺寸/不透明度 |
-| `read_kra(path)` / `read_psd(path)` | — | 读回 Krita/Photoshop 分层（PSD 优先 psd-tools，退化到合成图） |
+| `read_kra(path)` / `read_psd(path)` | — | 读回分层。PSD 走 psd-tools → 内置 8BPS 解析器（8bit/RLE/RGBA/图层名）→ PIL 合成图兜底 |
 
 ```python
 import brush_ext as bx
@@ -215,6 +215,29 @@ strokes = bx.apply_velocity_response(bx.apply_color_dynamics(strokes, seed=7), g
 ```
 
 验收：`python tests/test_brush_ext.py`（15 条断言，含 KRA/PSD 写读回环）。
+
+### 效果如何参与增量失效
+
+效果一律先算矩形，再只重算矩形（带 halo），不要整图重跑：
+
+```python
+r = bx.smudge_rect(path, radius=18)          # 拖色影响范围
+r = bx.impasto_rect(layer_rgba)              # 浮雕影响范围（非透明区 +2px）
+out, used = bx.apply_in_rect(img, r, lambda c, ox, oy: bx.smudge_rgba(
+    c, path - [ox, oy, 0], radius=18), pad=30)          # 单块重算
+out = bx.apply_effect_tiled(img, dirty_rects,              # 缓存脏区批量重算
+                            lambda c, ox, oy: bx.impasto_rgba(c), pad=2)
+```
+
+- **impasto 是像素局部**的：分块（pad=2）与整图逐位相同，可直接吃缓存脏区列表。
+- **smudge 依赖整条笔迹**：不能把一笔拆到两个矩形里分别拖，必须按「笔迹影响矩形」整体重算。
+- 两者都不写回 painter 的图层缓冲，属于后处理；若同一帧既有 tile 重绘又有这些效果，顺序必须是「先 tile 重绘 → 再效果补算」。
+
+### 逐 stamp 色彩
+
+`split_color_dynamics(strokes, segments=6, hue=0.03, sat=0.12, val=0.10, seed=0)` 把每笔按点列切成若干子笔触、逐段换色，效果等价于笔触内部逐 stamp 抖动，**不改** CPU/GPU kernel。代价是笔触数 × segments（GPU 侧按笔触批处理，注意批量）。
+
+真正的逐 stamp 抖动需要给 stamp 结构加 3 个颜色通道并同时改 `paint_core.cpp` 与 `paint_gpu.cpp` 的 HLSL，属于引擎级改动，目前未做。
 
 ## 局部改画（incremental repaint）
 
