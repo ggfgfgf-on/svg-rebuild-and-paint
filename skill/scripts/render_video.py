@@ -5,6 +5,7 @@
 """
 
 """关键帧视频：每个阶段真实渲染一次（保留 blend mode 语义），帧只做复用。"""
+from pathlib import Path
 import re, os, time, json, sys, subprocess
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
@@ -55,7 +56,7 @@ def prefix(k):
     parts.append(svg[last:])
     return "".join(parts)
 
-render_py = r"D:\deepseek-harness-dsh-v0.2.1rc2\.dsh-home\skills\generic-pixel-svg-rebuild\scripts\render.py"
+render_py = str(Path(__file__).resolve().parent / "render.py")
 
 def build(k):
     sp = os.path.join(TMP, "k%03d.svg" % k)

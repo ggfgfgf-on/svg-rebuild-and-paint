@@ -1,10 +1,14 @@
 ---
-name: generic-pixel-svg-rebuild
+name: svg-rebuild-and-paint
 description: >-
-  Redraw / vectorize a bitmap (PNG/JPEG, any size) as real SVG - flat-color <path> geometry,
-  no <image>, no base64, no gradients - delivered as a static .svg or a single-file HTML step
-  player, with a measured per-pixel error (mean / percentile / uncovered) instead of eyeballing.
-  Use it whenever the job is "turn this picture into SVG", including plain "重绘这个 / 转成SVG" requests.
+  Two things, both runnable and both measured. (1) Redraw / vectorize a bitmap (PNG/JPEG) as real
+  SVG - flat-color <path> geometry, no <image>, no base64, no gradients - as a static .svg or a
+  single-file HTML step player, verified per pixel (mean / percentile / uncovered). (2) A
+  deterministic thick-paint engine: 8-layer plans, brush-stamp rasterization (CPU + DirectCompute
+  GPU backends), 30 fps video, plan-level diff and tile-level incremental repaint (bit-identical to
+  a full rebuild), per-stamp colour dynamics, smudge / impasto lighting, PSD and KRA interop.
+  Use it whenever the job is "turn this picture into SVG" OR "paint / render / animate this artwork",
+  including plain "重绘这个 / 转成SVG / 画/渲染这个 / 出30fps视频" requests.
 whenToUse: >-
   The default choice for image-to-SVG redraws - 重绘, 重绘这个, svg重绘, 矢量化, 转SVG, SVG 化,
   描摹, 去掉像素感, 生成可播放的分层绘制过程, 把图片做成纯 path 的单文件 HTML, 批量 PNG/GIF 转 SVG,

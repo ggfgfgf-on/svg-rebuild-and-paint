@@ -7,7 +7,7 @@ set -euo pipefail
 
 src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ "${1:-}" != "" ]; then dest="$1"; else dest="${DSH_HOME:-$HOME/.dsh-home}/skills"; fi
-target="$dest/generic-pixel-svg-rebuild"
+target="$dest/svg-rebuild-and-paint"
 
 mkdir -p "$dest"
 rm -rf "$target"

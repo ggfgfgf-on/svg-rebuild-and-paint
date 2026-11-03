@@ -5,7 +5,7 @@
     .\install.ps1 -Dest D:\my\skills  # explicit target directory
     .\install.ps1 -SkipDeps           # do not run pip
 
-  Restart DSH afterwards; the skill appears as 'generic-pixel-svg-rebuild'.
+  Restart DSH afterwards; the skill appears as 'svg-rebuild-and-paint'.
 #>
 param(
     [string]$Dest = '',
@@ -18,7 +18,7 @@ if (-not $Dest) {
     $base = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $HOME '.dsh-home' }
     $Dest = Join-Path $base 'skills'
 }
-$target = Join-Path $Dest 'generic-pixel-svg-rebuild'
+$target = Join-Path $Dest 'svg-rebuild-and-paint'
 
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
 if (Test-Path $target) { Remove-Item $target -Recurse -Force }

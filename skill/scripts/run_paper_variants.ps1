@@ -1,7 +1,7 @@
 param([int]$Threads = 1, [switch]$DryRun)
 $ErrorActionPreference = "Continue"
 $py     = "python"
-$script = "D:/deepseek-harness-dsh-v0.2.1rc2/.dsh-home/skills/generic-pixel-svg-rebuild/scripts/planner_8layer.py"
+$script = Join-Path $PSScriptRoot "planner_8layer.py"
 $ref    = "D:/DSHwork/flower/rose5-full.png"
 $reg    = "D:/DSHwork/flower/plan/regions2.npz"
 $papers = @("03_default-paper", "02_rough-canvas", "05_paper-torchon")

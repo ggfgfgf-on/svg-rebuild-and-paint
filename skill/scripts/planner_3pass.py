@@ -8,8 +8,9 @@
 - 提亮：最亮 3% 点笔
 沉积量见 native/brush.json 的 dep 字段（压力 -> 单位面积覆盖当量）。
 """
+from pathlib import Path
 import sys, time, json, hashlib
-sys.path.insert(0, r"D:\deepseek-harness-dsh-v0.2.1rc2\.dsh-home\skills\generic-pixel-svg-rebuild\scripts")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np, cv2
 from PIL import Image, ImageFilter
 import paint_native
