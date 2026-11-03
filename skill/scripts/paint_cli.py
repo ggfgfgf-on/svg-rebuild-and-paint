@@ -81,7 +81,7 @@ def cmd_edit(a):
         sel_by_layer[name] = s1
     out = ops.apply(doc, specs, selection=sel, weights=wt)
 
-    p, cat, w, h = D.new_painter(doc)
+    p, cat, w, h = D.new_painter(doc, gpu=a.gpu)
     region = np.zeros((h, w), np.int32)
     if getattr(a, "fast", False):
         # 只想要最终图时，直接整幅渲染编辑后的计划（省掉"先画旧的再局部重算"的一整遍）

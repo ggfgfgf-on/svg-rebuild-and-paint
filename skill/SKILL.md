@@ -310,7 +310,7 @@ tile_inc.rebuild(p, plan2, spec, {"band": [(320, 160, 479, 319)]}, base_of, gpu=
 边界：
 
 - 区域裁剪逐像素（`rv == region_id || rv == -2`）：跨区域笔触只更新目标区域，区域外保持原样；
-- 同一后端逐位可复现；CPU 与 GPU 之间存在约 1 像素的边缘判定差（视觉等效，非逐位）；
+- 同一后端逐位可复现；CPU 与 GPU 目前**不是**视觉等效：实测 99.0% 像素不同、max_delta 187（见 GPU 章节）；
 - 成本与「脏区内的笔触数」成正比，与整幅尺寸无关。
 
 ### 独立工具（不参与默认管线）
@@ -990,13 +990,44 @@ python tests/test_e2e_edit.py
 测试：`python tests/test_ops.py`、`python tests/test_compile_ops.py`。
 
 
-## GPU 真相（别再问脚本为什么慢）
+## GPU 后端：有，但和 CPU 不等价
 
-**本引擎没有 GPU 后端。** `tile_inc.draw` 里 `gpu=True` 只改了一个 `offs` 切片，随后仍调用
-CPU 的 `stroke_batch_raw`；`paint_native.py` 里也没有任何 GPU 上下文/着色器。`--gpu` 是历史遗留开关，
-现在第一次使用时打印 `warning: 引擎没有 GPU 后端（--gpu 只是历史开关），已回退 CPU` 并继续。
+**先更正一条错误记录**：本文件曾写过「本引擎没有 GPU 后端」，那是错的。当时只读到
+`paint_native.py` 里 `set_color_dynamics` 的注释「GPU 后端暂不支持（见 GpuPainter.set_color_dynamics）」——
+那句话说的是**这个功能**在 GPU 上没实现，不是整个后端；同时脚本层 `new_painter` 一直只创建 CPU painter，
+`--gpu` 只改了 `offs` 切片就没人接，于是开关空转，让我误判成"引擎没有后端"。
 
-一次「红→蓝」编辑的耗时拆解（900×1100 / 57,812 笔，CPU）：
+实际存在的组件：
+
+| 组件 | 说明 |
+|---|---|
+| `scripts/native/paint_gpu.cpp` / `paint_gpu.dll` | DirectCompute（D3D11）笔刷光栅化，42 KB 源码 |
+| `scripts/paint_gpu_native.py` `GpuPainter` | 与 `paint_native.Painter` 同接口，可互换 |
+| `native/gpu_probe.exe` / `gpu_bench.exe` | 设备探测 + 吞吐基准 |
+
+本机实测（RTX 5070 Laptop GPU）：
+
+```
+gpu_probe: adapter = NVIDIA GeForce RTX 5070 Laptop GPU ; OK
+gpu_bench: 3,000,000 stamps R=20 -> 3.77 G pixel-ops in 236.5 ms (15.9 G/s)
+```
+
+接线后同一张计划（900×1100 / 57,812 笔）全幅渲染：
+
+| 后端 | 时间 | 与 CPU 的像素差 |
+|---|---|---|
+| CPU (`paint_core.dll`) | **13.74 s** | — |
+| GPU (`paint_gpu.dll` + DirectCompute) | **3.62 s**（3.8×） | 99.0% 像素不同，max_delta 187 |
+
+**所以默认仍是 CPU：两个后端的渲染语义没有对齐。** GPU 版把叶子渲成灰白、背景笔触更碎，
+不是"1 像素边缘判定差"，是成体系的差异（混合模式/笔尖 alpha/色彩空间其中至少一项解释不同）。
+用它出交付图会换一张画；要真正切换到 GPU，必须先逐项对齐渲染语义并有逐位回归，这是渲染器工程，
+不是打开一个开关。
+
+`paint_cli.py --gpu` 现在真的会实例化 `GpuPainter`（以前的 `--gpu` 是空转）。用途定位：
+**草稿/预览走 GPU，交付与增量自检走 CPU**。
+
+### 一次「红→蓝」编辑的耗时拆解（CPU）
 
 | 阶段 | 时间 |
 |---|---|

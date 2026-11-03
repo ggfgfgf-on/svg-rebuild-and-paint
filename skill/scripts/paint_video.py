@@ -67,7 +67,7 @@ def main():
     import imageio_ffmpeg
     t0 = time.perf_counter()
     doc, w, h = plan_io.load_plan(a.plan)
-    p, cat, w, h = D.new_painter(doc)
+    p, cat, w, h = D.new_painter(doc, gpu=a.gpu)
     plan1, spec = D.doc_to_plan(doc, cat)
     layer_li = {nm: i + 1 for i, (nm, _) in enumerate(spec)}   # clear_rect 用 1-based 层号
     region = np.zeros((h, w), np.int32)
@@ -152,7 +152,7 @@ def main():
     subprocess.run(cmd, capture_output=True, check=False)
     t_enc = time.perf_counter() - t_enc
 
-    q, _, _, _ = D.new_painter(doc)
+    q, _, _, _ = D.new_painter(doc, gpu=a.gpu)
     tile_inc.full(q, plan2, spec2, lambda nm: region, gpu=a.gpu, nthreads=8)
     ref = np.ascontiguousarray(q.composite())
     q.close()

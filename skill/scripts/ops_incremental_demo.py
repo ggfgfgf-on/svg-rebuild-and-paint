@@ -27,9 +27,14 @@ import plan_store
 import tile_inc
 
 
-def new_painter(doc):
+def new_painter(doc, gpu=False):
+    """gpu=True 用 paint_gpu.dll（DirectCompute）；假名化接口一致，可互换。"""
     w, h = [int(v) for v in doc["canvas"]]
-    p = paint_native.Painter(w, h)
+    if gpu:
+        import paint_gpu_native
+        p = paint_gpu_native.GpuPainter(w, h)
+    else:
+        p = paint_native.Painter(w, h)
     p.add_layer("normal")
     p.clear_layer(0, (255, 255, 255), 0.0)
     for spec in doc.get("layers") or []:

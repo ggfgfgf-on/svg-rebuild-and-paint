@@ -58,7 +58,7 @@ def main():
         mask = masks.rect(0, 0, w, h)
 
     t0 = time.perf_counter()
-    p, cat, w, h = D.new_painter(doc)
+    p, cat, w, h = D.new_painter(doc, gpu=a.gpu)
     plan1, spec = D.doc_to_plan(doc, cat)
     region = np.zeros((h, w), np.int32)
     tile_inc.full(p, plan1, spec, lambda nm: region, gpu=a.gpu, nthreads=8)
@@ -103,7 +103,7 @@ def main():
               "edit_to_pixels_s": round(load_s + edit_s + rebuild_s, 3)}
 
     if not a.no_check:
-        q, _, _, _ = D.new_painter(doc)
+        q, _, _, _ = D.new_painter(doc, gpu=a.gpu)
         t0 = time.perf_counter()
         tile_inc.full(q, plan2, spec2, lambda nm: region, gpu=a.gpu, nthreads=8)
         ref = np.ascontiguousarray(q.composite())

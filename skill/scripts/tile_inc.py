@@ -70,10 +70,6 @@ def _sub(plan, name, sel):
 
 
 def draw(p, plan, spec, name, li, sel, region, gpu, nthreads=8):
-    global _GPU_WARNED
-    if gpu and not _GPU_WARNED:
-        sys.stderr.write("warning: 引擎没有 GPU 后端（--gpu 只是历史开关），已回退 CPU\n")
-        _GPU_WARNED = True
     s = _sub(plan, name, sel)
     if s is None:
         return 0
