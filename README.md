@@ -14,7 +14,7 @@
 
 仓库原名为 `generic-pixel-svg-rebuild`，现已更名为 **`svg-rebuild-and-paint`**（内容早已从纯 SVG 扩展到完整绘画引擎）。
 GitHub 会自动重定向旧链接：`github.com/ggfgfgf-on/generic-pixel-svg-rebuild` → `github.com/ggfgfgf-on/svg-rebuild-and-paint`。
-Skill 的内部名称仍叫 `generic-pixel-svg-rebuild`（安装目录 `$DSH_HOME/skills/generic-pixel-svg-rebuild`），因为那是 skill id，与仓库名解耦。
+Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOME/skills/svg-rebuild-and-paint`），仓库名与 skill id 现在一致。
 
 ---
 
