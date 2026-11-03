@@ -102,8 +102,14 @@ def cmd_edit(a):
               "dirty_rect": [x0, y0, x1, y1], "png": str(a.out),
               "elapsed_s": round(time.perf_counter() - t0, 2)}
     if getattr(a, "video", None):
+        ops_path = a.ops
+        if not ops_path:                      # 模型编译的算子要先落盘，视频脚本只吃文件
+            tmp_ops = Path(a.out).with_suffix(".ops.json")
+            tmp_ops.write_text(json.dumps(specs, ensure_ascii=False), encoding="utf-8")
+            ops_path = str(tmp_ops)
+            report["ops_file"] = ops_path
         cmd = [sys.executable, str(HERE / "paint_video.py"), a.plan,
-               "--ops", a.ops or a._ops_tmp, "--frames", str(a.frames), "--fps", str(a.fps),
+               "--ops", ops_path, "--frames", str(a.frames), "--fps", str(a.fps),
                "--out", a.video]
         if a.mask_file:
             cmd += ["--mask-file", a.mask_file]
