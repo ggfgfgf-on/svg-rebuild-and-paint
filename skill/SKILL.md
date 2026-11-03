@@ -1034,6 +1034,28 @@ python scripts/native/gpu_probe.exe / gpu_bench.exe
 **用法定位**：草稿/预览走 GPU（3.8×），交付与增量自检走 CPU（逐位可复现）。`paint_cli.py --gpu` 现在会真的
 实例化 `GpuPainter`（以前的 `--gpu` 只改了 `offs` 切片，没人接，等于空转）。
 
+### 为什么以前看起来"没问题"（关键证据）
+
+用 `git worktree` 把最早的预编译 DLL 提交 `558b7a5` 取出来，跑同一个混合探针（用**那个提交自己的 DLL**）：
+
+| 混合 | mean\|Δ\| | px>4 |
+|---|---|---|
+| normal | 0.000 | 0 |
+| multiply | 3.091 | 5,094 |
+| overlay | 2.572 | 5,200 |
+| softlight | 1.124 | 5,007 |
+
+也就是说：**混合模式的对齐从来没成立过，不是后来回归的。** 之前"通过"的测试只覆盖 normal：
+
+| 测试 | 实际覆盖 |
+|---|---|
+| `test_gpu_tile` | 两层**都是 normal**；gpu tile == gpu full 逐位、gpu vs cpu mean 0.0000 |
+| `test_stamp_color` | 单层逐 stamp 色彩（mean dev 0.001），不涉及图层混合 |
+| `test_fx_gpu` | 效果层（impasto/smudge），不涉及计划图层混合 |
+
+文档里原来那句"CPU 与 GPU 之间存在约 1 像素的边缘判定差（视觉等效，非逐位）"也从未在混合模式上量过，
+属于以偏概全；已换成上面的实测表。
+
 ### 我在这里犯的两个错（记录，防止再犯）
 
 1. 只读到 `paint_native.py` 里 `set_color_dynamics` 的注释「GPU 后端暂不支持」，就写成"引擎没有 GPU 后端"——

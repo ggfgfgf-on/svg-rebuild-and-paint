@@ -5,6 +5,11 @@ tests/test_stamp_color.py 也一直守着 normal 混合下的逐位一致。后�
 **非 normal 的图层混合模式在两端结果不同**，这里把已知差异量级钉住，
 免得下次又靠猜测（历史上两次误判都是因为没跑这几个测试）。
 
+出处：用 15a1f06 之后第一个带预编译 DLL 的提交 `558b7a5` 复跑同一探针，
+multiply/overlay/softlight 同样分别差 3.09 / 2.57 / 1.12（normal 仍是 0.000）。
+所以这不是回归，而是**混合模式从未进入过对拍**：test_gpu_tile 只用了 normal 层，
+test_stamp_color 只测单层逐 stamp 色彩。
+
 判据：
   normal 混合 + 位图笔尖  -> 必须几乎逐位一致（mean < 0.5）
   非 normal 混合          -> 记录现状；mean > 1.0 记 KNOWN（不 FAIL，但打印）
