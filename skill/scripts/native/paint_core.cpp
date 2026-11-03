@@ -144,7 +144,7 @@ inline void blend_px(int mode, float sr, float sg, float sb, float dr, float dg,
             rgb2hsl(sr, sg, sb, sh, ss, sl);
             rgb2hsl(dr, dg, db, dh, ds, dl);
             float hh = dh, hs = ds, hl = dl;
-            if (mode == B_HUE) hs = ds, hl = dl;
+            if (mode == B_HUE) hh = sh, hs = ds, hl = dl;   // 原先漏了 hh=sh，等于把上层色画成下层色（no-op）
             else if (mode == B_SATURATION) { hh = dh; hl = dl; hs = ss; }
             else if (mode == B_COLOR) { hh = sh; hs = ss; hl = dl; }
             else { hh = dh; hs = ds; hl = sl; }

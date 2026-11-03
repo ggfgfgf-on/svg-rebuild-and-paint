@@ -154,6 +154,47 @@ void cs_splat(uint3 dt : SV_DispatchThreadID) {
     }
 }
 
+void rgb2hsl_c(float3 c, out float h, out float s, out float l) {
+    float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+    l = (mx + mn) * 0.5f;
+    float dd = mx - mn;
+    if (dd < 1e-6f) { h = 0.0f; s = 0.0f; return; }
+    s = l > 0.5f ? dd / (2.0f - mx - mn) : dd / (mx + mn);
+    if (mx == c.r) h = (c.g - c.b) / dd + (c.g < c.b ? 6.0f : 0.0f);
+    else if (mx == c.g) h = (c.b - c.r) / dd + 2.0f;
+    else h = (c.r - c.g) / dd + 4.0f;
+    h /= 6.0f;
+}
+float hue2rgb_c(float p, float q, float t) {
+    if (t < 0.0f) t += 1.0f;
+    if (t > 1.0f) t -= 1.0f;
+    if (t < 1.0f / 6.0f) return p + (q - p) * 6.0f * t;
+    if (t < 0.5f) return q;
+    if (t < 2.0f / 3.0f) return p + (q - p) * (2.0f / 3.0f - t) * 6.0f;
+    return p;
+}
+float3 hsl2rgb_c(float h, float s, float l) {
+    if (s < 1e-6f) return float3(l, l, l);
+    float q = l < 0.5f ? l * (1.0f + s) : l + s - l * s;
+    float p = 2.0f * l - q;
+    return float3(hue2rgb_c(p, q, h + 1.0f / 3.0f), hue2rgb_c(p, q, h), hue2rgb_c(p, q, h - 1.0f / 3.0f));
+}
+float cb_c(float s, float d) {           // 与 CPU 的 cb lambda 同式
+    if (d <= 0.0f) return 0.0f;
+    if (s >= 1.0f) return d;
+    return 1.0f - min(1.0f, (1.0f - d) / s);
+}
+float hl_c(float s, float d) {           // hardlight
+    return s <= 0.5f ? 2.0f * s * d : 1.0f - 2.0f * (1.0f - s) * (1.0f - d);
+}
+float vl_c(float s, float d) {           // vividlight
+    if (s <= 0.5f) {
+        float t = 1.0f - 2.0f * s;
+        return t >= 1.0f ? 0.0f : max(0.0f, 1.0f - (1.0f - d) / t);
+    }
+    float t = 2.0f * s - 1.0f;
+    return min(1.0f, d / max(1e-6f, 1.0f - t));
+}
 float3 blend3(float3 s, float3 d, int mode) {
     float3 r = s;
     if (mode == 1) r = s * d;
@@ -172,22 +213,47 @@ float3 blend3(float3 s, float3 d, int mode) {
             }
         }
     }
-    else if (mode == 5) r = min(s + d, 1.0f);          // add(clamp 后由合成处理)
+    // 编号必须与 CPU 的 enum Blend / paint_native.BLENDS 一一对应（5=dodge, 7=add, 9=lighten,
+    // 10=colorburn, 11=hardlight, 12=vividlight）。此前 GPU 侧是按"实现顺序"排的，整体错位了 2 位。
+    else if (mode == 5) r = float3(d.r >= 1.0f ? 1.0f : saturate(s.r / (1.0f - d.r)),
+                                   d.g >= 1.0f ? 1.0f : saturate(s.g / (1.0f - d.g)),
+                                   d.b >= 1.0f ? 1.0f : saturate(s.b / (1.0f - d.b)));  // dodge
     else if (mode == 6) r = d - s;
-    else if (mode == 7) r = max(s, d);
+    else if (mode == 7) r = s + d;
     else if (mode == 8) r = min(s, d);
-    else if (mode == 9) r = abs(s - d);
-    else if (mode == 10) r = s + d - 2.0f * s * d;
-    else if (mode == 11) r = float3(d.r >= 1.0f ? 1.0f : saturate(s.r / (1.0f - d.r)),
-                                    d.g >= 1.0f ? 1.0f : saturate(s.g / (1.0f - d.g)),
-                                    d.b >= 1.0f ? 1.0f : saturate(s.b / (1.0f - d.b)));
-    else if (mode == 12) {
-        r.r = s.r <= 0.5f ? 2.0f * s.r * d.r : 1.0f - 2.0f * (1.0f - s.r) * (1.0f - d.r);
-        r.g = s.g <= 0.5f ? 2.0f * s.g * d.g : 1.0f - 2.0f * (1.0f - s.g) * (1.0f - d.g);
-        r.b = s.b <= 0.5f ? 2.0f * s.b * d.b : 1.0f - 2.0f * (1.0f - s.b) * (1.0f - d.b);
-    }
+    else if (mode == 9) r = max(s, d);
+    else if (mode == 10) r = float3(cb_c(s.r, d.r), cb_c(s.g, d.g), cb_c(s.b, d.b));   // colorburn
+    else if (mode == 11) r = float3(hl_c(s.r, d.r), hl_c(s.g, d.g), hl_c(s.b, d.b));   // hardlight
+    else if (mode == 12) r = float3(vl_c(s.r, d.r), vl_c(s.g, d.g), vl_c(s.b, d.b));   // vividlight
     else if (mode == 13) r = d + 2.0f * s - 1.0f;
-    return r;
+    else if (mode == 14) {   // pinlight
+        r.r = s.r <= 0.5f ? min(d.r, 2.0f * s.r) : max(d.r, 2.0f * s.r - 1.0f);
+        r.g = s.g <= 0.5f ? min(d.g, 2.0f * s.g) : max(d.g, 2.0f * s.g - 1.0f);
+        r.b = s.b <= 0.5f ? min(d.b, 2.0f * s.b) : max(d.b, 2.0f * s.b - 1.0f);
+    }
+    else if (mode == 15) r = abs(s - d);
+    else if (mode == 16) r = s + d - 2.0f * s * d;
+    else if (mode == 17) r = float3(d.r <= 0.0f ? 1.0f : saturate(s.r / d.r),
+                                    d.g <= 0.0f ? 1.0f : saturate(s.g / d.g),
+                                    d.b <= 0.0f ? 1.0f : saturate(s.b / d.b));
+    else if (mode == 18) r = s + d - 1.0f;
+    else if (mode == 19) r = saturate(d - s + 0.5f);
+    else if (mode == 20) r = saturate(d + s - 0.5f);
+    else if (mode == 21) r = float3(s.r + d.r >= 1.0f ? 1.0f : 0.0f,
+                                    s.g + d.g >= 1.0f ? 1.0f : 0.0f,
+                                    s.b + d.b >= 1.0f ? 1.0f : 0.0f);
+    else if (mode >= 22) {   // hue / saturation / color / luminosity（HSL，与 CPU 同式）
+        float sh, ss, sl, dh, ds, dl;
+        rgb2hsl_c(s, sh, ss, sl);
+        rgb2hsl_c(d, dh, ds, dl);
+        float hh = dh, s2 = ds, l2 = dl;
+        if (mode == 22) { hh = sh; s2 = ds; l2 = dl; }
+        else if (mode == 23) { hh = dh; s2 = ss; l2 = dl; }
+        else if (mode == 24) { hh = sh; s2 = ss; l2 = dl; }
+        else { hh = dh; s2 = ds; l2 = sl; }
+        r = hsl2rgb_c(hh, s2, l2);
+    }
+    return saturate(r);
 }
 
 [numthreads(256,1,1)]

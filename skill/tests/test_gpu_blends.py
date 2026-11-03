@@ -94,9 +94,15 @@ def main():
         check("bitmap tip: gpu == cpu", npx_t == 0 and mean_t < 1e-3,
               "mean=%.6f px>4=%d（个别像素差 1/255，属浮点累加顺序）" % (mean_t, npx_t))
 
-    for blend in ("multiply", "screen", "overlay", "softlight"):
+    worst = ("-", 0.0, 0)
+    for blend in paint_native.BLENDS:      # 全部 26 种，含 hue/saturation/color/luminosity
+        if blend == "normal":
+            continue
         m, n = diff(blend)
-        check("blend %s: gpu == cpu" % blend, m < 0.5, "mean=%.3f px>4=%d" % (m, n))
+        check("blend %-12s gpu == cpu" % blend, m < 0.5, "mean=%.3f px>4=%d" % (m, n))
+        if m > worst[1]:
+            worst = (blend, m, n)
+    print("worst blend:", worst)
     print("RESULT", "OK" if ok else "FAILED")
 
 

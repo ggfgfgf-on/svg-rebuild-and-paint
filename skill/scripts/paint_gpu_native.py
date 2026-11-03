@@ -132,6 +132,52 @@ class GpuPainter:
     def tip_count(self):
         return len(getattr(self, "_tips", []))
 
+    def stroke(self, layer, pts, size, opacity, rgb, preset="round_soft",
+               hardness=0.55, spacing=1.0, region_id=0, region=None, lut=None):
+        """单笔（与 Painter.stroke 同签名）：转成一批调用，保证两条后端走同一条路径。"""
+        pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 3))
+        r, g_, b = rgb
+        params = np.array([[float(size), float(opacity),
+                            r / 255.0, g_ / 255.0, b / 255.0,
+                            float(hardness), float(spacing), float(paint_native._pid(preset))]], np.float32)
+        return self.stroke_batch_raw(layer, pts.ravel(), np.array([0], np.int32), params,
+                                     np.array([int(region_id)], np.int32), nthreads=1, region=region)
+
+    def stroke_batch(self, layer, strokes, nthreads=8, region=None):
+        """批量笔触（与 Painter.stroke_batch 同签名、同参数字段）。"""
+        if not strokes:
+            return 0
+        pts_parts, offs, params, rids = [], [], [], []
+        cur = 0
+        for st in strokes:
+            a = np.ascontiguousarray(st["points"], np.float32)
+            if a.ndim == 1:
+                a = a.reshape(-1, 3)
+            pts_parts.append(a.ravel())
+            offs.append(cur)
+            cur += a.size
+            col = st.get("color", (255, 255, 255))
+            params.extend([float(st["size"]), float(st.get("opacity", 1.0)),
+                           col[0] / 255.0, col[1] / 255.0, col[2] / 255.0,
+                           float(st.get("hardness", 0.55)), float(st.get("spacing", 1.0)),
+                           float(paint_native._pid(st.get("preset", "round_soft")))])
+            rids.append(int(st.get("region_id", 0)))
+        pts = np.ascontiguousarray(np.concatenate(pts_parts), np.float32)
+        offs.append(cur)
+        offs = np.ascontiguousarray(offs[:-1], np.int32)
+        params = np.ascontiguousarray(params, np.float32)
+        rids = np.ascontiguousarray(rids, np.int32)
+        self.stroke_batch_raw(layer, pts, offs, params, rids, nthreads=nthreads, region=region)
+        return len(strokes)
+
+    def layer_rgba(self, idx):
+        """读回单层 RGBA8（与 Painter.layer_rgba 对齐：float 读回后四舍五入到 0..255）。"""
+        out = np.empty((self.h, self.w, 4), np.float32)
+        self._lib.pg_read_layer(self._ctx, int(idx), out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
+        return (np.clip(out, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+
+    load_brush = staticmethod(paint_native.Painter.load_brush)
+
     def stroke_batch_raw(self, layer, pts, offs, params, rids, nthreads=8, region=None):
         if int(layer) != self._cur_layer:
             self._cur_layer = int(layer)

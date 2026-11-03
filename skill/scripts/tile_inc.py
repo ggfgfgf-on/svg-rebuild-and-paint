@@ -70,6 +70,7 @@ def _sub(plan, name, sel):
 
 
 def draw(p, plan, spec, name, li, sel, region, gpu, nthreads=8):
+    gpu = bool(getattr(p, "gpu_used", gpu))
     s = _sub(plan, name, sel)
     if s is None:
         return 0
@@ -80,6 +81,7 @@ def draw(p, plan, spec, name, li, sel, region, gpu, nthreads=8):
 
 
 def full(p, plan, spec, base_of, gpu, nthreads=8):
+    gpu = bool(getattr(p, "gpu_used", gpu))
     for li, (nm, _) in enumerate(spec):
         d = plan[nm]
         n = int(d["offs"].size - 1)
@@ -96,6 +98,7 @@ def mask_for(rects, base, H, W):
 
 
 def rebuild(p, plan, spec, dirty, base_of, gpu, nthreads=8):
+    gpu = bool(getattr(p, "gpu_used", gpu))
     """dirty: {layer_name: [(x0,y0,x1,y1), ...]}；一次区域图、一次合成。"""
     H, W = p.h, p.w
     total = 0

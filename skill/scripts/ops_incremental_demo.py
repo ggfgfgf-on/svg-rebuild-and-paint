@@ -31,11 +31,18 @@ def new_painter(doc, gpu=False):
     """gpu=True 用 paint_gpu.dll（DirectCompute）；假名化接口一致，可互换。"""
     w, h = [int(v) for v in doc["canvas"]]
     if gpu:
-        import paint_gpu_native
-        p = paint_gpu_native.GpuPainter(w, h)
-        p.add_layer("normal")          # pg_create 不建层：先补一张背景，之后下标才能与 CPU 对齐
+        try:
+            import paint_gpu_native
+            p = paint_gpu_native.GpuPainter(w, h)
+            p.add_layer("normal")
+            p.gpu_used = True
+        except Exception as e:                       # 无 D3D11 / 驱动异常时回落到 CPU，别让整条流水线挂掉
+            print("[paint] GPU 不可用（%s），回落 CPU" % (e,))
+            p = paint_native.Painter(w, h)
+            p.gpu_used = False          # pg_create 不建层：先补一张背景，之后下标才能与 CPU 对齐
     else:
         p = paint_native.Painter(w, h)  # paint_create 自带 layer 0 作为背景
+        p.gpu_used = False
     p.clear_layer(0, (255, 255, 255), 0.0)
     for spec in doc.get("layers") or []:
         p.add_layer(spec.get("blend", "normal"))
