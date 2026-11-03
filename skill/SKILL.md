@@ -990,53 +990,55 @@ python tests/test_e2e_edit.py
 测试：`python tests/test_ops.py`、`python tests/test_compile_ops.py`。
 
 
-## GPU 后端：有，但和 CPU 不等价
+## GPU 后端：一直实现了，是我两次误判
 
-**先更正一条错误记录**：本文件曾写过「本引擎没有 GPU 后端」，那是错的。当时只读到
-`paint_native.py` 里 `set_color_dynamics` 的注释「GPU 后端暂不支持（见 GpuPainter.set_color_dynamics）」——
-那句话说的是**这个功能**在 GPU 上没实现，不是整个后端；同时脚本层 `new_painter` 一直只创建 CPU painter，
-`--gpu` 只改了 `offs` 切片就没人接，于是开关空转，让我误判成"引擎没有后端"。
+时间线（都在仓库里，可查）：
 
-实际存在的组件：
-
-| 组件 | 说明 |
+| 提交 | 内容 |
 |---|---|
-| `scripts/native/paint_gpu.cpp` / `paint_gpu.dll` | DirectCompute（D3D11）笔刷光栅化，42 KB 源码 |
-| `scripts/paint_gpu_native.py` `GpuPainter` | 与 `paint_native.Painter` 同接口，可互换 |
-| `native/gpu_probe.exe` / `gpu_bench.exe` | 设备探测 + 吞吐基准 |
+| `15a1f06` | painting engine + incremental repaint，**含 paint_gpu.cpp / paint_gpu.dll**（DirectCompute） |
+| `5a43f20` | GPU 逐 stamp 色彩（打包键 alpha16\|stamp-index），**cpu/gpu mean diff 0.001**，加 `tests/test_gpu_tile.py` |
 
-本机实测（RTX 5070 Laptop GPU）：
+现有 GPU 回归测试（长期在仓库里，之前的"跑全部测试"清单却漏了它们）：
 
 ```
-gpu_probe: adapter = NVIDIA GeForce RTX 5070 Laptop GPU ; OK
-gpu_bench: 3,000,000 stamps R=20 -> 3.77 G pixel-ops in 236.5 ms (15.9 G/s)
+python tests/test_gpu_tile.py     # gpu tile rebuild == gpu full；gpu vs cpu mean=0.0000
+python tests/test_stamp_color.py  # gpu per-stamp 色彩 dev=0.001，alpha 完全一致
+python tests/test_gpu_blends.py   # 本次新增：normal/位图笔尖/混合模式 的差异快照
+python tests/test_fx_gpu.py       # 效果层：impasto 1.5–5.7x、smudge 3–9x
+python scripts/native/gpu_probe.exe / gpu_bench.exe
 ```
 
-接线后同一张计划（900×1100 / 57,812 笔）全幅渲染：
+本机（RTX 5070 Laptop）：`gpu_probe` OK；`gpu_bench` 3,000,000 stamps R=20 → 3.77 G pixel-ops / 236.5 ms（15.9 G/s）。
+全幅渲染（900×1100 / 57,812 笔）：CPU **13.74 s** vs GPU **3.62 s**（3.8×）。
 
-| 后端 | 时间 | 与 CPU 的像素差 |
-|---|---|---|
-| CPU (`paint_core.dll`) | **13.74 s** | — |
-| GPU (`paint_gpu.dll` + DirectCompute) | **3.62 s**（3.8×） | 99.0% 像素不同，max_delta 187 |
+### 一致性范围（实测，别再说"GPU 完全等价/完全不等价"）
 
-**所以默认仍是 CPU：两个后端的渲染语义没有对齐。** GPU 版把叶子渲成灰白、背景笔触更碎，
-不是"1 像素边缘判定差"，是成体系的差异（混合模式/笔尖 alpha/色彩空间其中至少一项解释不同）。
-用它出交付图会换一张画；要真正切换到 GPU，必须先逐项对齐渲染语义并有逐位回归，这是渲染器工程，
-不是打开一个开关。
+| 场景 | mean\|Δ\| | px>4 | 结论 |
+|---|---|---|---|
+| normal 混合 + 公式笔刷 | **0.000** | 0 | 逐位一致 |
+| normal 混合 + 位图笔尖 | 0.202 | 192 / 39,600 | 近似一致 |
+| multiply 图层 | 3.125 | 6,318 | **不一致** |
+| screen 图层 | 3.128 | 6,315 | **不一致** |
+| overlay 图层 | 2.545 | 6,406 | **不一致** |
+| softlight 图层 | 1.101 | 6,185 | **不一致** |
 
-`paint_cli.py --gpu` 现在真的会实例化 `GpuPainter`（以前的 `--gpu` 是空转）。用途定位：
-**草稿/预览走 GPU，交付与增量自检走 CPU**。
+这张玫瑰计划用了 multiply / screen / overlay / softlight 共 5 个混合层，误差逐层累积，整帧就有 99% 像素不同——
+**不是"GPU 到处都不一样"，而是"非 normal 的图层混合没对齐"**。
 
-### 一次「红→蓝」编辑的耗时拆解（CPU）
+已经排除的：混合公式本身。两端源码逐行对照（`paint_gpu.cpp` 154–205 的 `blend3`/`cs_composite` 对比
+`paint_core.cpp` 63–100 的 `blend_px` 与 989–996 的合成）数学一致，乘法/滤色/叠加/柔光的表达式相同、
+预乘与反预乘也相同。所以下一步不是改公式，而是做单笔/不透明上层的逐像素对照，定位是常量缓冲字段、
+纹理格式还是视图绑定顺序的问题（`pg_composite_layer` 里已有一处"先解绑 UAV 再绑 SRV"的注释，说明这条路径踩过坑）。
 
-| 阶段 | 时间 |
-|---|---|
-| 读 JSON + 校验 | 1.6 s |
-| 整幅渲染（基线，供增量对比） | 15.0 s |
-| 编辑算子 | 2.3 s |
-| 局部重算（脏矩形 787×505） | 6.4 s |
-| 合成 + 存 PNG | ~1 s |
-| **合计（增量模式）** | **27.9 s** |
+**用法定位**：草稿/预览走 GPU（3.8×），交付与增量自检走 CPU（逐位可复现）。`paint_cli.py --gpu` 现在会真的
+实例化 `GpuPainter`（以前的 `--gpu` 只改了 `offs` 切片，没人接，等于空转）。
 
-只想要最终图时用 `--fast`：跳过「先画旧图再局部重算」，直接整幅渲染编辑后的计划 →
-**19.9 s**，与增量结果 **0 px 差**（代价是不再做增量自检）。
+### 我在这里犯的两个错（记录，防止再犯）
+
+1. 只读到 `paint_native.py` 里 `set_color_dynamics` 的注释「GPU 后端暂不支持」，就写成"引擎没有 GPU 后端"——
+   那句话只针对这一个功能。
+2. 发现整帧差异后，又写成"GPU 与 CPU 成体系不等价"——没做分项隔离，其实是混合模式这一项。
+   两次都是**没跑仓库里现成的 GPU 测试**导致的。现在 `test_gpu_* 已进必跑清单。
+
+
