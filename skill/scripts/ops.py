@@ -218,6 +218,8 @@ def _path_to_polylines(d, steps=16):
 
     def take():
         nonlocal i
+        if i >= len(toks):
+            raise ValueError("path ended early (missing coordinate)")
         v = float(toks[i])
         i += 1
         return v

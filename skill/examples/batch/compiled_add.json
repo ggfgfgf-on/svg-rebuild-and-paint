@@ -1,0 +1,182 @@
+[
+ {
+  "id": 1,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "band",
+    "d": "M 704 1040 C 744 1006 776 1024 812 982 C 838 952 856 972 874 946",
+    "color": [
+     235,
+     190,
+     80
+    ],
+    "size": 9,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 2,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "highlight",
+    "d": "M 620 300 C 632 288 646 288 652 300",
+    "color": [
+     255,
+     244,
+     196
+    ],
+    "size": 5,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 3,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "band",
+    "d": "M 60 1020 Q 150 960 240 1020 Q 150 1060 60 1020 Z",
+    "color": [
+     120,
+     108,
+     40
+    ],
+    "size": 12,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 4,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "highlight",
+    "d": "M 610 520 C 606 620 604 720 598 820",
+    "color": [
+     246,
+     226,
+     160
+    ],
+    "size": 4,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 5,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "ink",
+    "d": "M 40 120 C 120 60 220 70 300 130",
+    "color": [
+     58,
+     52,
+     34
+    ],
+    "size": 3,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 6,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "band",
+    "d": "M 150 980 C 170 950 190 930 214 904",
+    "color": [
+     208,
+     168,
+     74
+    ],
+    "size": 5,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 7,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "highlight",
+    "d": "M 700 620 Q 712 636 700 652 Q 688 636 700 620 Z",
+    "color": [
+     230,
+     238,
+     220
+    ],
+    "size": 8,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 8,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "ink",
+    "d": "M 120 420 C 140 380 180 380 190 410 C 200 380 240 380 258 420 C 220 430 160 430 120 420 Z",
+    "color": [
+     66,
+     58,
+     36
+    ],
+    "size": 3,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 9,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "ink",
+    "d": "M 790 1050 C 806 1030 820 1050 836 1030",
+    "color": [
+     64,
+     56,
+     34
+    ],
+    "size": 3,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ },
+ {
+  "id": 10,
+  "ops": [
+   {
+    "op": "draw_path",
+    "layer": "band",
+    "d": "M 470 560 Q 500 540 520 566 Q 492 584 470 560 Z",
+    "color": [
+     212,
+     74,
+     86
+    ],
+    "size": 10,
+    "opacity": 0.9,
+    "guidance": 1
+   }
+  ]
+ }
+]

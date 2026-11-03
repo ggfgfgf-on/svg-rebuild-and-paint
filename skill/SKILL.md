@@ -603,6 +603,19 @@ python scripts/eval_instructions.py plan.json examples/batch/expected.json examp
 这批评测覆盖的是 9 个改画算子，`draw_path`（从零加笔）另由 `tests/test_draw_ops.py` 覆盖——
 含歧义/指代/复合目标的指令还需要另建更难的一套。
 
+**加笔评测（10 条「加点什么」）**：同一套 eval 也跑 `draw_path`：
+
+```
+python scripts/eval_instructions.py plan.json examples/batch/expected_add.json examples/batch/compiled_add.json
+```
+
+结果：**10/10 正确**（schema 全通过 + 算子集合 + 受影响层集合一致，`failures: []`）。
+覆盖：右下角金叶、花心高光、左下角叶子、茎上亮边、背景弧线、金色叶脉、水珠、蝴蝶轮廓、签名、飘落花瓣。
+诚实标注：`compiled_add.json` 是我按 schema 人工写的（本机没有模型 key，无法现场调模型），
+所以它验证的是**schema + 层/算子映射**，不是模型对开放指令的命中率；要测模型就配好 key 后重跑
+`compile_ops.py compile --thumb`，把输出存成 compiled_add.json 再 eval。
+
+
 **视觉框选（多模态掩膜）**：直接看图给多边形，不写坐标规则。
 
 ```
@@ -969,6 +982,21 @@ python scripts/paint_process.py ref.png process.html --size 876x1904 --duration 
 
 测试：`tests/test_draw_ops.py` 断言 draw_path 只加笔、guidance=0 不变、脏矩形框得住、order 三种优先级、坏输入被拒。
 
+**视觉 grounding（让模型看见画）**：编译默认只喂文本摘要，颜色/明暗只能靠编号猜。
+现在可以把渲染缩略图一起交给多模态模型：
+
+```
+python scripts/compile_ops.py compile plan.json "高光太冷了，调暖一点" --thumb --out ops.json
+python scripts/compile_ops.py compile plan.json "..." --image shots/current.png --out ops.json
+python scripts/paint_cli.py edit plan.json --instruction "..." --thumb --gpu --out a.png
+```
+
+- `--thumb`：用 GPU（不可用自动 CPU）把当前计划渲成 ≤720 px 的预览再发；`--image`：直接用现成图。
+- 图片压成 data URL 走 OpenAI 兼容的 `image_url` 块；端点不支持图片时（报错含 image/400）自动回落纯文本重试。
+- 离线测试：`tests/test_vision_grounding.py`（消息构造 / 图片压缩编码 / body 结构 / 缩略图非全黑），**全 PASS**。
+- 未验证：真实多模态调用的效果——本机没有 API key，只验证到"请求体构造正确"这一层。
+
+
 ```
 python scripts/compile_ops.py summarize plan.json                  # 计划摘要（喂模型）
 python scripts/compile_ops.py prompt plan.json "把花改成蓝色" > prompt.txt
@@ -1096,6 +1124,22 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 4. paint_gpu.dll 需本机 VS BuildTools + clang 重编（build_gpu.bat / build_paint.bat）。
 5. `paint_hatch` **不是后端功能**：它是纯几何（mask → 折线），走 CPU DLL 的静态函数，
    与 painter 后端无关；之前列成"GPU 缺失"是分类错误，已改正。
+
+### 亮度口径：画面偏暗不是 GPU 的锅（实测）
+
+同一份计划，CPU 与 GPU 各渲一次整图：
+
+| 项 | CPU | GPU |
+|---|---|---|
+| 平均亮度 mean-luma（0–255） | 11.17 | 11.21 |
+| 差异 | — | `diff_px=38,535`、`px>4=707`、`mean=0.028` |
+| 耗时 | 11.26 s | 2.29 s |
+
+结论：GPU 与 CPU 的亮度差 **0.04/255**，不存在"GPU 把图压暗"。
+真正的原因是计划本身：源图 mean-luma ≈ **60–73**，而这份计划渲染出来只有 **11**——
+`shadow` 与 `texture` 两层都是 multiply，叠完把整体压掉约 5 倍（这正是油画暗调的来源，不是 bug）。
+要提亮得动色调映射（现在只有 `set_layer_brightness`，实测 texture×1.6 + shadow×1.35 + bed×1.15 只把 11.2 抬到 12.5），
+或者减少 multiply 层的覆盖/换 blend——这部分还没做。
 
 ## 性能现状（900×1100 / 57,812 笔 / 8 层，实测 3 次取中位）
 

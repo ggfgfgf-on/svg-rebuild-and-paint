@@ -1,0 +1,102 @@
+[
+ {
+  "id": 1,
+  "instruction": "在右下角加一枝金叶",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "band"
+  ]
+ },
+ {
+  "id": 2,
+  "instruction": "在花心加一点高光",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "highlight"
+  ]
+ },
+ {
+  "id": 3,
+  "instruction": "在左下角补一片叶子",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "band"
+  ]
+ },
+ {
+  "id": 4,
+  "instruction": "在茎上加一条亮边",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "highlight"
+  ]
+ },
+ {
+  "id": 5,
+  "instruction": "在背景左上角加一道弧线",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "ink"
+  ]
+ },
+ {
+  "id": 6,
+  "instruction": "加一条金色叶脉",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "band"
+  ]
+ },
+ {
+  "id": 7,
+  "instruction": "在花旁加一滴水珠",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "highlight"
+  ]
+ },
+ {
+  "id": 8,
+  "instruction": "加一只小蝴蝶的轮廓",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "ink"
+  ]
+ },
+ {
+  "id": 9,
+  "instruction": "在右下角签名",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "ink"
+  ]
+ },
+ {
+  "id": 10,
+  "instruction": "给画面加两道飘落的花瓣",
+  "ops": [
+   "draw_path"
+  ],
+  "layers": [
+   "band"
+  ]
+ }
+]

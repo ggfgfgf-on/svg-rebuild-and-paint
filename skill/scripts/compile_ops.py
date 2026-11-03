@@ -51,6 +51,53 @@ def _hex(rgb):
     return "#%02x%02x%02x" % tuple(int(round(float(v))) for v in rgb[:3])
 
 
+def load_image_data_url(path, max_side=720):
+    """把本地图片压到 max_side 内，返回 data URL（多模态编译的视觉 grounding 输入）。"""
+    import base64
+    import io
+    from PIL import Image
+    im = Image.open(str(path)).convert("RGB")
+    im.thumbnail((int(max_side), int(max_side)), Image.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def build_messages(prompt, image_data_url=None):
+    """纯文本 -> content 字符串；带图 -> OpenAI 兼容的 text+image_url 块。"""
+    if not image_data_url:
+        return [{"role": "user", "content": prompt}]
+    return [{"role": "user", "content": [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": image_data_url}},
+    ]}]
+
+
+def render_thumb(plan_path, out_path=None, max_side=720, gpu=True):
+    """把计划渲染成一张小预览（GPU 可用时 ~2s），供编译模型看图。"""
+    import numpy as np
+    from PIL import Image
+    import plan_io
+    import ops_incremental_demo as D
+    import tile_inc
+    doc, w, h = plan_io.load_plan(str(plan_path))
+    p, cat, w, h = D.new_painter(doc, gpu=gpu)
+    plan, spec = D.doc_to_plan(doc, cat)
+    region = np.zeros((h, w), np.int32)
+    tile_inc.full(p, plan, spec, lambda nm: region, gpu=bool(getattr(p, "gpu_used", gpu)), nthreads=8)
+    arr = p.composite()
+    p.close()
+    im = Image.fromarray(arr).convert("RGB")
+    im.thumbnail((int(max_side), int(max_side)), Image.LANCZOS)
+    if out_path:
+        im.save(str(out_path))
+    return im
+
+
+def _chat_body(model, prompt, image_data_url=None):
+    return {"model": model, "temperature": 0, "messages": build_messages(prompt, image_data_url)}
+
+
 def summarize(doc, palette_top=8):
     strokes = doc["strokes"]
     by_layer = {}
@@ -86,12 +133,15 @@ def summarize(doc, palette_top=8):
     }
 
 
-def build_prompt(summary, instruction, mask=None):
+def build_prompt(summary, instruction, mask=None, has_image=False):
     parts = [SCHEMA_NOTE, "## 当前计划摘要",
              json.dumps(summary, ensure_ascii=False, separators=(",", ":"))]
     if mask:
         parts.append("## 改画区域（mask，坐标系同 canvas）\n" +
                      json.dumps(mask, ensure_ascii=False, separators=(",", ":")))
+    if has_image:
+        parts.append("## 当前画面的渲染预览\n（随消息附上的图片就是下面这份计划现在的样子；"
+                     "判断颜色/明暗/高光请以图片为准）")
     parts.append("## 用户指令\n" + instruction)
     parts.append("## 现在只输出 JSON 数组，不要任何其它文字。")
     return "\n\n".join(parts)
@@ -157,7 +207,7 @@ def _strip_fences(text):
         t = t.rsplit("```", 1)[0]
     return t.strip()
 
-def compile_with_model(prompt, provider="deepseek", model=None, base_url=None,
+def compile_with_model(prompt, provider="deepseek", model=None, base_url=None, image=None,
                        timeout=120, retries=2, verbose=False):
     """调 OpenAI 兼容接口拿算子 JSON；失败抛 RuntimeError（调用方回退到 prompt 模式）。"""
     import os
@@ -172,11 +222,9 @@ def compile_with_model(prompt, provider="deepseek", model=None, base_url=None,
     if not (base and model and key):
         raise RuntimeError("provider %r not configured (need %s)" % (provider, env))
     url = base.rstrip("/") + "/chat/completions"
-    body = json.dumps({
-        "model": model,
-        "temperature": 0,
-        "messages": [{"role": "user", "content": prompt}],
-    }).encode("utf-8")
+    if image and not str(image).startswith("data:"):
+        image = load_image_data_url(image)
+    body = json.dumps(_chat_body(model, prompt, image)).encode("utf-8")
     last = None
     for attempt in range(retries + 1):
         try:
@@ -193,6 +241,11 @@ def compile_with_model(prompt, provider="deepseek", model=None, base_url=None,
             return ops
         except Exception as ex:          # 网络/解析失败都重试
             last = ex
+            if image is not None and ("image" in str(ex).lower() or "400" in str(ex)):
+                # 该模型/端点不支持图片输入：退回纯文本，别让编译整体失败
+                image = None
+                body = json.dumps(_chat_body(model, prompt, None)).encode("utf-8")
+                sys.stderr.write("compile: image input rejected, falling back to text-only\n")
             if verbose:
                 sys.stderr.write("compile attempt %d failed: %s\n" % (attempt + 1, ex))
             time.sleep(1.5 * (attempt + 1))
@@ -227,12 +280,20 @@ def main():
         mask = None
         if "--mask-file" in sys.argv:
             mask = _parse_mask(Path(sys.argv[sys.argv.index("--mask-file") + 1]).read_text(encoding="utf-8"))
-        prompt = build_prompt(summarize(doc), instruction, mask)
+        image = None
+        if "--image" in sys.argv:
+            image = sys.argv[sys.argv.index("--image") + 1]
+        elif "--thumb" in sys.argv:
+            import tempfile
+            tp = Path(tempfile.gettempdir()) / "compile_thumb.png"
+            render_thumb(sys.argv[2], tp, gpu="--no-gpu" not in sys.argv)
+            image = str(tp)
+        prompt = build_prompt(summarize(doc), instruction, mask, has_image=bool(image))
         provider = sys.argv[sys.argv.index("--provider") + 1] if "--provider" in sys.argv else "deepseek"
         model = sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv else None
         out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else None
         try:
-            specs = compile_with_model(prompt, provider=provider, model=model,
+            specs = compile_with_model(prompt, provider=provider, model=model, image=image,
                                        verbose="--verbose" in sys.argv)
             validate_ops(doc, specs)
         except Exception as ex:
@@ -241,7 +302,7 @@ def main():
         if out:
             Path(out).write_text(json.dumps(specs, ensure_ascii=False, indent=1), encoding="utf-8")
         print(json.dumps({"ok": True, "ops": specs, "provider": provider, "model": model,
-                          "out": out}, ensure_ascii=False))
+                          "image_grounded": bool(image), "out": out}, ensure_ascii=False))
     elif cmd == "apply":
         doc, w, h = plan_io.load_plan(sys.argv[2])
         specs = validate_ops(doc, json.loads(Path(sys.argv[3]).read_text(encoding="utf-8")))

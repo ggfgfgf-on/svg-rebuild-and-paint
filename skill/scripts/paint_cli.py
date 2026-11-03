@@ -52,11 +52,18 @@ def _compile(a, doc):
     mask = None
     if getattr(a, "mask_file", None):
         mask = masks.from_json(json.loads(Path(a.mask_file).read_text(encoding="utf-8")))
-    prompt = compile_ops.build_prompt(compile_ops.summarize(doc), a.instruction, mask)
+    image = getattr(a, "image", None)
+    if not image and getattr(a, "thumb", False):
+        import tempfile
+        tp = Path(tempfile.gettempdir()) / "compile_thumb.png"
+        compile_ops.render_thumb(a.plan, tp, gpu=bool(getattr(a, "gpu", False)))
+        image = str(tp)
+    prompt = compile_ops.build_prompt(compile_ops.summarize(doc), a.instruction, mask,
+                                      has_image=bool(image))
     provider = getattr(a, "provider", None) or "deepseek"
     try:
         specs = compile_ops.compile_with_model(prompt, provider=provider,
-                                               model=getattr(a, "model", None))
+                                               model=getattr(a, "model", None), image=image)
     except Exception as ex:
         sys.stderr.write("compile failed: %s\n\n--- prompt ---\n%s\n" % (ex, prompt))
         raise SystemExit(2)
@@ -223,6 +230,8 @@ def main():
     c.add_argument("--model", default=None)
     c.add_argument("--mask-file", default=None)
     c.add_argument("--out", default="ops.json")
+    c.add_argument("--image", default=None)
+    c.add_argument("--thumb", action="store_true")
     c.set_defaults(func=cmd_compile)
 
     v = sub.add_parser("video", help="用已编译 ops 出 30fps 视频")
