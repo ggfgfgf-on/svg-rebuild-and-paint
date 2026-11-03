@@ -201,6 +201,19 @@ class Painter:
         fn.argtypes = [ctypes.c_void_p] + [ctypes.c_int] * 5
         fn(self._ctx, int(idx), int(x0), int(y0), int(x1), int(y1))
 
+    def set_color_dynamics(self, amount=0.0):
+        """逐 stamp 色彩微差（CPU 后端）：同一笔内每个 stamp 按序号确定性微调明度/冷暖。
+
+        amount=0 时与旧行为逐位一致；>0 只改 RGB，覆盖率（alpha）完全不变。
+        GPU 后端暂不支持（见 GpuPainter.set_color_dynamics）。
+        """
+        fn = getattr(self._lib, "paint_set_color_dynamics", None)
+        if fn is None:
+            raise RuntimeError("paint_core.dll 不含 paint_set_color_dynamics，请重新编译原生库")
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_float]
+        fn.restype = None
+        fn(self._ctx, ctypes.c_float(float(amount)))
+
     def set_wet(self, amount=0.0):
         """湿混合：每一笔按 amount 从"本批调用开始时"的图层取色，再与笔色混合。
         amount=0 关闭（逐位等于旧行为）；取色来自只读快照，可并行、结果确定。"""

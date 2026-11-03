@@ -173,6 +173,8 @@ struct Ctx {
     int w = 0, h = 0;
     std::vector<Layer> layers;
     std::vector<float> scratch1;   // 单笔路径复用的全画布临时缓冲
+    std::vector<uint32_t> kb1;     // 单笔路径：每像素获胜 stamp 序号
+    float color_dyn = 0.0f;        // 逐 stamp 色彩微差强度（按画布存，避免全局串台）
     std::vector<Tip2D> tips;       // 位图笔尖（追加式，不改公式预设）
     float wet = 0.0f;              // 湿混合取色比例：0 = 关闭（与旧行为逐位一致）
     std::vector<float> snap;       // 每批调用开始时的图层快照（取色来源，只读）
@@ -180,6 +182,7 @@ struct Ctx {
 
 struct Stamp {
     float x, y, R, a, dx, dy;
+    uint32_t k;          // stamp 序号（逐 stamp 上色用）
 };
 
 inline float smoothstep(float e0, float e1, float x) {
@@ -194,6 +197,27 @@ inline float hash2i(uint32_t x, uint32_t y, uint32_t s) {
     h = (h ^ (h >> 13)) * 1274126177u;
     h ^= h >> 16;
     return (float)(h & 0xFFFFFF) / 16777216.0f;
+}
+
+// 逐 stamp 上色：记录每像素「获胜」的 stamp 序号，合成时按序号做确定性色彩微差
+static float g_dyn_color = 0.0f;
+static thread_local uint32_t* g_kbuf = nullptr;
+static thread_local uint32_t g_kcur = 0u;
+
+inline void put_k(float* base, const float* cell) {
+    if (g_kbuf) g_kbuf[(size_t)(cell - base)] = g_kcur;
+}
+
+inline void jitter_color(float& cr, float& cg, float& cb, float r, float g, float b,
+                         uint32_t seed, uint32_t k) {
+    float m = 1.0f + g_dyn_color * (hash2i(seed, k, 16u) * 2.0f - 1.0f);
+    float tw = g_dyn_color * 0.25f * (hash2i(seed, k, 17u) * 2.0f - 1.0f);
+    cr = r * m * (1.0f + tw);
+    cg = g * m;
+    cb = b * m * (1.0f - tw);
+    if (cr < 0.0f) cr = 0.0f; else if (cr > 1.0f) cr = 1.0f;
+    if (cg < 0.0f) cg = 0.0f; else if (cg > 1.0f) cg = 1.0f;
+    if (cb < 0.0f) cb = 0.0f; else if (cb > 1.0f) cb = 1.0f;
 }
 
 inline void build_tip_table(float* tbl, float hardness, int preset) {
@@ -438,7 +462,7 @@ inline void stamp_bbox(float* scratch, int sw, int sx0, int sy0, int sx1, int sy
                 int ix = (int)ru;
                 int iy = (int)rv;
                 float av = tip2->a[(size_t)iy * tw + ix] * a;
-                if (av > *cell) *cell = av;
+                if (av > *cell) { *cell = av; put_k(scratch, cell); }
             }
             continue;
         }
@@ -492,7 +516,7 @@ inline void stamp_bbox(float* scratch, int sw, int sx0, int sy0, int sx1, int sy
                 float rnd = hash2i((uint32_t)x, (uint32_t)y, seed);
                 av = rnd > thr ? tip_tbl[(int)std::min(255.0f, d / R * 255.0f)] * a : 0.0f;
             }
-            if (av > *cell) *cell = av;
+            if (av > *cell) { *cell = av; put_k(scratch, cell); }
         }
     }
 }
@@ -590,7 +614,7 @@ inline void make_stamps(std::vector<Stamp>& out, const float* pts, int n, float 
         if (pr < 0.0f) pr = 0.0f;
         if (pa < 0.0f) pa = 0.0f;
         if (pa > 1.0f) pa = 1.0f;
-        out.push_back({x, y, baseR * pr, pa, dx, dy});
+        out.push_back({x, y, baseR * pr, pa, dx, dy, k});
     };
     if (n == 1) {
         push(pts[0], pts[1], pts[2], 1.0f, 0.0f, 0.0f);
@@ -663,6 +687,11 @@ EXPORT void paint_set_wet(void* p, float amount) {
     if (c) c->wet = amount;
 }
 
+EXPORT void paint_set_color_dynamics(void* p, float amount) {
+    Ctx* c = (Ctx*)p;
+    if (c) c->color_dyn = amount > 0.0f ? amount : 0.0f;
+}
+
 EXPORT void paint_set_dynamics(void* p, float scatter, float size_jit, float alpha_jit, float angle_jit, float taper) {
     (void)p;
     g_dyn_scatter = scatter; g_dyn_size = size_jit; g_dyn_alpha = alpha_jit;
@@ -685,6 +714,7 @@ EXPORT int paint_stroke_l(void* p, int layer, const float* pts, int n,
                           const int* region, int region_id,
                           const float* lut_r, const float* lut_a, int lut_n) {
     Ctx* c = (Ctx*)p;
+    g_dyn_color = c ? c->color_dyn : 0.0f;
     if (!c || !pts || n < 1) return 0;
     if (layer < 0 || layer >= (int)c->layers.size()) return 0;
     float tbl[256];
@@ -696,6 +726,13 @@ EXPORT int paint_stroke_l(void* p, int layer, const float* pts, int n,
 
     // 单笔路径：区域裁剪版（复用 scratch1，只清触碰行）
     std::vector<float>& scratch = c->scratch1;
+    const bool useCol = g_dyn_color > 0.0f;
+    if (useCol) {
+        if (c->kb1.size() < (size_t)c->w * c->h) c->kb1.assign((size_t)c->w * c->h, 0u);
+        g_kbuf = c->kb1.data();
+    } else {
+        g_kbuf = nullptr;
+    }
     int by0 = c->h, by1 = -1;
     for (auto& s : st) {
         int y0 = std::max(0, (int)std::floor(s.y - s.R * 1.3f));
@@ -707,6 +744,7 @@ EXPORT int paint_stroke_l(void* p, int layer, const float* pts, int n,
     if (by1 < by0) return 0;
     for (auto& s : st) {
         int t0 = by1 + 1, t1 = by0 - 1;
+        g_kcur = s.k;
         stamp_band(scratch.data(), c->w, 0, c->h, s.x, s.y, s.R, s.a, preset, s.dx, s.dy,
                    0, tbl, 1.0f / (s.R * s.R), region, region_id, t0, t1, tip2, nullptr, nullptr);
     }
@@ -718,10 +756,12 @@ EXPORT int paint_stroke_l(void* p, int layer, const float* pts, int n,
             float sa = scr[x] * opacity;
             if (sa <= 0.0f) continue;
             float* d = dst + (size_t)x * 4;
+            float cr = r, cg = g, cb = b;
+            if (useCol) jitter_color(cr, cg, cb, r, g, b, 0u, c->kb1[(size_t)y * c->w + x]);
             float inv = 1.0f - sa;
-            d[0] = r * sa + d[0] * inv;
-            d[1] = g * sa + d[1] * inv;
-            d[2] = b * sa + d[2] * inv;
+            d[0] = cr * sa + d[0] * inv;
+            d[1] = cg * sa + d[1] * inv;
+            d[2] = cb * sa + d[2] * inv;
             d[3] = sa + d[3] * inv;
             scr[x] = 0.0f;
         }
@@ -738,6 +778,7 @@ EXPORT int paint_strokes_batch(void* p, int layer, const float* pts, const int* 
                                const float* lut_r, const float* lut_a, int lut_n,
                                int nthreads) {
     Ctx* c = (Ctx*)p;
+    g_dyn_color = c ? c->color_dyn : 0.0f;
     if (!c || n_strokes <= 0) return 0;
     if (layer < 0 || layer >= (int)c->layers.size()) return 0;
     int W = c->w, H = c->h;
@@ -783,6 +824,8 @@ EXPORT int paint_strokes_batch(void* p, int layer, const float* pts, const int* 
         std::vector<Stamp> st;
         st.reserve(512);
         std::vector<float> bbuf;
+        std::vector<uint32_t> kbuf;        // 每像素获胜 stamp 序号
+        const bool useCol = g_dyn_color > 0.0f;
         float tbl[256];
         int last_preset = INT_MIN;
         float last_hard = -1.0f;
@@ -827,8 +870,11 @@ EXPORT int paint_strokes_batch(void* p, int layer, const float* pts, const int* 
                 if ((int)bbuf.size() < sw * sh) bbuf.resize((size_t)sw * sh);
                 float* bb = bbuf.data();
                 std::fill(bb, bb + (size_t)sw * sh, 0.0f);
+                if (useCol) kbuf.resize((size_t)sw * sh);
+                g_kbuf = useCol ? kbuf.data() : nullptr;
                 for (auto& s : st) {
                     if (s.R <= 0.0f) continue;
+                    g_kcur = s.k;
                     stamp_bbox(bb, sw, sx0, sy0, sx1, sy1, s.x, s.y, s.R, s.a, preset, s.dx, s.dy,
                                0, tbl, 1.0f / (s.R * s.R), region, W,
                                region ? (region_ids ? region_ids[i] : 0) : 0, tip2);
@@ -841,6 +887,8 @@ EXPORT int paint_strokes_batch(void* p, int layer, const float* pts, const int* 
                         if (sa <= 0.0f) continue;
                         float* d = dst + (size_t)(sx0 + x) * 4;
                         float cr = r, cg = g, cb = b;
+                        if (useCol) jitter_color(cr, cg, cb, r, g, b, (uint32_t)i,
+                                                 kbuf[(size_t)(y - sy0) * sw + x]);
                         if (useWet) {
                             const float* sp = c->snap.data() + ((size_t)y * W + (sx0 + x)) * 4;
                             if (sp[3] > 1e-6f) {
@@ -859,8 +907,11 @@ EXPORT int paint_strokes_batch(void* p, int layer, const float* pts, const int* 
                 }
             } else {
                 int tby0 = ry1, tby1 = ry0 - 1;
+                if (useCol) kbuf.resize(scratch.size());
+                g_kbuf = useCol ? kbuf.data() : nullptr;
                 for (auto& s : st) {
                     if (s.R <= 0.0f) continue;
+                    g_kcur = s.k;
                     stamp_band(scratch.data(), W, ry0, ry1, s.x, s.y, s.R, s.a, preset, s.dx, s.dy,
                                0, tbl, 1.0f / (s.R * s.R), region,
                                region ? (region_ids ? region_ids[i] : 0) : 0, tby0, tby1, tip2,
@@ -878,6 +929,8 @@ EXPORT int paint_strokes_batch(void* p, int layer, const float* pts, const int* 
                         if (sa <= 0.0f) continue;
                         float* d = dst + (size_t)x * 4;
                         float cr = r, cg = g, cb = b;
+                        if (useCol) jitter_color(cr, cg, cb, r, g, b, (uint32_t)i,
+                                                 kbuf[(size_t)i2 * W + x]);
                         if (useWet) {
                             const float* sp = c->snap.data() + ((size_t)y * W + x) * 4;
                             if (sp[3] > 1e-6f) {

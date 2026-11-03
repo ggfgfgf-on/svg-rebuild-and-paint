@@ -233,11 +233,24 @@ out = bx.apply_effect_tiled(img, dirty_rects,              # 缓存脏区批量�
 - **smudge 依赖整条笔迹**：不能把一笔拆到两个矩形里分别拖，必须按「笔迹影响矩形」整体重算。
 - 两者都不写回 painter 的图层缓冲，属于后处理；若同一帧既有 tile 重绘又有这些效果，顺序必须是「先 tile 重绘 → 再效果补算」。
 
-### 逐 stamp 色彩
+### 逐 stamp 色彩（引擎级，CPU）
+
+```python
+p.set_color_dynamics(0.35)   # 同一笔内每个 stamp 确定性微调明度/冷暖
+p.set_color_dynamics(0.0)    # 关闭：与旧行为逐位一致
+```
+
+- 改动在 `paint_core.cpp` 合成热路径：Stamp 多存一个序号，scratch 旁挂「每像素获胜 stamp 序号」，合成时用 `hash2i(seed, k, 16/17)` 抖动 RGB。
+- 不变式（`tests/test_stamp_color.py`）：**只改 RGB，alpha 逐位不变**；确定性；关闭时与旧渲染逐位一致。
+- 实测（947×1147、8 层、57,813 笔）：关 2.41 s / 开(0.35) 2.97 s（+23%），RGB 最大差 51。
+- **GPU 后端未实现**：kernel 用 `InterlockedMax` 按 alpha 归并，丢失「哪个 stamp 赢了」。要支持需把 alpha 与序号打包进同一个 uint32 键，或在 over 阶段改成每线程遍历全部 stamp。`GpuPainter.set_color_dynamics(>0)` 直接抛 `NotImplementedError`，不静默忽略。
+
+### 计划级近似（跨后端可用）
+
 
 `split_color_dynamics(strokes, segments=6, hue=0.03, sat=0.12, val=0.10, seed=0)` 把每笔按点列切成若干子笔触、逐段换色，效果等价于笔触内部逐 stamp 抖动，**不改** CPU/GPU kernel。代价是笔触数 × segments（GPU 侧按笔触批处理，注意批量）。
 
-真正的逐 stamp 抖动需要给 stamp 结构加 3 个颜色通道并同时改 `paint_core.cpp` 与 `paint_gpu.cpp` 的 HLSL，属于引擎级改动，目前未做。
+CPU 侧引擎级实现见上一节；GPU 侧仍需改 HLSL。
 
 ## 局部改画（incremental repaint）
 

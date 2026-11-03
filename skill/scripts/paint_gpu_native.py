@@ -67,6 +67,14 @@ class GpuPainter:
         self._lib.pg_clear_rect.argtypes = [ctypes.c_void_p] + [ctypes.c_int] * 5
         self._lib.pg_clear_rect(self._ctx, int(idx), int(x0), int(y0), int(x1), int(y1))
 
+    def set_color_dynamics(self, amount=0.0):
+        """GPU 后端暂不支持逐 stamp 上色：kernel 用 InterlockedMax 归并 alpha，
+        丢失了「哪个 stamp 赢了」，要么改打包键（alpha+序号），要么改成每线程遍历全部 stamp。"""
+        if amount and float(amount) > 0.0:
+            raise NotImplementedError(
+                "GPU 后端暂不支持逐 stamp 色彩微差；请用 CPU 后端（Painter）或把 amount 设为 0")
+        return None
+
     def set_wet(self, amount=0.0):
         self._lib.pg_set_wet.argtypes = [ctypes.c_void_p, ctypes.c_float]
         self._lib.pg_set_wet(self._ctx, float(amount))
