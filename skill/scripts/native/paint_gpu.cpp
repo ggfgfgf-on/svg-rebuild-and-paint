@@ -335,6 +335,9 @@ struct Gpu {
     ID3D11Buffer* snap = nullptr;
     ID3D11ShaderResourceView* snapSrv = nullptr;
     float wet = 0.0f;
+    // 每实例动态参数（此前是文件级 static，多个 painter 会互相覆盖）
+    float color_dyn = 0.0f;
+    float dyn_scatter = 0.0f, dyn_size = 0.0f, dyn_alpha = 0.0f, dyn_angle = 0.0f, dyn_taper = 0.0f;
     ID3D11Buffer* scratch = nullptr;
     ID3D11UnorderedAccessView* scratchUav = nullptr;
     ID3D11Buffer* stamps = nullptr;
@@ -736,14 +739,16 @@ EXPORT void pg_set_wet(void* p, float amount) {
 }
 
 EXPORT void pg_set_color_dynamics(void* p, float amount) {
-    (void)p;
-    g_color_dyn = amount > 0.0f ? amount : 0.0f;
+    Gpu* g = (Gpu*)p;
+    if (!g) return;
+    g->color_dyn = amount > 0.0f ? amount : 0.0f;
 }
 
 EXPORT void pg_set_dynamics(void* p, float scatter, float size_jit, float alpha_jit, float angle_jit, float taper) {
-    (void)p;
-    g_dyn_scatter = scatter; g_dyn_size = size_jit; g_dyn_alpha = alpha_jit;
-    g_dyn_angle = angle_jit; g_dyn_taper = taper;
+    Gpu* g = (Gpu*)p;
+    if (!g) return;
+    g->dyn_scatter = scatter; g->dyn_size = size_jit; g->dyn_alpha = alpha_jit;
+    g->dyn_angle = angle_jit; g->dyn_taper = taper;
 }
 
 EXPORT const char* pg_prof(void) {
@@ -757,6 +762,8 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
                            int n_strokes, const float* params, const int* rids) {
     Gpu* g = (Gpu*)p;
     if (!g || !pts || n_strokes <= 0) return 0;
+    g_dyn_scatter = g->dyn_scatter; g_dyn_size = g->dyn_size; g_dyn_alpha = g->dyn_alpha;
+    g_dyn_angle = g->dyn_angle; g_dyn_taper = g->dyn_taper; g_color_dyn = g->color_dyn;
     if (layer < 0 || layer >= (int)g->layers.size()) return 0;
     Layer& L = g->layers[layer];
     if (g->wet > 0.0f && g->snap) g->ctx->CopyResource(g->snap, L.buf);
