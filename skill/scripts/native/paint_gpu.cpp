@@ -42,72 +42,82 @@ StructuredBuffer<float4> srcLayer : register(t4);
 StructuredBuffer<float4> snap : register(t5);
 RWStructuredBuffer<float4> accbuf : register(u2);
 
-StructuredBuffer<float4> stamps : register(t0);   // 每个 stamp 两个 float4：pos/R/a, dir/-
+// 每个 stamp = 24 个 float（6 个 float4）：
+//  a=(x,y,R,alpha) b=(dx,dy,kLocal,pad) c=(r,g,b,opacity)
+//  d=(branch,lut_slot,cosn,kw) e=(tw,tc,thr,region_id) f=(use_tip,tip_base,tip_w,tip_h)
+StructuredBuffer<float> spr : register(t0);
+void get_sprite(uint i, out float4 a, out float4 b, out float4 c, out float4 d, out float4 e, out float4 f) {
+    uint o = i * 24u;
+    a = float4(spr[o + 0u], spr[o + 1u], spr[o + 2u], spr[o + 3u]);
+    b = float4(spr[o + 4u], spr[o + 5u], spr[o + 6u], spr[o + 7u]);
+    c = float4(spr[o + 8u], spr[o + 9u], spr[o + 10u], spr[o + 11u]);
+    d = float4(spr[o + 12u], spr[o + 13u], spr[o + 14u], spr[o + 15u]);
+    e = float4(spr[o + 16u], spr[o + 17u], spr[o + 18u], spr[o + 19u]);
+    f = float4(spr[o + 20u], spr[o + 21u], spr[o + 22u], spr[o + 23u]);
+}
 StructuredBuffer<int> region : register(t1);
 StructuredBuffer<float> tips : register(t2);
 RWStructuredBuffer<uint> scratch : register(u0);
 RWStructuredBuffer<float4> layer : register(u1);
 
 inline void splat_key(uint idx, float a, uint k) {
-    if (p.use_color) {
-        uint a16 = (uint)(saturate(a) * 65535.0f + 0.5f);
-        InterlockedMax(scratch[idx], (a16 << 16) | (65535u - min(k, 65535u)));
-    } else {
-        InterlockedMax(scratch[idx], asuint(a));
-    }
+    uint a16 = (uint)(saturate(a) * 65535.0f + 0.5f);
+    InterlockedMax(scratch[idx], (a16 << 16) | (65535u - min(k, 65535u)));
 }
 
 [numthreads(256,1,1)]
 void cs_splat(uint3 dt : SV_DispatchThreadID) {
     uint i_end = p.stamp_base + p.nstamps;
     for (uint i = p.stamp_base + dt.x; i < i_end; i += p.th_splat) {
-        float4 s = stamps[i * 2];
-        float4 dir = stamps[i * 2 + 1];
-        int R = (int)(s.z + 0.5f);
-        float inv = 1.0f / max(1e-6f, s.z * s.z);
-        float ext = p.use_tip ? 1.3f : 1.0f;
-        int x0 = max(0, (int)floor(s.x - s.z * ext)), x1 = min((int)p.W - 1, (int)ceil(s.x + s.z * ext));
-        int y0 = max(0, (int)floor(s.y - s.z * ext)), y1 = min((int)p.H - 1, (int)ceil(s.y + s.z * ext));
-        if (p.use_tip) {
-            float tipInv = 1.0f / max(1e-6f, s.z * 2.0f);
-            int tw1 = p.tip_w - 1, th1 = p.tip_h - 1;
+        float4 a, b, c, d, e, f;
+        get_sprite(i, a, b, c, d, e, f);
+        float posx = a.x, posy = a.y, R = a.z, alpha = a.w;
+        float dirx = b.x, diry = b.y;
+        int use_tip = (int)f.x, branch = (int)d.x;
+        int tip_base = (int)f.y, tip_w = (int)f.z, tip_h = (int)f.w;
+        int lut_slot = (int)d.y, cosn = (int)d.z, region_id = (int)e.w;
+        float kw = d.w, tw = e.x, tc = e.y, thr = e.z;
+        float ext = use_tip ? 1.3f : 1.0f;
+        int x0 = max(0, (int)floor(posx - R * ext)), x1 = min((int)p.W - 1, (int)ceil(posx + R * ext));
+        int y0 = max(0, (int)floor(posy - R * ext)), y1 = min((int)p.H - 1, (int)ceil(posy + R * ext));
+        float inv = 1.0f / max(1e-6f, R * R);
+        if (use_tip) {
+            float tipInv = 1.0f / max(1e-6f, R * 2.0f);
+            int tw1 = tip_w - 1, th1 = tip_h - 1;
             for (int y = y0; y <= y1; ++y) {
-                float dy = (float)y + 0.5f - s.y;
+                float dy = (float)y + 0.5f - posy;
                 for (int x = x0; x <= x1; ++x) {
-                    float dx = (float)x + 0.5f - s.x;
-                    // CPU 的笔尖只画半径 1.3R 的圆内（paint_core.cpp stamp_band 的 R2 = R*R*1.69）；
-                    // 这里少了这个裁剪，方框四角会多出一圈像素 —— 位图笔尖 0.2 的 mean diff 就来自它。
-                    if (dx * dx + dy * dy > s.z * s.z * 1.69f) continue;
-                    float u = (dx * dir.x + dy * dir.y) * tipInv + 0.5f;
-                    float v = (-dx * dir.y + dy * dir.x) * tipInv + 0.5f;
+                    float dx = (float)x + 0.5f - posx;
+                    if (dx * dx + dy * dy > R * R * 1.69f) continue;
+                    float u = (dx * dirx + dy * diry) * tipInv + 0.5f;
+                    float v = (-dx * diry + dy * dirx) * tipInv + 0.5f;
                     if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f) continue;
                     uint idx = (uint)y * p.W + (uint)x;
-                    if (p.use_region) { int rv = region[idx]; if (rv != p.region_id && rv != -2) continue; }
+                    if (p.use_region) { int rv = region[idx]; if (rv != region_id && rv != -2) continue; }
                     int ix = (int)(u * tw1 + 0.5f);
                     int iy = (int)(v * th1 + 0.5f);
-                    float a = tips[p.tip_base + iy * p.tip_w + ix] * s.w;
-                    if (a > 0.0f) splat_key(idx, a, i - p.stamp_base);
+                    float av = tips[tip_base + iy * tip_w + ix] * alpha;
+                    if (av > 0.0f) splat_key(idx, av, i - p.stamp_base);
                 }
             }
-        } else if (p.branch == 1) {
-            // 平笔 / 鬃毛：椭圆 + 条纹 grain
-            const float invZ = 1.0f / max(1e-6f, s.z);
-            const float inv125 = 1.0f / max(1e-6f, s.z * 1.25f);
-            const float invkw = 1.0f / max(1e-6f, s.z * p.kw);
-            const float rowOff = 0.5f - s.y;
+        } else if (branch == 1) {
+            const float invZ = 1.0f / max(1e-6f, R);
+            const float inv125 = 1.0f / max(1e-6f, R * 1.25f);
+            const float invkw = 1.0f / max(1e-6f, R * kw);
+            const float rowOff = 0.5f - posy;
             for (int y = y0; y <= y1; ++y) {
                 float dy = (float)y + rowOff;
-                float along = ((float)x0 + 0.5f - s.x) * dir.x + dy * dir.y;
-                float perp = -((float)x0 + 0.5f - s.x) * dir.y + dy * dir.x;
-                for (int x = x0; x <= x1; ++x, along += dir.x, perp -= dir.y) {
+                float along = ((float)x0 + 0.5f - posx) * dirx + dy * diry;
+                float perp = -((float)x0 + 0.5f - posx) * diry + dy * dirx;
+                for (int x = x0; x <= x1; ++x, along += dirx, perp -= diry) {
                     uint idx = (uint)y * p.W + (uint)x;
-                    if (p.use_region) { int rv = region[idx]; if (rv != p.region_id && rv != -2) continue; }
+                    if (p.use_region) { int rv = region[idx]; if (rv != region_id && rv != -2) continue; }
                     float aa = along * inv125, bb = perp * invkw;
                     float e2 = aa * aa + bb * bb;
                     if (e2 >= 1.0f) continue;
                     float base;
                     if (e2 <= 0.49f) base = 1.0f;
-                    else { float e = sqrt(e2); base = 1.0f - smoothstep(0.70f, 1.0f, e); }
+                    else { float ee = sqrt(e2); base = 1.0f - smoothstep(0.70f, 1.0f, ee); }
                     float gi_f = (perp * invZ + 0.62f) * (2048.0f / 1.24f);
                     int gi = (int)gi_f;
                     if (gi < 0) gi = 0;
@@ -117,42 +127,41 @@ void cs_splat(uint3 dt : SV_DispatchThreadID) {
                     if (fr > 1.0f) fr = 1.0f;
                     float t0 = -0.62f + 1.24f * (float)gi / 2048.0f;
                     float t1 = -0.62f + 1.24f * (float)(gi + 1) / 2048.0f;
-                    float g0 = cos(t0 * (float)p.cosn), g1 = cos(t1 * (float)p.cosn);
+                    float g0 = cos(t0 * (float)cosn), g1 = cos(t1 * (float)cosn);
                     float gro = g0 + (g1 - g0) * fr;
-                    float a = base * (p.tw + p.tc * gro) * s.w;
-                    if (a > 0.0f) splat_key(idx, a, i - p.stamp_base);
+                    float av = base * (tw + tc * gro) * alpha;
+                    if (av > 0.0f) splat_key(idx, av, i - p.stamp_base);
                 }
             }
-        } else if (p.branch == 2) {
-            // 干笔 / 粉笔：hash 噪声阈值
+        } else if (branch == 2) {
             for (int y = y0; y <= y1; ++y) {
                 for (int x = x0; x <= x1; ++x) {
                     uint idx = (uint)y * p.W + (uint)x;
-                    if (p.use_region) { int rv = region[idx]; if (rv != p.region_id && rv != -2) continue; }
-                    float dx = (float)x + 0.5f - s.x, dy = (float)y + 0.5f - s.y;
-                    float d = sqrt(dx * dx + dy * dy);
-                    if (d > s.z * 1.3f) continue;
+                    if (p.use_region) { int rv = region[idx]; if (rv != region_id && rv != -2) continue; }
+                    float dx = (float)x + 0.5f - posx, dy = (float)y + 0.5f - posy;
+                    float dist = sqrt(dx * dx + dy * dy);
+                    if (dist > R * 1.3f) continue;
                     uint xh = (uint)x, yh = (uint)y, sh = 0u;
                     uint hh = xh * 374761393u + yh * 668265263u + sh * 2246822519u;
                     hh = (hh ^ (hh >> 13u)) * 1274126177u;
                     hh ^= hh >> 16u;
                     float rnd = (float)(hh & 0xFFFFFFu) / 16777216.0f;
-                    int k = (int)min(255.0f, d / s.z * 255.0f);
-                    float a = rnd > p.thr ? lutbuf[p.lut_slot * 256 + k] * s.w : 0.0f;
-                    if (a > 0.0f) splat_key(idx, a, i - p.stamp_base);
+                    int kb = (int)min(255.0f, dist / R * 255.0f);
+                    float av = rnd > thr ? lutbuf[lut_slot * 256 + kb] * alpha : 0.0f;
+                    if (av > 0.0f) splat_key(idx, av, i - p.stamp_base);
                 }
             }
         } else {
             for (int y = y0; y <= y1; ++y) {
                 for (int x = x0; x <= x1; ++x) {
                     uint idx = (uint)y * p.W + (uint)x;
-                    if (p.use_region) { int rv = region[idx]; if (rv != p.region_id && rv != -2) continue; }
-                    float dx = (float)x + 0.5f - s.x, dy = (float)y + 0.5f - s.y;
+                    if (p.use_region) { int rv = region[idx]; if (rv != region_id && rv != -2) continue; }
+                    float dx = (float)x + 0.5f - posx, dy = (float)y + 0.5f - posy;
                     float e2 = (dx * dx + dy * dy) * inv;
-                    int k = (int)(e2 * 255.0f);
-                    if (k > 255) k = 255;
-                    float a = lutbuf[p.lut_slot * 256 + k] * s.w;
-                    if (a > 0.0f) splat_key(idx, a, i - p.stamp_base);
+                    int kb = (int)(e2 * 255.0f);
+                    if (kb > 255) kb = 255;
+                    float av = lutbuf[lut_slot * 256 + kb] * alpha;
+                    if (av > 0.0f) splat_key(idx, av, i - p.stamp_base);
                 }
             }
         }
@@ -311,15 +320,18 @@ void cs_over(uint3 dt : SV_DispatchThreadID) {
         uint idx = (uint)y * p.W + (uint)x;
         uint bits = scratch[idx];
         if (bits == 0u) continue;
-        float raw_a = p.use_color ? ((float)(bits >> 16) / 65535.0f) : asfloat(bits);
-        float sa = raw_a * p.opacity;
+        uint win = p.stamp_base + (65535u - (bits & 0xFFFFu));
+        float4 a, b, c, d, e, f;
+        get_sprite(win, a, b, c, d, e, f);
+        float raw_a = (float)(bits >> 16) / 65535.0f;
+        float sa = raw_a * c.w;
         if (sa > 0.0f) {
             bool ok = true;
-            if (p.use_region) { int rv = region[idx]; ok = (rv == p.region_id || rv == -2); }
+            if (p.use_region) { int rv = region[idx]; ok = (rv == (int)e.w || rv == -2); }
             if (ok) {
-                float3 col = p.color.rgb;
+                float3 col = c.rgb;
                 if (p.use_color) {
-                    uint k = 65535u - (bits & 0xFFFFu);      // 该像素获胜 stamp 在本笔内的序号
+                    uint k = (uint)b.z;
                     float h16 = hash_c(p.seed, k, 16u);
                     float h17 = hash_c(p.seed, k, 17u);
                     float m = 1.0f + p.color_dyn * (h16 * 2.0f - 1.0f);
@@ -327,12 +339,12 @@ void cs_over(uint3 dt : SV_DispatchThreadID) {
                     col = saturate(float3(col.r * m * (1.0f + twk), col.g * m, col.b * m * (1.0f - twk)));
                 }
                 if (p.wet > 0.0f) {
-                    float4 s = snap[idx];
-                    if (s.a > 1e-6f) col = lerp(p.color.rgb, s.rgb / s.a, p.wet);
+                    float4 sn = snap[idx];
+                    if (sn.a > 1e-6f) col = lerp(c.rgb, sn.rgb / sn.a, p.wet);
                 }
-                float4 d = layer[idx];
+                float4 dd = layer[idx];
                 float inv2 = 1.0f - sa;
-                layer[idx] = float4(col * sa + d.rgb * inv2, sa + d.a * inv2);
+                layer[idx] = float4(col * sa + dd.rgb * inv2, sa + dd.a * inv2);
             }
         }
         scratch[idx] = 0u;
@@ -418,6 +430,7 @@ struct Gpu {
     ID3D11Buffer* scratch = nullptr;
     ID3D11UnorderedAccessView* scratchUav = nullptr;
     ID3D11Buffer* stamps = nullptr;
+    UINT stamps_cap = 0;
     ID3D11ShaderResourceView* stampsSrv = nullptr;
     ID3D11Buffer* regionBuf = nullptr;
     ID3D11ShaderResourceView* regionSrv = nullptr;
@@ -672,30 +685,29 @@ EXPORT int pg_add_tip(void* p, const float* data, int w, int h) {
 }
 
 static void ensure_stamps(Gpu* g, UINT n) {
-    if (g->stamps && g->stampsSrv) {
-        D3D11_BUFFER_DESC d{}; g->stamps->GetDesc(&d);
-        if (d.ByteWidth >= n * 32) return;
-        g->stampsSrv->Release(); g->stamps->Release(); g->stampsSrv = nullptr; g->stamps = nullptr;
-    }
-    UINT cap = std::max(65536u, n);
+    if (g->stamps && g->stampsSrv && g->stamps_cap == n) return;
+    if (g->stampsSrv) { g->stampsSrv->Release(); g->stampsSrv = nullptr; }
+    if (g->stamps) { g->stamps->Release(); g->stamps = nullptr; }
+    UINT cap = n;
     D3D11_BUFFER_DESC bd{};
-    bd.ByteWidth = cap * 32;
+    bd.ByteWidth = cap * 24u * 4u;          // 每个 sprite 24 个 float
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     bd.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
-    bd.StructureByteStride = 16;
+    bd.StructureByteStride = 4;
     HRESULT hr = g->dev->CreateBuffer(&bd, nullptr, &g->stamps);
     if (FAILED(hr) || !g->stamps) {
         printf("[gpu] stamps buffer failed cap=%u hr=%08lx\n", cap, (unsigned long)hr);
         fflush(stdout);
-        g->stamps = nullptr; g->stampsSrv = nullptr;
+        g->stamps = nullptr; g->stampsSrv = nullptr; g->stamps_cap = 0;
         return;
     }
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
     sd.Format = DXGI_FORMAT_UNKNOWN;
     sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-    sd.Buffer.NumElements = cap * 2;
+    sd.Buffer.NumElements = cap * 24u;
     g->dev->CreateShaderResourceView(g->stamps, &sd, &g->stampsSrv);
+    g->stamps_cap = cap;
 }
 
 static int lut_slot_for(Gpu* g, int preset, float hardness) {
@@ -732,9 +744,16 @@ static inline float smoothstepf(float e0, float e1, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-struct StampOut { float x, y, R, a, dx, dy, bucket, pad; };
+// 每笔参数（sprite 记录里逐 stamp 复制，因此一次 dispatch 可以处理整批笔触）
+struct StrokeInfo {
+    int use_tip, tip_base, tip_w, tip_h;
+    int lut_slot, branch, cosn, region_id;
+    float kw, tw, tc, thr;
+    float opacity, color[3];
+};
 
-static void expand_stroke(const float* pts, int n, float size, std::vector<StampOut>& out, unsigned seed) {
+static void expand_stroke(const float* pts, int n, float size, const StrokeInfo& si,
+                          std::vector<float>& flat, unsigned seed) {
     const float baseR = size * 0.5f;
     float total = 0.0f;
     if (n > 1) {
@@ -744,12 +763,12 @@ static void expand_stroke(const float* pts, int n, float size, std::vector<Stamp
             total += sqrtf(dx * dx + dy * dy);
         }
     }
-    unsigned si = 0;
+    unsigned si_k = 0;
     float arc = 0.0f;
     auto push = [&](float x, float y, float press, float dx, float dy, float tpos) {
         float pr = 0.30f + 0.70f * press;
         float pa = 0.15f + 0.85f * press;
-        unsigned k = si++;
+        unsigned k = si_k++;
         if (g_dyn_taper > 0.0f && total > 1e-6f) {
             float f0 = tpos / g_dyn_taper, f1 = (1.0f - tpos) / g_dyn_taper;
             if (f0 > 1.0f) f0 = 1.0f;
@@ -774,18 +793,16 @@ static void expand_stroke(const float* pts, int n, float size, std::vector<Stamp
         if (pr < 0.0f) pr = 0.0f;
         if (pa < 0.0f) pa = 0.0f;
         if (pa > 1.0f) pa = 1.0f;
-        float bucket = 0.0f;
-        if (g_color_dyn > 0.0f) {
-            float mk = 1.0f + g_color_dyn * (hash3(seed, k, 16u) * 2.0f - 1.0f);
-            float tk = g_color_dyn * 0.25f * (hash3(seed, k, 17u) * 2.0f - 1.0f);
-            float bm = (mk - (1.0f - g_color_dyn)) / (2.0f * g_color_dyn) * 15.0f + 0.5f;
-            float bw = (tk + g_color_dyn * 0.25f) / (g_color_dyn * 0.5f) * 15.0f + 0.5f;
-            int ib = (int)bm, iw = (int)bw;
-            if (ib < 0) ib = 0; else if (ib > 15) ib = 15;
-            if (iw < 0) iw = 0; else if (iw > 15) iw = 15;
-            bucket = (float)((ib << 4) | iw);
-        }
-        out.push_back({ x, y, baseR * pr, pa, dx, dy, bucket, 0.0f });
+        // a=(x,y,R,alpha) b=(dx,dy,kLocal,0) c=(r,g,b,opacity)
+        flat.push_back(x); flat.push_back(y); flat.push_back(baseR * pr); flat.push_back(pa);
+        flat.push_back(dx); flat.push_back(dy); flat.push_back((float)k); flat.push_back(0.0f);
+        flat.push_back(si.color[0]); flat.push_back(si.color[1]); flat.push_back(si.color[2]); flat.push_back(si.opacity);
+        // d=(branch,lut_slot,cosn,kw) e=(tw,tc,thr,region_id) f=(use_tip,tip_base,tip_w,tip_h)
+        flat.push_back((float)si.branch); flat.push_back((float)si.lut_slot);
+        flat.push_back((float)si.cosn); flat.push_back(si.kw);
+        flat.push_back(si.tw); flat.push_back(si.tc); flat.push_back(si.thr); flat.push_back((float)si.region_id);
+        flat.push_back((float)si.use_tip); flat.push_back((float)si.tip_base);
+        flat.push_back((float)si.tip_w); flat.push_back((float)si.tip_h);
     };
     if (n == 1) { push(pts[0], pts[1], pts[2], 1.0f, 0.0f, 0.0f); return; }
     for (int i = 1; i < n; ++i) {
@@ -808,9 +825,152 @@ static void expand_stroke(const float* pts, int n, float size, std::vector<Stamp
 
 static void upload_params(Gpu* g, Params& p) {
     static unsigned char tmp[256];
-    memset(tmp, 0, sizeof(tmp));
+    memset(tmp, 0, sizeof(Params));
     memcpy(tmp, &p, sizeof(Params));
     g->ctx->UpdateSubresource(g->cb, 0, nullptr, tmp, 0, 0);
+}
+
+EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs,
+                           int n_strokes, const float* params, const int* rids) {
+    Gpu* g = (Gpu*)p;
+    if (!g || !pts || n_strokes <= 0) return 0;
+    g_dyn_scatter = g->dyn_scatter; g_dyn_size = g->dyn_size; g_dyn_alpha = g->dyn_alpha;
+    g_dyn_angle = g->dyn_angle; g_dyn_taper = g->dyn_taper; g_color_dyn = g->color_dyn;
+    if (layer < 0 || layer >= (int)g->layers.size()) return 0;
+    Layer& L = g->layers[layer];
+    if (g->wet > 0.0f && g->snap) g->ctx->CopyResource(g->snap, L.buf);
+
+    const int CHUNK = 512;
+    const int GC = 16;                    // 划格粒度：格内笔触互不重叠才能合并成一次 dispatch
+    std::vector<float> tmp;
+    std::vector<std::vector<float>> gflat;
+    std::vector<int> cells;
+    std::vector<int> gb;                  // 每组 union bbox：x0,y0,x1,y1
+    std::vector<int> touched;
+    double t0 = now_ms();
+    for (int c0 = 0; c0 < n_strokes; c0 += CHUNK) {
+        int c1 = std::min(n_strokes, c0 + CHUNK);
+        int gw = ((int)g->W + GC - 1) / GC, gh = ((int)g->H + GC - 1) / GC;
+        cells.assign((size_t)gw * gh, -1);
+        gflat.clear();
+        gb.clear();
+        for (int i = c0; i < c1; ++i) {
+            int b = offs[i], e_ = offs[i + 1];
+            StrokeInfo si{};
+            si.opacity = params[i * 8 + 1];
+            si.color[0] = params[i * 8 + 2];
+            si.color[1] = params[i * 8 + 3];
+            si.color[2] = params[i * 8 + 4];
+            int preset = (int)(params[i * 8 + 7] + 0.5f);
+            si.use_tip = preset >= 100 ? 1 : 0;
+            si.lut_slot = 0; si.branch = 0; si.cosn = 9;
+            si.kw = 0.5f; si.tw = 0.55f; si.tc = 0.45f; si.thr = 0.62f;
+            si.region_id = rids ? rids[i] : 0;
+            if (si.use_tip) {
+                int ti = preset - 100;
+                if (ti < 0 || ti >= (int)g->tips.size()) si.use_tip = 0;
+                else { si.tip_base = g->tips[ti].base; si.tip_w = g->tips[ti].w; si.tip_h = g->tips[ti].h; }
+            }
+            if (!si.use_tip) {
+                si.lut_slot = lut_slot_for(g, preset, params[i * 8 + 5]);
+                if (preset == 2) { si.branch = 1; si.cosn = 9; si.kw = 0.42f; si.tw = 0.70f; si.tc = 0.30f; }
+                else if (preset == 8) { si.branch = 1; si.cosn = 17; si.kw = 0.50f; si.tw = 0.55f; si.tc = 0.45f; }
+                else if (preset == 3) { si.branch = 2; si.thr = 0.42f; }
+                else if (preset == 6) { si.branch = 2; si.thr = 0.28f; }
+            }
+            tmp.clear();
+            double t_ex = now_ms();
+            expand_stroke(pts + b, (e_ - b) / 3, params[i * 8 + 0], si, tmp, (unsigned)i);
+            g_t_expand += now_ms() - t_ex;
+            if (tmp.empty()) continue;
+            float ext = (si.use_tip || si.branch != 0) ? 1.3f : 1.0f;
+            int x0 = INT_MAX, y0 = INT_MAX, x1 = -1, y1 = -1;
+            for (size_t q = 0; q * 24 < tmp.size(); ++q) {
+                float sx = tmp[q * 24 + 0], sy = tmp[q * 24 + 1], sr = tmp[q * 24 + 2];
+                int qx0 = (int)floorf(sx - sr * ext), qx1 = (int)ceilf(sx + sr * ext);
+                int qy0 = (int)floorf(sy - sr * ext), qy1 = (int)ceilf(sy + sr * ext);
+                if (qx0 < x0) x0 = qx0;
+                if (qx1 > x1) x1 = qx1;
+                if (qy0 < y0) y0 = qy0;
+                if (qy1 > y1) y1 = qy1;
+            }
+            x0 = std::max(0, x0); y0 = std::max(0, y0);
+            x1 = std::min((int)g->W - 1, x1); y1 = std::min((int)g->H - 1, y1);
+            if (x1 < x0 || y1 < y0) continue;
+            int cx0 = x0 / GC, cx1 = x1 / GC, cy0 = y0 / GC, cy1 = y1 / GC;
+            int gidx = 0;
+            for (int cy = cy0; cy <= cy1; ++cy)
+                for (int cx = cx0; cx <= cx1; ++cx) {
+                    int v = cells[(size_t)cy * gw + cx];
+                    if (v + 1 > gidx) gidx = v + 1;
+                }
+            if ((int)gflat.size() <= gidx) { gflat.resize(gidx + 1); gb.resize((size_t)(gidx + 1) * 4); }
+            gflat[gidx].insert(gflat[gidx].end(), tmp.begin(), tmp.end());
+            int* bb = &gb[gidx * 4];
+            if (gflat[gidx].size() == tmp.size()) { bb[0] = x0; bb[1] = y0; bb[2] = x1; bb[3] = y1; }
+            else {
+                if (x0 < bb[0]) bb[0] = x0;
+                if (y0 < bb[1]) bb[1] = y0;
+                if (x1 > bb[2]) bb[2] = x1;
+                if (y1 > bb[3]) bb[3] = y1;
+            }
+            for (int cy = cy0; cy <= cy1; ++cy)
+                for (int cx = cx0; cx <= cx1; ++cx) cells[(size_t)cy * gw + cx] = gidx;
+        }
+        for (size_t gi = 0; gi < gflat.size(); ++gi) {
+            std::vector<float>& flat = gflat[gi];
+            if (flat.empty()) continue;
+            int x0 = gb[gi * 4 + 0], y0 = gb[gi * 4 + 1], x1 = gb[gi * 4 + 2], y1 = gb[gi * 4 + 3];
+            UINT total = (UINT)(flat.size() / 24);
+            ensure_stamps(g, total);
+            if (!g->stamps || !g->stampsSrv) continue;
+            double t_up = now_ms();
+            g->ctx->UpdateSubresource(g->stamps, 0, nullptr, flat.data(), 0, 0);
+            g_t_upload += now_ms() - t_up;
+            Params cp{};
+            memset(&cp, 0, sizeof(cp));
+            cp.W = g->W; cp.H = g->H;
+            cp.use_region = g->hasRegion ? 1 : 0;
+            cp.nstamps = total;
+            cp.stamp_base = 0;
+            cp.bx0 = x0; cp.by0 = y0; cp.bx1 = x1; cp.by1 = y1;
+            cp.use_color = g->color_dyn > 0.0f ? 1u : 0u;
+            cp.color_dyn = g->color_dyn;
+            cp.seed = 0u;
+            cp.wet = g->wet;
+            UINT bs = (total + 255u) / 256u;
+            if (bs < 1) bs = 1; if (bs > 1024) bs = 1024;
+            cp.th_splat = bs * 256u;
+            UINT bo = (UINT)((x1 - x0 + 1) * (y1 - y0 + 1) + 255) / 256u;
+            if (bo < 1) bo = 1; if (bo > 1024) bo = 1024;
+            cp.th_over = bo * 256u;
+            upload_params(g, cp);
+            ID3D11ShaderResourceView* srvs[6] = { g->stampsSrv,
+                                                  g->hasRegion ? g->regionSrv : g->dummySrv,
+                                                  g->tipSrv ? g->tipSrv : g->dummySrv,
+                                                  g->lutSrv, g->dummySrv,
+                                                  (g->wet > 0.0f && g->snapSrv) ? g->snapSrv : g->dummySrv };
+            ID3D11UnorderedAccessView* uavs[2] = { g->scratchUav, L.uav };
+            g->ctx->CSSetShaderResources(0, 6, srvs);
+            g->ctx->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+            g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
+            g->ctx->CSSetShader(g->cs_splat, nullptr, 0);
+            g->ctx->Dispatch(bs, 1, 1);
+            ++g_n_disp;
+            g->ctx->CSSetShader(g->cs_over, nullptr, 0);
+            g->ctx->Dispatch(bo, 1, 1);
+            ++g_n_disp;
+        }
+    }
+    g_t_splat += now_ms() - t0;
+    return 1;
+}
+
+EXPORT const char* pg_prof(void) {
+    static char buf[256];
+    snprintf(buf, sizeof(buf), "expand %.0f upload %.0f splat %.0f over %.0f ms disp %lu",
+             g_t_expand, g_t_upload, g_t_splat, g_t_over, g_n_disp);
+    return buf;
 }
 
 EXPORT void pg_clear_rect(void* p, int idx, int x0, int y0, int x1, int y1) {
@@ -832,16 +992,19 @@ EXPORT void pg_clear_rect(void* p, int idx, int x0, int y0, int x1, int y1) {
     }
 }
 
+
 EXPORT void pg_set_wet(void* p, float amount) {
     Gpu* g = (Gpu*)p;
     if (g) g->wet = amount;
 }
+
 
 EXPORT void pg_set_color_dynamics(void* p, float amount) {
     Gpu* g = (Gpu*)p;
     if (!g) return;
     g->color_dyn = amount > 0.0f ? amount : 0.0f;
 }
+
 
 EXPORT void pg_set_dynamics(void* p, float scatter, float size_jit, float alpha_jit, float angle_jit, float taper) {
     Gpu* g = (Gpu*)p;
@@ -850,139 +1013,6 @@ EXPORT void pg_set_dynamics(void* p, float scatter, float size_jit, float alpha_
     g->dyn_angle = angle_jit; g->dyn_taper = taper;
 }
 
-EXPORT const char* pg_prof(void) {
-    static char buf[256];
-    snprintf(buf, sizeof(buf), "expand %.0f upload %.0f splat %.0f over %.0f ms disp %lu",
-             g_t_expand, g_t_upload, g_t_splat, g_t_over, g_n_disp);
-    return buf;
-}
-
-EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs,
-                           int n_strokes, const float* params, const int* rids) {
-    Gpu* g = (Gpu*)p;
-    if (!g || !pts || n_strokes <= 0) return 0;
-    g_dyn_scatter = g->dyn_scatter; g_dyn_size = g->dyn_size; g_dyn_alpha = g->dyn_alpha;
-    g_dyn_angle = g->dyn_angle; g_dyn_taper = g->dyn_taper; g_color_dyn = g->color_dyn;
-    if (layer < 0 || layer >= (int)g->layers.size()) return 0;
-    Layer& L = g->layers[layer];
-    if (g->wet > 0.0f && g->snap) g->ctx->CopyResource(g->snap, L.buf);
-    const int CHUNK = 512;
-    std::vector<StampOut> stamps;
-    std::vector<float> flat;
-    struct Plan { int start, count, bx0, by0, bx1, by1, use_tip, tip_base, tip_w, tip_h, lut_slot, region_id, branch, cosn; unsigned seed; float kw, tw, tc, thr; float opacity, color[3]; };
-    std::vector<Plan> plans;
-    for (int c0 = 0; c0 < n_strokes; c0 += CHUNK) {
-        int c1 = std::min(n_strokes, c0 + CHUNK);
-        plans.clear();
-        flat.clear();
-        double t0 = now_ms();
-        for (int i = c0; i < c1; ++i) {
-            int b = offs[i], e = offs[i + 1];
-            stamps.clear();
-            expand_stroke(pts + b, (e - b) / 3, params[i * 8 + 0], stamps, (unsigned)i);
-            if (stamps.empty()) continue;
-            Plan sp{};
-            sp.seed = (unsigned)i;
-            sp.start = (int)(flat.size() / 8);
-            sp.count = (int)stamps.size();
-            sp.region_id = rids ? rids[i] : 0;
-            sp.opacity = params[i * 8 + 1];
-            sp.color[0] = params[i * 8 + 2];
-            sp.color[1] = params[i * 8 + 3];
-            sp.color[2] = params[i * 8 + 4];
-            int preset = (int)(params[i * 8 + 7] + 0.5f);
-            sp.use_tip = preset >= 100 ? 1 : 0;
-            sp.lut_slot = 0;
-            if (sp.use_tip) {
-                int ti = preset - 100;
-                if (ti < 0 || ti >= (int)g->tips.size()) { sp.use_tip = 0; }
-                else { sp.tip_base = g->tips[ti].base; sp.tip_w = g->tips[ti].w; sp.tip_h = g->tips[ti].h; }
-            }
-            sp.branch = 0; sp.cosn = 9; sp.kw = 0.5f; sp.tw = 0.55f; sp.tc = 0.45f; sp.thr = 0.62f;
-            if (!sp.use_tip) {
-                sp.lut_slot = lut_slot_for(g, preset, params[i * 8 + 5]);
-                if (preset == 2) { sp.branch = 1; sp.cosn = 9; sp.kw = 0.42f; sp.tw = 0.70f; sp.tc = 0.30f; }
-                else if (preset == 8) { sp.branch = 1; sp.cosn = 17; sp.kw = 0.50f; sp.tw = 0.55f; sp.tc = 0.45f; }
-                else if (preset == 3) { sp.branch = 2; sp.thr = 0.42f; }
-                else if (preset == 6) { sp.branch = 2; sp.thr = 0.28f; }
-            }
-            float ext = (sp.use_tip || sp.branch != 0) ? 1.3f : 1.0f;
-            float minx = 1e9f, miny = 1e9f, maxx = -1e9f, maxy = -1e9f;
-            for (auto& st : stamps) {
-                minx = std::min(minx, st.x - st.R * ext); maxx = std::max(maxx, st.x + st.R * ext);
-                miny = std::min(miny, st.y - st.R * ext); maxy = std::max(maxy, st.y + st.R * ext);
-            }
-            sp.bx0 = std::max(0, (int)floorf(minx)); sp.bx1 = std::min(g->W - 1, (int)ceilf(maxx));
-            sp.by0 = std::max(0, (int)floorf(miny)); sp.by1 = std::min(g->H - 1, (int)ceilf(maxy));
-            if (sp.bx0 > sp.bx1 || sp.by0 > sp.by1) continue;
-            for (auto& st : stamps) {
-                flat.push_back(st.x); flat.push_back(st.y); flat.push_back(st.R); flat.push_back(st.a);
-                flat.push_back(st.dx); flat.push_back(st.dy); flat.push_back(st.bucket); flat.push_back(0.0f);
-            }
-            plans.push_back(sp);
-        }
-        double t1 = now_ms();
-        g_t_expand += t1 - t0;
-        if (plans.empty()) continue;
-        UINT total = (UINT)(flat.size() / 8);
-        ensure_stamps(g, total);
-        if (!g->stamps || !g->stampsSrv) continue;
-        D3D11_BOX sbox{};
-        sbox.left = 0; sbox.right = (UINT)(flat.size() * 4);
-        sbox.top = 0; sbox.bottom = 1; sbox.front = 0; sbox.back = 1;
-        g->ctx->UpdateSubresource(g->stamps, 0, &sbox, flat.data(), 0, 0);
-        double t2 = now_ms();
-        g_t_upload += t2 - t1;
-
-        {
-            ID3D11ShaderResourceView* gsrvs[6] = { g->stampsSrv,
-                                                   g->hasRegion ? g->regionSrv : g->dummySrv,
-                                                   g->tipSrv ? g->tipSrv : g->dummySrv,
-                                                   g->lutSrv, g->dummySrv,
-                                                   (g->wet > 0.0f && g->snapSrv) ? g->snapSrv : g->dummySrv };
-            ID3D11UnorderedAccessView* guavs[2] = { g->scratchUav, L.uav };
-            g->ctx->CSSetShaderResources(0, 6, gsrvs);
-            g->ctx->CSSetUnorderedAccessViews(0, 2, guavs, nullptr);
-            g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
-        }
-        for (auto& sp : plans) {
-            Params cp{};
-            memset(&cp, 0, sizeof(cp));
-            cp.color[0] = sp.color[0]; cp.color[1] = sp.color[1]; cp.color[2] = sp.color[2]; cp.color[3] = 1.0f;
-            cp.W = g->W; cp.H = g->H;
-            cp.use_region = g->hasRegion ? 1 : 0;
-            cp.region_id = sp.region_id;
-            cp.nstamps = (UINT)sp.count;
-            cp.stamp_base = (UINT)sp.start;
-            cp.opacity = sp.opacity;
-            cp.wet = g->wet;
-            cp.bx0 = sp.bx0; cp.by0 = sp.by0; cp.bx1 = sp.bx1; cp.by1 = sp.by1;
-            cp.use_tip = sp.use_tip;
-            cp.tip_base = sp.tip_base; cp.tip_w = sp.tip_w; cp.tip_h = sp.tip_h;
-            cp.lut_slot = sp.lut_slot;
-            cp.branch = sp.branch; cp.cosn = sp.cosn;
-            cp.cos_off = (sp.cosn == 17) ? 2049 : 0;
-            cp.seed = 0u;   // CPU band 路径 jitter_color(..., 0u, k)（paint_core.cpp:760）
-            cp.color_dyn = g_color_dyn;
-            cp.use_color = g_color_dyn > 0.0f ? 1u : 0u;
-            cp.kw = sp.kw; cp.tw = sp.tw; cp.tc = sp.tc; cp.thr = sp.thr;
-            UINT bs = (cp.nstamps + 255u) / 256u; if (bs < 1) bs = 1; if (bs > 1024) bs = 1024;
-            UINT bo = (UINT)((sp.bx1 - sp.bx0 + 1) * (sp.by1 - sp.by0 + 1) + 255) / 256u;
-            if (bo < 1) bo = 1; if (bo > 1024) bo = 1024;
-            cp.bs = bs; cp.bo = bo;
-            cp.th_splat = bs * 256u;
-            cp.th_over = bo * 256u;
-            upload_params(g, cp);
-            g->ctx->CSSetShader(g->cs_splat, nullptr, 0);
-            g->ctx->Dispatch(cp.bs, 1, 1);
-            ++g_n_disp;
-            g->ctx->CSSetShader(g->cs_over, nullptr, 0);
-            g->ctx->Dispatch(cp.bo, 1, 1);
-        }
-        g_t_splat += now_ms() - t2;
-    }
-    return 1;
-}
 
 EXPORT int pg_comp_begin(void* p, int blend) {
     Gpu* g = (Gpu*)p;
