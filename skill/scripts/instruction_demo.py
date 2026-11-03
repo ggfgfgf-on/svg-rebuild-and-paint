@@ -86,6 +86,24 @@ def main():
     edit_s = time.perf_counter() - t0
 
     dirty = tile_inc.dirty_rects(doc, plan1, sel_by_layer, w, h)
+
+    # draw_path / densify 会追加新笔触：它们不在掩膜选择里，脏矩形必须单独补上
+    extra_by_layer = {}
+    for j in range(len(doc["strokes"]), len(out["strokes"])):
+        extra_by_layer.setdefault(out["strokes"][j]["layer"], []).append(j)
+        touched.add(out["strokes"][j]["layer"])
+    for name, idxs in extra_by_layer.items():
+        ax0 = ay0 = 1e18
+        ax1 = ay1 = -1e18
+        for j in idxs:
+            st = out["strokes"][j]
+            pad = float(st["size"]) * 0.7 + 2.0      # 引擎真实外扩（见 tile_inc 注释）
+            for pt in st["points"]:
+                ax0 = min(ax0, pt[0] - pad); ax1 = max(ax1, pt[0] + pad)
+                ay0 = min(ay0, pt[1] - pad); ay1 = max(ay1, pt[1] + pad)
+        rect = (max(0, int(np.floor(ax0))), max(0, int(np.floor(ay0))),
+                min(w - 1, int(np.ceil(ax1))), min(h - 1, int(np.ceil(ay1))))
+        dirty.setdefault(name, []).append(rect)
     x0 = min(r[0] for rs in dirty.values() for r in rs) if dirty else 0
     y0 = min(r[1] for rs in dirty.values() for r in rs) if dirty else 0
     x1 = max(r[2] for rs in dirty.values() for r in rs) if dirty else w - 1

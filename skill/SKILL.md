@@ -153,7 +153,9 @@ python <skill>/scripts/iterate.py ref.png out.svg --base "..." --patch patch.jso
 python <skill>/scripts/iterate.py - out.svg --base "2 6 1.0 0 0 1 0" --blank 420x300 --patch draw.json
 ```
 
-实测 7 条 path / 0.8KB 出一张完整风景（天空、太阳、云、两层山、两只鸟）。**能画的是符号化的东西**：图标、logo、UI 元素、扁平插画、示意图；照片级和复杂人像仍然不行（token 带宽 + 没有先验）。
+实测 7 条 path / 0.8KB 出一张完整风景（天空、太阳、云、两层山、两只鸟）。
+算子层的入口是 `draw_path`（见「计划空间改画」小节）：它把同一段 path 变成**计划里的笔触**，
+所以从零加笔也能走 `guidance` / 掩膜 / 脏矩形增量，不必重跑描摹。**能画的是符号化的东西**：图标、logo、UI 元素、扁平插画、示意图；照片级和复杂人像仍然不行（token 带宽 + 没有先验）。
 
 **默认是 ask 模式**（模型在环）：跑完一版就停下，吐决策点，不自己往下改。
 
@@ -597,7 +599,8 @@ python scripts/eval_instructions.py plan.json examples/batch/expected.json examp
 ```
 
 结果：**30/30 正确**（schema 全通过 + 算子集合 + 受影响层集合一致），产物在 `examples/batch/`。
-注意这 30 条是**自拟的、指向明确的**指令（用来验证 schema 与映射稳定性），不代表开放语义的天花板——
+注意这 30 条是**自拟的、指向明确的**指令（用来验证 schema 与映射稳定性），不代表开放语义的天花板；
+这批评测覆盖的是 9 个改画算子，`draw_path`（从零加笔）另由 `tests/test_draw_ops.py` 覆盖——
 含歧义/指代/复合目标的指令还需要另建更难的一套。
 
 **视觉框选（多模态掩膜）**：直接看图给多边形，不写坐标规则。
@@ -933,10 +936,38 @@ python scripts/paint_process.py ref.png process.html --size 876x1904 --duration 
 | 文本编码器 | `compile_ops.py`：多模态把指令编译成算子 JSON（落盘、schema 校验、`--recompile` 才重编） | — |
 | cross-attention 注入条件 | 算子直接改 doc 字段（层/颜色/尺寸/笔触数） | — |
 | CFG 引导强度 | 每个算子的 `guidance ∈ [0,1]` | 0 = 逐字节不变，1 = 精确命中 |
-| SDEdit 噪声强度 | `redraw(fraction, jitter)` | fraction = 重画的笔触比例 |
+| SDEdit 噪声强度 | `redraw(fraction, jitter, order)` | fraction = 重画的笔触比例；`order` 选谁先改 |
 | masked inpainting | `masks.py`：rect / point / polygon / color + 羽化权重 | `feather` |
+| 从零绘制（不读参考图） | `draw_path` 算子：SVG path（M/L/H/V/C/Q/T/Z）展平成笔触追加到指定层 | `d`/`color`/`size`/`guidance` |
 
-只允许这 9 个算子（别的键一律拒绝，防模型瞎编）：`set_layer_hue`、`set_layer_saturation`、`set_layer_brightness`、`scale_stroke_size`、`swap_brush`、`densify`、`erase`、`redraw`、`recolor_palette`。
+只允许这 10 个算子（别的键一律拒绝，防模型瞎编）：`set_layer_hue`、`set_layer_saturation`、`set_layer_brightness`、`scale_stroke_size`、`swap_brush`、`densify`、`erase`、`redraw`、`recolor_palette`、`draw_path`。
+
+**draw_path（从零加笔）与语义改画是同一条链**——它同样受 `guidance` 控制、同样能算掩膜与脏矩形：
+
+```json
+{"op": "draw_path", "layer": "band", "color": [235,190,80], "size": 9, "opacity": 0.95,
+ "d": "M 690 1040 C 740 1000 780 1030 820 990 C 850 960 870 980 885 950"}
+```
+
+实测（真实 57,812 笔计划，加一枝金叶）：
+
+| 项 | 数值 |
+|---|---|
+| 增量 vs 整份重画 | **0 px**（`incremental_vs_full_diff_px=0`） |
+| 脏矩形重建 | **0.35 s**（只重算 band 层里路径覆盖的笔触） |
+| 编辑（算子执行 + 重打包该层） | 1.13 s（层大，重打包是主要成本） |
+| guidance=0 | 计划逐字节不变（`tests/test_draw_ops.py`） |
+
+`redraw` 的 `order` 语义（都可复现，同 seed 两次逐字节相同）：
+
+| order | 谁先改 |
+|---|---|
+| `random`（默认，向后兼容） | 稳定哈希抽样，等价「随机 N 笔」 |
+| `coverage` | bbox 面积大的先改（大笔触/背景层优先） |
+| `layer` | 计划里靠前的层先改 |
+| `zorder` | 后画/上层的先改 |
+
+测试：`tests/test_draw_ops.py` 断言 draw_path 只加笔、guidance=0 不变、脏矩形框得住、order 三种优先级、坏输入被拒。
 
 ```
 python scripts/compile_ops.py summarize plan.json                  # 计划摘要（喂模型）

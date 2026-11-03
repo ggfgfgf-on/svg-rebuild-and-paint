@@ -186,7 +186,177 @@ def erase(doc, layer=None, guidance=1.0, selection=None, weights=None, seed=0, *
     return doc
 
 
-def redraw(doc, fraction=1.0, jitter=0.15, layer=None, guidance=1.0,
+
+# ---------- 从零加笔：SVG path 展平 ----------
+
+def _path_tokens(d):
+    import re
+    return re.findall(r"[MmLlHhVvCcSsQqTtZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", str(d))
+
+
+def _path_to_polylines(d, steps=16):
+    """SVG path -> 折线列表（M/L/H/V/C/S/Q/T/Z；弧线 A 按直线近似）。"""
+    toks = _path_tokens(d)
+    subs, cur = [], []
+    x = y = 0.0
+    sx = sy = 0.0
+    last_c2 = None
+    last_q = None
+    i = 0
+    cmd = None
+
+    def flush():
+        nonlocal cur
+        if cur:
+            subs.append(cur)
+        cur = []
+
+    def add(px, py):
+        nonlocal x, y
+        cur.append([px, py])
+        x, y = px, py
+
+    def take():
+        nonlocal i
+        v = float(toks[i])
+        i += 1
+        return v
+
+    def cubic(c1x, c1y, c2x, c2y, px, py):
+        nonlocal x, y
+        x0, y0 = x, y
+        for k in range(1, steps + 1):
+            t = k / steps
+            mt = 1.0 - t
+            cur.append([mt**3*x0 + 3*mt*mt*t*c1x + 3*mt*t*t*c2x + t**3*px,
+                        mt**3*y0 + 3*mt*mt*t*c1y + 3*mt*t*t*c2y + t**3*py])
+        x, y = px, py
+
+    def quad(cx, cy, px, py):
+        nonlocal x, y
+        x0, y0 = x, y
+        for k in range(1, steps + 1):
+            t = k / steps
+            mt = 1.0 - t
+            cur.append([mt*mt*x0 + 2*mt*t*cx + t*t*px,
+                        mt*mt*y0 + 2*mt*t*cy + t*t*py])
+        x, y = px, py
+
+    while i < len(toks):
+        t = toks[i]
+        if t.isalpha():
+            cmd = t
+            i += 1
+            if cmd in "Zz":
+                if cur:
+                    add(sx, sy)
+                flush()
+                last_c2 = last_q = None
+                cmd = None
+            continue
+        if cmd is None:
+            raise ValueError("path number without command")
+        up = cmd.upper()
+        rel = cmd.islower()
+        ox, oy = (x, y) if rel else (0.0, 0.0)
+        if up == "M":
+            px, py = take() + ox, take() + oy
+            flush()
+            add(px, py)
+            sx, sy = px, py
+            cmd = "l" if rel else "L"
+            last_c2 = last_q = None
+        elif up == "L":
+            add(take() + ox, take() + oy)
+            last_c2 = last_q = None
+        elif up == "H":
+            add(take() + ox, y)
+            last_c2 = last_q = None
+        elif up == "V":
+            add(x, take() + oy)
+            last_c2 = last_q = None
+        elif up == "C":
+            c1x, c1y = take() + ox, take() + oy
+            c2x, c2y = take() + ox, take() + oy
+            px, py = take() + ox, take() + oy
+            cubic(c1x, c1y, c2x, c2y, px, py)
+            last_c2 = (c2x, c2y)
+            last_q = None
+        elif up == "S":
+            if last_c2 is None:
+                c1x, c1y = x, y
+            else:
+                c1x, c1y = 2.0 * x - last_c2[0], 2.0 * y - last_c2[1]
+            c2x, c2y = take() + ox, take() + oy
+            px, py = take() + ox, take() + oy
+            cubic(c1x, c1y, c2x, c2y, px, py)
+            last_c2 = (c2x, c2y)
+            last_q = None
+        elif up == "Q":
+            cx, cy = take() + ox, take() + oy
+            px, py = take() + ox, take() + oy
+            quad(cx, cy, px, py)
+            last_q = (cx, cy)
+            last_c2 = None
+        elif up == "T":
+            if last_q is None:
+                cx, cy = x, y
+            else:
+                cx, cy = 2.0 * x - last_q[0], 2.0 * y - last_q[1]
+            px, py = take() + ox, take() + oy
+            quad(cx, cy, px, py)
+            last_q = (cx, cy)
+            last_c2 = None
+        elif up == "A":
+            take(); take(); take(); take(); take()
+            add(take() + ox, take() + oy)
+            last_c2 = last_q = None
+        else:
+            raise ValueError("unsupported path command %r" % cmd)
+    flush()
+    return subs
+
+
+def draw_path(doc, layer, d, color=(217, 180, 90), size=6.0, opacity=1.0,
+              preset="round_soft", guidance=1.0, selection=None, weights=None, seed=0, **_):
+    """从零加笔：把 SVG path 展平成笔触，追加到指定层（不依赖参考图）。
+
+    guidance=0 → 计划逐字节不变；guidance<1 时新笔触不透明度按比例衰减。
+    坐标就是 canvas 坐标，所以掩膜/脏矩形可以直接算 bbox。
+    """
+    g = _strength(guidance, 1.0)
+    if g <= 0.0:
+        return doc
+    polys = _path_to_polylines(d)
+    if not polys:
+        return doc
+    names = [l.get("name") for l in (doc.get("layers") or [])]
+    if layer not in names:
+        raise ValueError("unknown layer %r; known: %s" % (layer, ", ".join(str(n) for n in names)))
+    rgb = _set_rgb(_to_rgb(color))
+    op = max(0.0, min(1.0, float(opacity) * g))
+    for poly in polys:
+        pts = [[float(px), float(py), 1.0] for px, py in poly]
+        if len(pts) == 1:
+            pts.append([pts[0][0] + 1e-3, pts[0][1] + 1e-3, 1.0])
+        doc["strokes"].append({"layer": layer, "preset": preset, "size": float(size),
+                               "opacity": op, "color": rgb, "points": pts})
+    return doc
+
+
+def _stroke_bbox(s):
+    pts = np.asarray(s["points"], np.float64)
+    half = float(s.get("size", 1.0)) * 0.5
+    return (float(pts[:, 0].min()) - half, float(pts[:, 1].min()) - half,
+            float(pts[:, 0].max()) + half, float(pts[:, 1].max()) + half)
+
+
+def _stroke_area(s):
+    x0, y0, x1, y1 = _stroke_bbox(s)
+    return max(0.0, x1 - x0) * max(0.0, y1 - y0)
+
+
+def redraw(doc, fraction=1.0, jitter=0.15, layer=None, guidance=1.0, order="random",
            selection=None, weights=None, seed=0, **_):
     """重抽一部分笔触的参数（SDEdit 类比：改多少由 fraction 决定）。
 
@@ -195,11 +365,22 @@ def redraw(doc, fraction=1.0, jitter=0.15, layer=None, guidance=1.0,
     targets = list(_targets(doc, layer, selection, weights, guidance))
     if not targets:
         return doc
-    order = sorted(targets, key=lambda t: _u(seed, "redraw", t[0]))
+    if order == "coverage":          # 覆盖度优先：bbox 面积大的笔触先改
+        picked = sorted(targets, key=lambda t: (-_stroke_area(t[1]), t[0]))
+    elif order == "layer":           # 层序优先：计划里靠前的层先改
+        names = [l.get("name") for l in (doc.get("layers") or [])]
+        rank = {nm: k for k, nm in enumerate(names)}
+        picked = sorted(targets, key=lambda t: (rank.get(t[1].get("layer"), len(rank)), t[0]))
+    elif order == "zorder":          # z 序优先：上层/后画的先改
+        picked = sorted(targets, key=lambda t: (-t[0],))
+    elif order == "random":          # 旧行为：稳定哈希抽样（可复现）
+        picked = sorted(targets, key=lambda t: _u(seed, "redraw", t[0]))
+    else:
+        raise ValueError("order must be random/coverage/layer/zorder, got %r" % (order,))
     n = int(round(float(fraction) * len(targets)))
     if n <= 0:
         return doc
-    for i, s, _st in order[:n]:
+    for i, s, _st in picked[:n]:
         rng = np.random.default_rng(_seed_int(seed, "redraw", i))
         s["size"] = float(s["size"]) * (1.0 + float(jitter) * rng.uniform(-1.0, 1.0))
         s["opacity"] = max(0.0, min(1.0, float(s["opacity"]) * (1.0 + float(jitter) * rng.uniform(-1.0, 1.0))))
@@ -231,6 +412,7 @@ OPS = {
     "erase": erase,
     "redraw": redraw,
     "recolor_palette": recolor_palette,
+    "draw_path": draw_path,
 }
 
 # 每个算子需要的必填键（编译器/校验用）
@@ -244,6 +426,7 @@ REQUIRED = {
     "erase": [],
     "redraw": [],
     "recolor_palette": ["palette"],
+    "draw_path": ["layer", "d"],
 }
 
 
@@ -256,8 +439,9 @@ ALLOWED = {
     "swap_brush": {"layer", "preset", "guidance"},
     "densify": {"layer", "k", "guidance"},
     "erase": {"layer", "guidance"},
-    "redraw": {"fraction", "jitter", "layer", "guidance"},
+    "redraw": {"fraction", "jitter", "layer", "order", "guidance"},
     "recolor_palette": {"palette", "guidance"},
+    "draw_path": {"layer", "d", "color", "size", "opacity", "preset", "guidance"},
 }
 INTERNAL = {"seed", "selection", "weights"}
 
