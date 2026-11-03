@@ -30,6 +30,9 @@ struct Params {
     int blend_mode, pad3;
     int branch, cosn;
     float kw, tw, tc, thr;
+    float color_dyn;
+    uint use_color;
+    float cpad0, cpad1;
 };
 cbuffer P : register(b0) { Params p; };
 StructuredBuffer<float> lutbuf : register(t3);
@@ -42,6 +45,15 @@ StructuredBuffer<int> region : register(t1);
 StructuredBuffer<float> tips : register(t2);
 RWStructuredBuffer<uint> scratch : register(u0);
 RWStructuredBuffer<float4> layer : register(u1);
+
+inline void splat_key(uint idx, float a, uint k) {
+    if (p.use_color) {
+        uint a16 = (uint)(saturate(a) * 65535.0f + 0.5f);
+        InterlockedMax(scratch[idx], (a16 << 16) | (65535u - min(k, 65535u)));
+    } else {
+        InterlockedMax(scratch[idx], asuint(a));
+    }
+}
 
 [numthreads(256,1,1)]
 void cs_splat(uint3 dt : SV_DispatchThreadID) {
@@ -69,7 +81,7 @@ void cs_splat(uint3 dt : SV_DispatchThreadID) {
                     int ix = (int)(u * tw1 + 0.5f);
                     int iy = (int)(v * th1 + 0.5f);
                     float a = tips[p.tip_base + iy * p.tip_w + ix] * s.w;
-                    if (a > 0.0f) InterlockedMax(scratch[idx], asuint(a));
+                    if (a > 0.0f) splat_key(idx, a, i - p.stamp_base);
                 }
             }
         } else if (p.branch == 1) {
@@ -100,7 +112,7 @@ void cs_splat(uint3 dt : SV_DispatchThreadID) {
                     float g0 = cos(t0 * (float)p.cosn), g1 = cos(t1 * (float)p.cosn);
                     float gro = g0 + (g1 - g0) * fr;
                     float a = base * (p.tw + p.tc * gro) * s.w;
-                    if (a > 0.0f) InterlockedMax(scratch[idx], asuint(a));
+                    if (a > 0.0f) splat_key(idx, a, i - p.stamp_base);
                 }
             }
         } else if (p.branch == 2) {
@@ -119,7 +131,7 @@ void cs_splat(uint3 dt : SV_DispatchThreadID) {
                     float rnd = (float)(hh & 0xFFFFFFu) / 16777216.0f;
                     int k = (int)min(255.0f, d / s.z * 255.0f);
                     float a = rnd > p.thr ? lutbuf[p.lut_slot * 256 + k] * s.w : 0.0f;
-                    if (a > 0.0f) InterlockedMax(scratch[idx], asuint(a));
+                    if (a > 0.0f) splat_key(idx, a, i - p.stamp_base);
                 }
             }
         } else {
@@ -132,7 +144,7 @@ void cs_splat(uint3 dt : SV_DispatchThreadID) {
                     int k = (int)(e2 * 255.0f);
                     if (k > 255) k = 255;
                     float a = lutbuf[p.lut_slot * 256 + k] * s.w;
-                    if (a > 0.0f) InterlockedMax(scratch[idx], asuint(a));
+                    if (a > 0.0f) splat_key(idx, a, i - p.stamp_base);
                 }
             }
         }
@@ -219,12 +231,22 @@ void cs_over(uint3 dt : SV_DispatchThreadID) {
         uint idx = (uint)y * p.W + (uint)x;
         uint bits = scratch[idx];
         if (bits == 0u) continue;
-        float sa = asfloat(bits) * p.opacity;
+        float raw_a = p.use_color ? ((float)(bits >> 16) / 65535.0f) : asfloat(bits);
+        float sa = raw_a * p.opacity;
         if (sa > 0.0f) {
             bool ok = true;
             if (p.use_region) { int rv = region[idx]; ok = (rv == p.region_id || rv == -2); }
             if (ok) {
                 float3 col = p.color.rgb;
+                if (p.use_color) {
+                    uint win_k = p.stamp_base + (65535u - (bits & 0xFFFFu));
+                    uint bucket = (uint)(stamps[win_k * 2 + 1].z + 0.5f);
+                    float bm = (float)((bucket >> 4) & 0xFu) / 15.0f;
+                    float bw = (float)(bucket & 0xFu) / 15.0f;
+                    float m = (1.0f - p.color_dyn) + 2.0f * p.color_dyn * bm;
+                    float twk = -p.color_dyn * 0.25f + p.color_dyn * 0.5f * bw;
+                    col = saturate(float3(col.r * m * (1.0f + twk), col.g * m, col.b * m * (1.0f - twk)));
+                }
                 if (p.wet > 0.0f) {
                     float4 s = snap[idx];
                     if (s.a > 1e-6f) col = lerp(p.color.rgb, s.rgb / s.a, p.wet);
@@ -284,6 +306,9 @@ struct Params {
     int blend_mode, pad3;
     int branch, cosn;
     float kw, tw, tc, thr;
+    float color_dyn;
+    unsigned int use_color;
+    float cpad0, cpad1;
     unsigned int bs, bo;   // host only
 };
 
@@ -585,6 +610,7 @@ static int lut_slot_for(Gpu* g, int preset, float hardness) {
     return slot;
 }
 
+static float g_color_dyn = 0.0f;   // 逐 stamp 色彩微差强度（GPU 侧）
 static float g_dyn_scatter = 0.0f, g_dyn_size = 0.0f, g_dyn_alpha = 0.0f, g_dyn_angle = 0.0f, g_dyn_taper = 0.0f;
 
 static inline float hash3(uint32_t x, uint32_t y, uint32_t s) {
@@ -601,7 +627,7 @@ static inline float smoothstepf(float e0, float e1, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-struct StampOut { float x, y, R, a, dx, dy; };
+struct StampOut { float x, y, R, a, dx, dy, bucket, pad; };
 
 static void expand_stroke(const float* pts, int n, float size, std::vector<StampOut>& out, unsigned seed) {
     const float baseR = size * 0.5f;
@@ -643,7 +669,18 @@ static void expand_stroke(const float* pts, int n, float size, std::vector<Stamp
         if (pr < 0.0f) pr = 0.0f;
         if (pa < 0.0f) pa = 0.0f;
         if (pa > 1.0f) pa = 1.0f;
-        out.push_back({ x, y, baseR * pr, pa, dx, dy });
+        float bucket = 0.0f;
+        if (g_color_dyn > 0.0f) {
+            float mk = 1.0f + g_color_dyn * (hash3(seed, k, 16u) * 2.0f - 1.0f);
+            float tk = g_color_dyn * 0.25f * (hash3(seed, k, 17u) * 2.0f - 1.0f);
+            float bm = (mk - (1.0f - g_color_dyn)) / (2.0f * g_color_dyn) * 15.0f + 0.5f;
+            float bw = (tk + g_color_dyn * 0.25f) / (g_color_dyn * 0.5f) * 15.0f + 0.5f;
+            int ib = (int)bm, iw = (int)bw;
+            if (ib < 0) ib = 0; else if (ib > 15) ib = 15;
+            if (iw < 0) iw = 0; else if (iw > 15) iw = 15;
+            bucket = (float)((ib << 4) | iw);
+        }
+        out.push_back({ x, y, baseR * pr, pa, dx, dy, bucket, 0.0f });
     };
     if (n == 1) { push(pts[0], pts[1], pts[2], 1.0f, 0.0f, 0.0f); return; }
     for (int i = 1; i < n; ++i) {
@@ -693,6 +730,11 @@ EXPORT void pg_clear_rect(void* p, int idx, int x0, int y0, int x1, int y1) {
 EXPORT void pg_set_wet(void* p, float amount) {
     Gpu* g = (Gpu*)p;
     if (g) g->wet = amount;
+}
+
+EXPORT void pg_set_color_dynamics(void* p, float amount) {
+    (void)p;
+    g_color_dyn = amount > 0.0f ? amount : 0.0f;
 }
 
 EXPORT void pg_set_dynamics(void* p, float scatter, float size_jit, float alpha_jit, float angle_jit, float taper) {
@@ -765,7 +807,7 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
             if (sp.bx0 > sp.bx1 || sp.by0 > sp.by1) continue;
             for (auto& st : stamps) {
                 flat.push_back(st.x); flat.push_back(st.y); flat.push_back(st.R); flat.push_back(st.a);
-                flat.push_back(st.dx); flat.push_back(st.dy); flat.push_back(0.0f); flat.push_back(0.0f);
+                flat.push_back(st.dx); flat.push_back(st.dy); flat.push_back(st.bucket); flat.push_back(0.0f);
             }
             plans.push_back(sp);
         }
@@ -798,6 +840,8 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
             cp.tip_base = sp.tip_base; cp.tip_w = sp.tip_w; cp.tip_h = sp.tip_h;
             cp.lut_slot = sp.lut_slot;
             cp.branch = sp.branch; cp.cosn = sp.cosn;
+            cp.color_dyn = g_color_dyn;
+            cp.use_color = g_color_dyn > 0.0f ? 1u : 0u;
             cp.kw = sp.kw; cp.tw = sp.tw; cp.tc = sp.tc; cp.thr = sp.thr;
             UINT bs = (cp.nstamps + 255u) / 256u; if (bs < 1) bs = 1; if (bs > 1024) bs = 1024;
             UINT bo = (UINT)((sp.bx1 - sp.bx0 + 1) * (sp.by1 - sp.by0 + 1) + 255) / 256u;

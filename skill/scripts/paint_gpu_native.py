@@ -68,12 +68,15 @@ class GpuPainter:
         self._lib.pg_clear_rect(self._ctx, int(idx), int(x0), int(y0), int(x1), int(y1))
 
     def set_color_dynamics(self, amount=0.0):
-        """GPU 后端暂不支持逐 stamp 上色：kernel 用 InterlockedMax 归并 alpha，
-        丢失了「哪个 stamp 赢了」，要么改打包键（alpha+序号），要么改成每线程遍历全部 stamp。"""
-        if amount and float(amount) > 0.0:
-            raise NotImplementedError(
-                "GPU 后端暂不支持逐 stamp 色彩微差；请用 CPU 后端（Painter）或把 amount 设为 0")
-        return None
+        """逐 stamp 色彩微差（GPU）：把抖动桶打包进 alpha 的低 8 位，靠 InterlockedMax 保序归并。"""
+        fn = getattr(self._lib, "pg_set_color_dynamics", None)
+        if fn is None:
+            if amount and float(amount) > 0.0:
+                raise RuntimeError("paint_gpu.dll 不含 pg_set_color_dynamics，请重新编译原生库")
+            return None
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_float]
+        fn.restype = None
+        fn(self._ctx, ctypes.c_float(float(amount)))
 
     def set_wet(self, amount=0.0):
         self._lib.pg_set_wet.argtypes = [ctypes.c_void_p, ctypes.c_float]

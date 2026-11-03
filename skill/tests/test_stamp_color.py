@@ -70,6 +70,47 @@ def main():
     p.stroke_batch_raw(1, pts, np.array([0, pts.size], np.int32), par, np.zeros(1, np.int32), nthreads=1)
     check("default path untouched", np.array_equal(np.ascontiguousarray(p.composite()), base))
 
+
+    # ---- GPU 后端：同样的抖动，打包键保序归并 ----
+    try:
+        import paint_gpu_native as gp_nat
+        gpu_ok = gp_nat.load() is not None
+    except Exception:
+        gpu_ok = False
+    if not gpu_ok:
+        print("SKIP gpu backend unavailable")
+    else:
+        def render_gpu(amount):
+            gp = gp_nat.GpuPainter(W, H)
+            gp.add_layer("normal")
+            gp.set_color_dynamics(amount)
+            pts = np.stack([np.linspace(20, 140, 20), np.full(20, 60.0), np.full(20, 1.0)], -1).astype(np.float32)
+            par = np.array([[26.0, 1.0, COLOR[0] / 255.0, COLOR[1] / 255.0, COLOR[2] / 255.0,
+                             0.7, 1.0, 0.0]], np.float32)
+            # GPU 版会在内部补末尾 total，所以只传起点
+            gp.stroke_batch_raw(0, pts, np.array([0], np.int32), par,
+                                np.zeros(1, np.int32), nthreads=4)
+            img = np.ascontiguousarray(gp.composite())
+            gp.close()
+            return img
+
+        g0 = render_gpu(0.0)
+        g0b = render_gpu(0.0)
+        gj = render_gpu(0.4)
+        gjb = render_gpu(0.4)
+        check("gpu deterministic", np.array_equal(g0, g0b) and np.array_equal(gj, gjb))
+        check("gpu off path stable", np.array_equal(g0, g0b))
+        check("gpu jitter changes rgb", not np.array_equal(g0[..., :3], gj[..., :3]),
+              "max_delta=%d" % int(np.abs(g0[..., :3].astype(int) - gj[..., :3].astype(int)).max()))
+        da = int(np.abs(gj[..., 3].astype(int) - jit[..., 3].astype(int)).max())
+        check("gpu matches cpu coverage", da <= 3, "alpha_max_delta=%d" % da)
+        mg = gj[gj[..., 3] > 250][:, :3].astype(np.float64).mean(0)
+        mc = jit[jit[..., 3] > 250][:, :3].astype(np.float64).mean(0)
+        check("gpu mean matches cpu", float(np.abs(mg - mc).max() / 255.0) < 0.05,
+              "dev=%.3f" % float(np.abs(mg - mc).max() / 255.0))
+        ug = len({tuple(c) for c in gj[gj[..., 3] > 250][:, :3]})
+        check("gpu per-stamp variety", ug >= 6, "unique=%d" % ug)
+
     print("RESULT", "OK" if ok else "FAILED")
 
 
