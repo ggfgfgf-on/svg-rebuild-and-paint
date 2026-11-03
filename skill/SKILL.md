@@ -195,6 +195,27 @@ auto.py ref.png out.svg --region-poly "40,20 280,20 280,160 40,160:128,1"
 
 `--region-feather` 对矩形区域原本也是空的（dilation 被裁切框夹住），现在改为扩框，矩形区域接缝同样被盖住。
 
+## 笔感扩展（brush_ext）
+
+`scripts/brush_ext.py` 补齐六项笔感与互操作能力，全部是确定性 numpy 实现（同输入同输出）：
+
+| 函数 | 参数 | 作用 |
+|---|---|---|
+| `smudge_rgba(rgba, path, radius=16, amount=0.6, hardness=0.5, step=None)` | radius 拖色半径、amount 强度、hardness 边缘 | 沿笔迹把底色往前推（拖色），会拖动 alpha |
+| `impasto_rgba(rgba, light=(-0.44,0.90,0.35), height=1.0, spec=0.6, shininess=24, ambient=0.55, combine="overlay")` | 光照方向、高度倍率、高光强度 | 用 alpha 当高度场做浮雕+高光，alpha 不变 |
+| `apply_color_dynamics(strokes, hue=0.02, sat=0.15, val=0.12, seed=0)` | 色相/饱和/明度幅度、seed | 逐笔触确定性色彩抖动 |
+| `grain_variant(tip, grain, amount=0.5, scale=1.0, seed=0)` | seed 决定纸纹相位 | 同一 grain 生成不同相位的笔尖变体 |
+| `apply_velocity_response(strokes, gain=0.3, boost=0.0, ref=None)` | gain 越大越快越细淡 | 按笔速缩放尺寸/不透明度 |
+| `read_kra(path)` / `read_psd(path)` | — | 读回 Krita/Photoshop 分层（PSD 优先 psd-tools，退化到合成图） |
+
+```python
+import brush_ext as bx
+rgba = bx.impasto_rgba(bx.smudge_rgba(rgba, path, radius=18, amount=0.6), light=(-0.4, 0.9, 0.3))
+strokes = bx.apply_velocity_response(bx.apply_color_dynamics(strokes, seed=7), gain=0.35)
+```
+
+验收：`python tests/test_brush_ext.py`（15 条断言，含 KRA/PSD 写读回环）。
+
 ## 局部改画（incremental repaint）
 
 改一块而不重画全图，三层能力：
