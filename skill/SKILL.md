@@ -669,6 +669,28 @@ python scripts/compile_ops.py compile plan.json "把花改成蓝的" --provider 
 `compile --provider` 支持 deepseek / ark / openai（OpenAI 兼容），温度 0、重试 3 次；
 无 key 或调用失败时把完整提示词打到 stderr 并 exit 2（回退到 agent 编译）。key 只从环境变量读。
 
+### 统一入口（`paint_cli.py`）
+
+```
+python scripts/paint_cli.py edit plan.json --ops examples/ops_rose_violet.json \
+    --mask-file examples/mask_rose_head.json --feather 24 --out a.png --video a.mp4
+python scripts/paint_cli.py edit plan.json --instruction "把花改成蓝色" --provider deepseek --out a.png
+python scripts/paint_cli.py compile plan.json --instruction "..." --provider ark --out ops.json
+python scripts/paint_cli.py video plan.json --ops ops.json --mask-file m.json --out a.mp4 --frames 600
+python scripts/paint_cli.py eval plan.json examples/batch/expected_hard.json examples/batch/compiled_hard.json
+```
+
+一条命令走完：编译（`--provider`）或读产物（`--ops`）→ schema 校验 → 掩膜选笔 → 增量渲染 →
+可选 30fps 视频。实测 900×1100/57,812 笔：**整条 28.4 s**（含 600 帧视频 59.7 s 时为分开计时）。
+
+**视频链路踩过的两个坑（`tests/test_paint_video.py` 抓出来的，都是真 bug）**：
+
+1. **脏矩形低估**：用「笔触中心 ± size/2」算脏矩形，比引擎真实落笔范围小（引擎是 `size*0.7+2`），
+   边缘残留旧颜色 → 末帧与整份重画差 312 px。改用 `tile_inc.bboxes` 的引擎口径后归零。
+2. **重复叠加**：编辑发生在绘制中途时，重算已画过的笔触、后面的分组又画一遍，半透明叠加两次 →
+   差 322 px。修法是把绘制安排在 `--draw-until`（默认 0.8）之前全部画完，`--edit-at`（默认 0.85）
+   之后才做 `clear_rect + 重画`，保证编辑后不再有落笔。
+
 ### 默认关闭的可选开关
 
 **`--edge-soften=SIGMA`：边缘柔化后处理（legacy，保留可用）。** 新交付优先用下面的 `--alpha-soften`；这个开关留着只是因为快速出图时它更省事（一步模糊，不用扫参）。 它直接作用于已完成 SVG（或 HTML 里的 SVG），只增加一个 `feGaussianBlur` 和一层包装，不改路径坐标、不改层序。适合“放大很多倍不要让 1px 阶梯很扎眼”的交付；副作用是整体轻微变软。想真正提高轮廓分辨率，应该提高 `ss`（如 3×），`--edge-soften` 只是最终视觉后处理。`svg_postprocess.py` 可独立对已有 SVG 跑，参数为 `--soften N`。

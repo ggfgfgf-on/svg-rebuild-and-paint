@@ -39,6 +39,7 @@ Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOM
 | GPU smudge / impasto | `paint_fx.dll`（DirectCompute） | 1024²：smudge **8.1×**；4096²：impasto **6.8×**；与 CPU 最大差 **1.4e-6**（float32 舍入） |
 | 计划空间改画（指令 → 算子） | `ops.py` / `masks.py` / `compile_ops.py` / `instruction_demo.py` | 909×1100/57,812 笔：编辑 **0.087 s**、局部重算 **0.065 s**（**编辑到出像素 0.15 s**，不含读盘）；增量与整份重画**逐位相同**，脏矩形外 **0 px**；`guidance=0` → 计划逐字节不变 |
 | 指令编译评测 | `eval_instructions.py` | 简单集 30 **30/30**；难集（含 10 条应拒绝）v1 **19/20** → 修正版 **20/20**，失败均被 schema 拦住；视觉框选改画区域外 **0 px** |
+| 统一入口 | `paint_cli.py` | `edit` / `compile` / `video` / `eval` 四个子命令；编辑→出图→出视频一条命令（28.4 s 起） |
 | 改画 → 30fps 视频 | `paint_video.py` | 600 帧 / 30 fps / 20.0 s；渲染 54.0 s + 编码 2.53 s = **59.8 s**；末帧与整份重画**逐位相同（0 px）** |
 | 笔感扩展 | `brush_ext.py` | smudge / 浮雕光照 / 纸纹变体 / 色彩动态 / 速度响应 / PSD+KRA 读回 |
 | PSD 互操作 | 内置 8BPS 解析器 | 8/16bit、raw+RLE、unicode 图层名、图层组；不依赖 psd-tools |

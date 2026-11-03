@@ -25,13 +25,50 @@ import plan_io
 import tile_inc
 
 
-def schedule(n_frames, n_groups, edit_at):
-    """帧 -> (要画到第几组, 是否已过编辑点)；幂函数让开头慢、结尾快。"""
+
+def _positions_by_layer(doc):
+    """全局笔触下标 -> 该层内的位置（tile_inc.bboxes 用的是层内下标）。"""
+    pos, cnt = {}, {}
+    for i, st in enumerate(doc["strokes"]):
+        n = cnt.get(st["layer"], 0)
+        pos[i] = n
+        cnt[st["layer"]] = n + 1
+    return pos
+
+
+def _dirty_rects(plan, sel_by_layer, w, h, pos):
+    """按引擎真实的笔刷外扩（tile_inc.bboxes 的 r=size*0.7+2）算脏矩形。
+
+    注意：不能用笔画中心/半径估计——引擎的落笔范围更大，按小了会把旧颜色留在边缘。
+    """
+    import numpy as np
+    out = {}
+    for name, idxs in sel_by_layer.items():
+        if not len(idxs):
+            continue
+        bb = tile_inc.bboxes(plan, name)
+        arr = bb[np.asarray([pos[i] for i in idxs], np.int64)]
+        x0 = max(0, int(np.floor(arr[:, 0].min())))
+        y0 = max(0, int(np.floor(arr[:, 1].min())))
+        x1 = min(w - 1, int(np.ceil(arr[:, 2].max())))
+        y1 = min(h - 1, int(np.ceil(arr[:, 3].max())))
+        out[name] = [(x0, y0, x1, y1)]
+    return out
+
+def schedule(n_frames, n_groups, edit_at, draw_until):
+    """帧 -> (画到第几组, 是否到编辑点)。
+
+    绘制必须在编辑点之前**全部完成**：否则重算过的笔触会在后面的分组里被再画一遍，
+    半透明叠加两次会让像素和整份重画对不上（实测差 3xx px）。"""
     out = []
     for i in range(n_frames):
-        t = (i / max(n_frames - 1, 1)) ** 1.30
-        g = min(n_groups - 1, int(t * n_groups))
-        out.append((g, (i / max(n_frames - 1, 1)) >= edit_at))
+        f = i / max(n_frames - 1, 1)
+        if f <= draw_until:
+            t = (f / max(draw_until, 1e-6)) ** 1.30
+            g = min(n_groups - 1, int(t * n_groups))
+        else:
+            g = n_groups - 1
+        out.append((g, f >= edit_at))
     return out
 
 
@@ -45,7 +82,8 @@ def main():
     ap.add_argument("--frames", type=int, default=600)
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--groups", type=int, default=60)
-    ap.add_argument("--edit-at", type=float, default=0.75)
+    ap.add_argument("--edit-at", type=float, default=0.85)
+    ap.add_argument("--draw-until", type=float, default=0.8)
     ap.add_argument("--out", default=str(Path.home() / ".cache" / "ops_demo" / "edit.mp4"))
     ap.add_argument("--gpu", action="store_true")
     a = ap.parse_args()
@@ -83,18 +121,15 @@ def main():
         else:
             mask = masks.rect(0, 0, w, h)
         touched = {sp["layer"] for sp in specs if sp.get("layer")} or {l["name"] for l in doc["layers"]}
-        sel, wt = [], []
+        sel, wt, sel_by_layer = [], [], {}
         for name in sorted(touched):
             s1, w1 = masks.weights(doc, mask, a.feather, layer=name)
             sel += s1
             wt += w1
+            sel_by_layer[name] = s1
         out = ops.apply(doc, specs, selection=sel, weights=wt)
         plan2, spec2 = D.doc_to_plan(out, cat, base=plan1, only=touched)
-        box = masks.bbox(doc, sel) or (0.0, 0.0, float(w - 1), float(h - 1))
-        x0, y0, x1, y1 = [int(round(v)) for v in box]
-        x0, y0 = max(0, x0), max(0, y0)
-        x1, y1 = min(w - 1, x1), min(h - 1, y1)
-        dirty = {name: [(x0, y0, x1, y1)] for name in touched}
+        dirty = _dirty_rects(plan1, sel_by_layer, w, h, _positions_by_layer(doc))
 
     out_path = Path(a.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,8 +144,12 @@ def main():
     drawn = 0
     edited = False
     edit_frames = 0
-    for i, (target, want_edit) in enumerate(schedule(a.frames, len(groups), a.edit_at)):
+    for i, (target, want_edit) in enumerate(schedule(a.frames, len(groups), a.edit_at, a.draw_until)):
         if want_edit and not edited and touched:
+            while drawn < len(groups):        # 先把剩余的笔画完，避免重算后被重复叠加
+                name, li, sel = groups[drawn]
+                tile_inc.draw(p, plan1, spec, name, li, sel, region, a.gpu, nthreads=8)
+                drawn += 1
             for name in sorted(touched):
                 rects = dirty.get(name) or []
                 for (rx0, ry0, rx1, ry1) in rects:
