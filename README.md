@@ -10,6 +10,10 @@
 1. **像素级 SVG 重绘** —— 任意位图（PNG/JPEG，≤2MP）→ 单文件自包含 HTML，纯 SVG 平涂路径 + 离散步骤播放器。
 2. **程序化厚涂绘画引擎** —— 8 图层计划 → 笔触光栅化 → 30fps 视频；支持确定性回放、差量/单层/tile 增量重绘、GPU 后端、逐 stamp 上色、PSD/KRA 互操作。
 
+### 关于仓库名
+
+仓库名沿用最早的 `generic-pixel-svg-rebuild`，但内容已经扩展到完整绘画引擎。若要改名（GitHub 需在 Settings → Rename 操作，或 `gh repo rename`），建议候选：`dsh-paint-and-vectorize`、`pixel-paint-engine`、`svg-rebuild-and-paint`。改名会自动重定向旧链接。
+
 ---
 
 ## 能力与实测数字
@@ -113,4 +117,4 @@ powershell -ExecutionPolicy Bypass -File skill/scripts/native/build.ps1 -Gpu
 ## License
 
 GPL-2.0-or-later。tracing 核心是 potrace（编译版 `trace_core.dll` 与纯 Python `potracer` 回退），详见 `skill/NOTICE`；`vtracer`（smooth 模式）是 MIT，不进入 GPL 路径。
-笔尖贴图（Krita `.kpp` / GIMP `.gbr/.gih`）来源与许可见 `skill/tips/PROVENANCE.md`。
+笔尖贴图（278 张 128×128 PNG，源自古开源笔刷包的 Krita `.kpp` / GIMP `.gbr/.gih`）来源与许可见 `skill/scripts/native/tips/PROVENANCE.md`，逐条 `src` 记录在 `index.json`。
