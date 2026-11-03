@@ -214,7 +214,7 @@ rgba = bx.impasto_rgba(bx.smudge_rgba(rgba, path, radius=18, amount=0.6), light=
 strokes = bx.apply_velocity_response(bx.apply_color_dynamics(strokes, seed=7), gain=0.35)
 ```
 
-验收：`python tests/test_brush_ext.py`（31 条）、`python tests/test_effects_pipeline.py`（5 条）、`python tests/test_stamp_color.py`（17 条，含 GPU）、`python tests/test_gpu_tile.py`（4 条，GPU tile 逐位 + CPU 对齐）。
+验收：`python tests/test_brush_ext.py`（31 条）、`python tests/test_effects_pipeline.py`（5 条）、`python tests/test_stamp_color.py`（17 条，含 GPU）、`python tests/test_gpu_tile.py`（4 条）、`python tests/test_fx_gpu.py`（10 条，含精度与性能）。
 
 ### 效果如何参与增量失效
 
@@ -245,6 +245,26 @@ p.set_color_dynamics(0.0)    # 关闭：与旧行为逐位一致
 - 实测（947×1147、8 层、57,813 笔）：关 2.41 s / 开(0.35) 2.97 s（+23%），RGB 最大差 51。
 - **GPU 后端同样支持**（`paint_gpu.cpp`）：kernel 用 `InterlockedMax` 归并，所以把键打包成 `(alpha16 << 16) | (65535 - stamp序号)` —— alpha 占高 16 位保序，低 16 位存「最小序号」做 tie-break，over 阶段再用该序号从 stamps 缓冲取回抖动桶。这样上层与 CPU 一样是「先到先得」，实测同一笔 CPU/GPU 均值差 0.001（`tests/test_stamp_color.py`）。
 - 关闭时走原来的 `asuint(a)` 分支，逐位不变；开启时才付 16bit alpha 量化代价（8bit 输出上看不出来，alpha 最大差 0）。
+
+### GPU compute 版（paint_fx.dll）
+
+smudge / impasto 有 DirectCompute 实现，全程 float32，**不做任何 8bit/16bit 量化**：
+
+```python
+bx.smudge_rgba(img, path, radius=24, amount=0.7, backend="gpu")
+bx.impasto_rgba(img, backend="gpu")          # 也可直接用 paint_fx_native.*
+```
+
+| 画布 | impasto CPU → GPU | smudge CPU → GPU |
+|---|---|---|
+| 1024² | 0.059 s → 0.041 s（1.4×） | 0.053 s → 0.007 s（8.1×） |
+| 2048² | 0.236 s → 0.059 s（4.0×） | 0.113 s → 0.024 s（4.7×） |
+| 4096² | 0.951 s → 0.140 s（6.8×） | 0.308 s → 0.098 s（3.1×） |
+
+- **精度**：与 CPU 版最大差 1.37e-6（smudge）/ 4.77e-7（impasto），是 float32 舍入（约 1/2800 个 8bit 步长），不是量化降级；alpha 语义不变，结果确定性可复现。
+- 设备/缓冲按尺寸缓存复用（每次新建 D3D 设备要 0.1 s+，批量调用必须缓存），`paint_fx_native.clear_cache()` 可释放。
+- 默认 `backend="cpu"`（CPU 是逐位基准）；大画布/批量改画时显式切 GPU。
+- 验收：`python tests/test_fx_gpu.py`（一致性 + 1024/2048/4096 性能）。
 
 ### 计划级近似（跨后端可用）
 

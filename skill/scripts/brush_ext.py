@@ -92,7 +92,7 @@ def _bilinear(img, x, y):
     return (a * (1 - fx) * (1 - fy) + b * fx * (1 - fy) + c * (1 - fx) * fy + d * fx * fy)
 
 
-def smudge_rgba(rgba, path, radius=16.0, amount=0.6, hardness=0.5, step=None):
+def smudge_rgba(rgba, path, radius=16.0, amount=0.6, hardness=0.5, step=None, backend="cpu"):
     """沿笔迹把底色往前推（拖色）。
 
     rgba   : (H, W, 4) float32 预乘或直通都可，函数只做颜色搬运；
@@ -102,6 +102,10 @@ def smudge_rgba(rgba, path, radius=16.0, amount=0.6, hardness=0.5, step=None):
     采样读的是调用前的原图（冻结快照），因此重复拖动不会自我放大；总颜料量大致有界但不严格守恒。
     hardness: 0..1，边缘硬度
     """
+    if backend == "gpu":
+        import paint_fx_native as _fx
+        return _fx.smudge_rgba_gpu(rgba, path, radius=radius, amount=amount,
+                                   hardness=hardness, step=float(step or 0.0))
     out = np.array(rgba, np.float32, copy=True)
     src_img = out.copy()   # 采样永远读原图，避免重复拖动自我放大
     if len(path) < 2 or amount <= 0:
@@ -138,12 +142,16 @@ def smudge_rgba(rgba, path, radius=16.0, amount=0.6, hardness=0.5, step=None):
 
 # ---------------------------------------------------------------- 厚涂光照
 def impasto_rgba(rgba, light=(-0.44, 0.90, 0.35), height=1.0, spec=0.6,
-                 shininess=24.0, ambient=0.55, combine="overlay"):
+                 shininess=24.0, ambient=0.55, combine="overlay", backend="cpu"):
     """用 alpha 当高度场做浮雕 + 高光。
 
     返回新数组；只改 RGB，alpha 保留。combine="overlay" 时把光照叠到原色上，
     combine="replace" 直接用光照结果。
     """
+    if backend == "gpu":
+        import paint_fx_native as _fx
+        return _fx.impasto_rgba_gpu(rgba, light=light, height=height, spec=spec,
+                                    shininess=shininess, ambient=ambient, combine=combine)
     a = np.asarray(rgba, np.float32)
     hgt = a[..., 3] * float(height)
     gy, gx = np.gradient(hgt)

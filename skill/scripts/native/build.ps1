@@ -19,5 +19,6 @@ function Build-One($src, $out) {
 }
 
 Build-One 'paint_core.cpp' 'paint_core.dll'
+Build-One 'paint_fx.cpp' 'paint_fx.dll'
 if ($Gpu) { Build-One 'paint_gpu.cpp' 'paint_gpu.dll' }
 Write-Output 'done'
