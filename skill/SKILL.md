@@ -694,18 +694,24 @@ python scripts/paint_cli.py eval plan.json examples/batch/expected_hard.json exa
 ### 改色（红玫瑰 → 蓝玫瑰）：按颜色选笔，不要用几何掩膜
 
 这张画里**大笔触同时盖住花头和背景**，几何掩膜（多边形/矩形）选笔只有两种结果：漏掉大部分红色笔触
-（红斑上飘蓝点），或把背景一起染。正确做法是按**颜色**选笔（绿背景、绿叶子天然被排除）：
+（红斑上飘蓝点），或把背景一起染。所以要先按**颜色**选出红色笔触，再用**区域**排掉画面下方的茎/叶：
 
 ```
 python scripts/paint_cli.py edit plan.json --ops examples/ops_rose_blue.json \
-    --mask-file examples/mask_red_petals.json --feather 0 --hard-mask --out rose_blue.png
+    --mask-file examples/mask_red_head_poly.json --feather 0 --hard-mask --fast --out rose_blue.png
 ```
 
-- `examples/mask_red_petals.json` = `{"type":"color","rgb":[190,30,45],"tol":130}`：选中 **2,862 笔**红色笔触
-  （全库红色系 3,023 笔；另有约 160 笔暗红/棕被 tol 挡下，所以花心缝隙里还留一点红）。
+- 掩膜必须是**复合掩膜** `{"type":"and","masks":[{"type":"color","rgb":[190,30,45],"tol":150},{"type":"polygon",...}]}`：
+  只用颜色掩膜时它是**全图**范围的，画面下方偏红的茎、叶缘、萼片会一起被选中——实测叶子下沿出现
+  **565 个蓝像素**（这就是"下面叶子被涂蓝"的原因）。取交集后同一指标 **565 → 0**，萼片恢复绿色。
+- 该复合掩膜选中 **2,878 笔**；全库红色系 3,023 笔，其余约 160 笔是暗红/棕，被 tol 挡下 → 花心褶皱留一点红。
+- `--hard-mask` 是改色的必要条件：颜色掩膜的权重是「距离 → 1..0」的软权重，不二值化时 hue 只旋转一部分，
+  同一组算子会得到**洋红**而不是蓝（实测：软权重 → 品红，硬权重 → 蓝）。
 - `--hard-mask` 是改色的必要条件：颜色掩膜的权重是「距离 → 1..0」的软权重，不二值化时 hue 只旋转一部分，
   同一组算子会得到**洋红**而不是蓝（实测：软权重 → 品红，硬权重 → 蓝）。
 - 算子：`set_layer_hue`(218) + `set_layer_saturation`(0.85)，`guidance: 1` 才精确命中。
+  让子代理按 `compile_ops.py prompt` 的提示词真编译同一条指令，产出的 8 个算子与
+  `examples/ops_rose_blue.json` **逐字段相同**——"模型能编译"与"手写没超纲"同时成立。
 
 **走不通的思路（记录在案，别重走）**：试过用 Photoshop 的 `color` 混合模式罩一层蓝（保留底下明暗），
 但本引擎只实现了部分混合模式。探针（底层红 220,30,30 + 顶层蓝 30,60,220）：
@@ -983,3 +989,23 @@ python tests/test_e2e_edit.py
 
 测试：`python tests/test_ops.py`、`python tests/test_compile_ops.py`。
 
+
+## GPU 真相（别再问脚本为什么慢）
+
+**本引擎没有 GPU 后端。** `tile_inc.draw` 里 `gpu=True` 只改了一个 `offs` 切片，随后仍调用
+CPU 的 `stroke_batch_raw`；`paint_native.py` 里也没有任何 GPU 上下文/着色器。`--gpu` 是历史遗留开关，
+现在第一次使用时打印 `warning: 引擎没有 GPU 后端（--gpu 只是历史开关），已回退 CPU` 并继续。
+
+一次「红→蓝」编辑的耗时拆解（900×1100 / 57,812 笔，CPU）：
+
+| 阶段 | 时间 |
+|---|---|
+| 读 JSON + 校验 | 1.6 s |
+| 整幅渲染（基线，供增量对比） | 15.0 s |
+| 编辑算子 | 2.3 s |
+| 局部重算（脏矩形 787×505） | 6.4 s |
+| 合成 + 存 PNG | ~1 s |
+| **合计（增量模式）** | **27.9 s** |
+
+只想要最终图时用 `--fast`：跳过「先画旧图再局部重算」，直接整幅渲染编辑后的计划 →
+**19.9 s**，与增量结果 **0 px 差**（代价是不再做增量自检）。

@@ -138,6 +138,10 @@ def stroke_weight(mask, stroke, feather=0.0):
     t = mask.get("type")
     if t == "all":
         return 1.0
+    if t == "and":
+        # 交集：取最小值。用途典型是「红色笔触 ∩ 花头区域」——只靠颜色会把
+        # 画面下方偏红的茎/叶缘也染上（实测叶子下沿出现蓝色斑点）。
+        return float(min(stroke_weight(sub, stroke, feather) for sub in mask["masks"]))
     if t == "color":
         d = float(np.linalg.norm(_rgb(stroke) - np.asarray(mask["rgb"], np.float64)))
         return float(max(0.0, min(1.0, 1.0 - d / max(mask["tol"], 1e-6))))
@@ -167,6 +171,14 @@ def _mask_bbox(mask):
         p = np.asarray(mask["points"], np.float64)
         return (float(p[:, 0].min()), float(p[:, 1].min()),
                 float(p[:, 0].max()), float(p[:, 1].max()))
+    if t == "and":
+        # 交集包围盒：各子掩膜 bbox 的交
+        bbs = [b for b in (_mask_bbox(sub) for sub in mask["masks"]) if b is not None]
+        if not bbs:
+            return None
+        a = np.asarray(bbs, np.float64)
+        return (float(a[:, 0].max()), float(a[:, 1].max()),
+                float(a[:, 2].min()), float(a[:, 3].min()))
     return None
 
 
@@ -266,6 +278,12 @@ def to_json(mask):
 def from_json(obj):
     m = dict(obj)
     t = m.get("type")
+    if t == "and":
+        parts = m.get("masks") or []
+        if len(parts) < 2:
+            raise ValueError("and 掩膜至少需要 2 个子掩膜")
+        m["masks"] = [from_json(x) for x in parts]
+        return m
     if t not in ("rect", "point", "polygon", "color", "all"):
         raise ValueError("unknown mask type %r" % (t,))
     return m

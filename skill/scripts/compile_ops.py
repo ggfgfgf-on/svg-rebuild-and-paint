@@ -200,7 +200,8 @@ def main():
         print(build_prompt(summarize(doc), sys.argv[3], mask))
     elif cmd == "validate":
         doc, w, h = plan_io.load_plan(sys.argv[2])
-        specs = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+        ops_arg = sys.argv[sys.argv.index("--ops") + 1] if "--ops" in sys.argv else sys.argv[3]
+        specs = json.loads(Path(ops_arg).read_text(encoding="utf-8"))
         validate_ops(doc, specs)
         print(json.dumps({"ok": True, "ops": len(specs)}))
     elif cmd == "compile":

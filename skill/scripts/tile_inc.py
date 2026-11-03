@@ -4,7 +4,11 @@
 == 整份重画结果」逐位相同（见 tests/test_incremental.py）。
 """
 """tile 级局部重绘：CPU/GPU 双后端、多块脏区合并、合成结果缓存。"""
+import sys
+
 import numpy as np
+
+_GPU_WARNED = False
 
 
 def bboxes(plan, name):
@@ -66,6 +70,10 @@ def _sub(plan, name, sel):
 
 
 def draw(p, plan, spec, name, li, sel, region, gpu, nthreads=8):
+    global _GPU_WARNED
+    if gpu and not _GPU_WARNED:
+        sys.stderr.write("warning: 引擎没有 GPU 后端（--gpu 只是历史开关），已回退 CPU\n")
+        _GPU_WARNED = True
     s = _sub(plan, name, sel)
     if s is None:
         return 0

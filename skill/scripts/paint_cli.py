@@ -82,20 +82,29 @@ def cmd_edit(a):
     out = ops.apply(doc, specs, selection=sel, weights=wt)
 
     p, cat, w, h = D.new_painter(doc)
-    plan1, spec = D.doc_to_plan(doc, cat)
     region = np.zeros((h, w), np.int32)
-    tile_inc.full(p, plan1, spec, lambda nm: region, gpu=a.gpu, nthreads=8)
-    p.composite()
+    if getattr(a, "fast", False):
+        # 只想要最终图时，直接整幅渲染编辑后的计划（省掉"先画旧的再局部重算"的一整遍）
+        plan2, spec2 = D.doc_to_plan(out, cat)
+        tile_inc.full(p, plan2, spec2, lambda nm: region, gpu=a.gpu, nthreads=8)
+        arr = np.ascontiguousarray(p.composite())
+        p.close()
+        x0 = y0 = 0
+        x1, y1 = w - 1, h - 1
+    else:
+        plan1, spec = D.doc_to_plan(doc, cat)
+        tile_inc.full(p, plan1, spec, lambda nm: region, gpu=a.gpu, nthreads=8)
+        p.composite()
 
-    plan2, spec2 = D.doc_to_plan(out, cat, base=plan1, only=touched)
-    dirty = tile_inc.dirty_rects(doc, plan1, sel_by_layer, w, h)
-    x0 = min(r[0] for rs in dirty.values() for r in rs) if dirty else 0
-    y0 = min(r[1] for rs in dirty.values() for r in rs) if dirty else 0
-    x1 = max(r[2] for rs in dirty.values() for r in rs) if dirty else w - 1
-    y1 = max(r[3] for rs in dirty.values() for r in rs) if dirty else h - 1
-    tile_inc.rebuild(p, plan2, spec2, dirty, lambda nm: region, gpu=a.gpu, nthreads=8)
-    arr = np.ascontiguousarray(p.composite())
-    p.close()
+        plan2, spec2 = D.doc_to_plan(out, cat, base=plan1, only=touched)
+        dirty = tile_inc.dirty_rects(doc, plan1, sel_by_layer, w, h)
+        x0 = min(r[0] for rs in dirty.values() for r in rs) if dirty else 0
+        y0 = min(r[1] for rs in dirty.values() for r in rs) if dirty else 0
+        x1 = max(r[2] for rs in dirty.values() for r in rs) if dirty else w - 1
+        y1 = max(r[3] for rs in dirty.values() for r in rs) if dirty else h - 1
+        tile_inc.rebuild(p, plan2, spec2, dirty, lambda nm: region, gpu=a.gpu, nthreads=8)
+        arr = np.ascontiguousarray(p.composite())
+        p.close()
 
     from PIL import Image
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
@@ -203,6 +212,8 @@ def main():
     e.add_argument("--video", default=None)
     e.add_argument("--frames", type=int, default=600)
     e.add_argument("--fps", type=int, default=30)
+    e.add_argument("--fast", action="store_true",
+                   help="不做裸图+局部重算的两遍，直接渲染编辑后的计划（快，但失去增量自检）")
     e.set_defaults(func=cmd_edit)
 
     c = sub.add_parser("compile", help="用 provider 编译指令 -> ops.json")
