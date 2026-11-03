@@ -91,21 +91,24 @@ void cs_splat(uint3 dt : SV_DispatchThreadID) {
             }
         } else if (p.branch == 1) {
             // 平笔 / 鬃毛：椭圆 + 条纹 grain
+            const float invZ = 1.0f / max(1e-6f, s.z);
+            const float inv125 = 1.0f / max(1e-6f, s.z * 1.25f);
+            const float invkw = 1.0f / max(1e-6f, s.z * p.kw);
+            const float rowOff = 0.5f - s.y;
             for (int y = y0; y <= y1; ++y) {
-                float dy = (float)y + 0.5f - s.y;
-                for (int x = x0; x <= x1; ++x) {
+                float dy = (float)y + rowOff;
+                float along = ((float)x0 + 0.5f - s.x) * dir.x + dy * dir.y;
+                float perp = -((float)x0 + 0.5f - s.x) * dir.y + dy * dir.x;
+                for (int x = x0; x <= x1; ++x, along += dir.x, perp -= dir.y) {
                     uint idx = (uint)y * p.W + (uint)x;
                     if (p.use_region) { int rv = region[idx]; if (rv != p.region_id && rv != -2) continue; }
-                    float dx = (float)x + 0.5f - s.x;
-                    float along = dx * dir.x + dy * dir.y;
-                    float perp = -dx * dir.y + dy * dir.x;
-                    float aa = along / (s.z * 1.25f), bb = perp / (s.z * p.kw);
+                    float aa = along * inv125, bb = perp * invkw;
                     float e2 = aa * aa + bb * bb;
                     if (e2 >= 1.0f) continue;
                     float base;
                     if (e2 <= 0.49f) base = 1.0f;
                     else { float e = sqrt(e2); base = 1.0f - smoothstep(0.70f, 1.0f, e); }
-                    float gi_f = (perp / s.z + 0.62f) * (2048.0f / 1.24f);
+                    float gi_f = (perp * invZ + 0.62f) * (2048.0f / 1.24f);
                     int gi = (int)gi_f;
                     if (gi < 0) gi = 0;
                     if (gi > 2047) gi = 2047;
@@ -434,6 +437,7 @@ struct Gpu {
     bool hasRegion = false;
 };
 
+static unsigned long g_n_disp = 0;
 static double g_t_expand = 0, g_t_upload = 0, g_t_splat = 0, g_t_over = 0;
 static inline double now_ms() {
     return std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
@@ -848,8 +852,8 @@ EXPORT void pg_set_dynamics(void* p, float scatter, float size_jit, float alpha_
 
 EXPORT const char* pg_prof(void) {
     static char buf[256];
-    snprintf(buf, sizeof(buf), "expand %.0f upload %.0f splat %.0f over %.0f ms",
-             g_t_expand, g_t_upload, g_t_splat, g_t_over);
+    snprintf(buf, sizeof(buf), "expand %.0f upload %.0f splat %.0f over %.0f ms disp %lu",
+             g_t_expand, g_t_upload, g_t_splat, g_t_over, g_n_disp);
     return buf;
 }
 
@@ -930,6 +934,17 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
         double t2 = now_ms();
         g_t_upload += t2 - t1;
 
+        {
+            ID3D11ShaderResourceView* gsrvs[6] = { g->stampsSrv,
+                                                   g->hasRegion ? g->regionSrv : g->dummySrv,
+                                                   g->tipSrv ? g->tipSrv : g->dummySrv,
+                                                   g->lutSrv, g->dummySrv,
+                                                   (g->wet > 0.0f && g->snapSrv) ? g->snapSrv : g->dummySrv };
+            ID3D11UnorderedAccessView* guavs[2] = { g->scratchUav, L.uav };
+            g->ctx->CSSetShaderResources(0, 6, gsrvs);
+            g->ctx->CSSetUnorderedAccessViews(0, 2, guavs, nullptr);
+            g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
+        }
         for (auto& sp : plans) {
             Params cp{};
             memset(&cp, 0, sizeof(cp));
@@ -958,18 +973,9 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
             cp.th_splat = bs * 256u;
             cp.th_over = bo * 256u;
             upload_params(g, cp);
-            ID3D11ShaderResourceView* srvs[6] = { g->stampsSrv,
-                                                  g->hasRegion ? g->regionSrv : g->dummySrv,
-                                                  sp.use_tip ? g->tipSrv : g->dummySrv,
-                                                  g->lutSrv,
-                                                  g->dummySrv,
-                                                  (g->wet > 0.0f && g->snapSrv) ? g->snapSrv : g->dummySrv };
-            ID3D11UnorderedAccessView* uavs[2] = { g->scratchUav, L.uav };
-            g->ctx->CSSetShaderResources(0, 6, srvs);
-            g->ctx->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
-            g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
             g->ctx->CSSetShader(g->cs_splat, nullptr, 0);
             g->ctx->Dispatch(cp.bs, 1, 1);
+            ++g_n_disp;
             g->ctx->CSSetShader(g->cs_over, nullptr, 0);
             g->ctx->Dispatch(cp.bo, 1, 1);
         }

@@ -1079,6 +1079,11 @@ GPU 内部阶段：expand ~0.30 s / upload ~0.10 s / splat ~2.70 s / composite ~
 - 试过并回退：把内层两次 `cos` 换成预计算表（cosn=9/17 各 2049 项）——splat 从 2.45 s 变 2.76 s，
   说明瓶颈是每像素的原子写和分支发散，不是 ALU。
 - 视频的逐帧 `composite()` 回读无法省：每一帧本来就要写成 PNG 输出。
+- **splat 的真正瓶颈已测出：不是 ALU、不是原子、不是分支，是 dispatch 次数**——整图 57,812 笔 = 57,812 次
+  dispatch（prof 里的 `disp` 计数），每笔约 44 µs。证据：把 `InterlockedMax` 换成普通写、把 cos 换成查表、
+  提升分支1的除法，splat 都没有变化（2.5–2.8 s 抖动）。把 SRV/UAV/CB 的设置提出循环只省 ~10%。
+  要真正提速必须**按 stamp 批量化**：把每笔的 color/opacity/branch/lut/tip/region 烘进 stamp 记录，
+  一次 dispatch 处理一整批（chunk），dispatch 数从 5.8 万降到百级，预计 5–8×。
 - 真要再快只能改结构：按 tile 分桶、桶内无原子 max 归并（预期 1.5–2×），代价是要重跑逐位一致性验证。
 
 ## 为什么以前看起来"没问题"（关键证据）
