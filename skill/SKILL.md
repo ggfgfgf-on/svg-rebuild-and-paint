@@ -1041,7 +1041,25 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 补上 `if (dx*dx + dy*dy > s.z*s.z*1.69f) continue;` 后，位图笔尖 **mean 0.000、px>4 = 0**，**没有降低任何精度**。
 剩下整张计划 0.07% 的像素差（max 4 灰阶以内）来自两端 stamp 位置/累加的浮点顺序，与存储精度无关。
 
-**用法定位**：草稿/预览走 GPU（3.8×），交付与增量自检走 CPU（逐位可复现）。`paint_cli.py --gpu` 现在会真的
+
+### GPU 现状与缺口（2026-08 校准，按严重度）
+
+已达标（有实测）：混合模式与位图笔尖 CPU↔GPU 均 **mean 0.000 / px>4=0**；
+整张计划（57,812 笔 / 8 层）CPU 14.3 s vs GPU 3.9 s（3.7×），mean 0.028、px>4 = 707/990,000（0.07%，≤4 灰阶）。
+
+仍不完善：
+1. **不是逐位相同**：那 0.07% 来自 stamp 位置/累加顺序（CPU 用增量 u/v + band 内 max，GPU 每像素重算 + InterlockedMax）。
+   要 0 diff 得把 stamp 生成统一成一份共享实现，不是"再压精度"。
+2. **`paint_hatch` 只有 CPU 原生实现**（`paint_core.cpp` 导出，`paint_gpu.cpp` 没有）→ GPU 上没有 hatch 路径；
+   主流程（plan_io / tile_inc）不依赖它，但它是公开 API。
+3. **`hue/saturation/color/luminosity` 四种混合模式两端都没实现**（落回 normal）：不是 GPU 单方面缺失，
+   但计划里用到时会静默降级。
+4. **无 GPU 设备时没有自动回落**：GpuPainter 构造失败直接抛；也只在 RTX 5070 Laptop 上验过，跨显卡/驱动的确定性未测。
+5. **GPU 增量合成缺独立回归**：test_gpu_tile 覆盖 full + dirty-rect，`composite_incremental` 没有单独测。
+6. **DLL 供应链**：paint_gpu.dll 需 VS BuildTools + clang 重编（build_gpu.bat），仓库里是本机编译产物。
+7. **小画布未测**：3.7× 是 900×1100 的数；512² 以下提交/回读开销可能吃掉收益。
+
+**用法定位**：草稿/预览走 GPU（3.7–4×），交付与增量自检走 CPU（逐位可复现）。`paint_cli.py --gpu` 现在会真的
 实例化 `GpuPainter`（以前的 `--gpu` 只改了 `offs` 切片，没人接，等于空转）。
 
 ### 为什么以前看起来"没问题"（关键证据）

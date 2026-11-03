@@ -205,7 +205,8 @@ class Painter:
         """逐 stamp 色彩微差（CPU 后端）：同一笔内每个 stamp 按序号确定性微调明度/冷暖。
 
         amount=0 时与旧行为逐位一致；>0 只改 RGB，覆盖率（alpha）完全不变。
-        GPU 后端暂不支持（见 GpuPainter.set_color_dynamics）。
+        GPU 后端用同一套公式，但为让 InterlockedMax 保序，把抖动桶打包进 alpha 的低 8 位
+        （见 GpuPainter.set_color_dynamics）；test_stamp_color 覆盖两端一致性。
         """
         fn = getattr(self._lib, "paint_set_color_dynamics", None)
         if fn is None:
