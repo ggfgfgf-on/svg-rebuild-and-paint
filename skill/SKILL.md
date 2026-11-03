@@ -249,7 +249,7 @@ p.set_color_dynamics(0.0)    # 关闭：与旧行为逐位一致
 
 - 改动在 `paint_core.cpp` 合成热路径：Stamp 多存一个序号，scratch 旁挂「每像素获胜 stamp 序号」，合成时用 `hash2i(seed, k, 16/17)` 抖动 RGB。
 - 不变式（`tests/test_stamp_color.py`）：**只改 RGB，alpha 逐位不变**；确定性；关闭时与旧渲染逐位一致。
-- 实测（947×1147、8 层、57,813 笔）：关 2.41 s / 开(0.35) 2.97 s（+23%），RGB 最大差 51。
+- 实测（947×1147、8 层、57,813 笔，**公式笔尖**）：关 2.41 s / 开(0.35) 2.97 s（+23%），RGB 最大差 51。位图笔尖慢一个量级：同规模 57.8k 笔的 `painting.plan.json` 整份重画 14.5 s（见「计划空间改画」小节）。
 - **GPU 后端同样支持**（`paint_gpu.cpp`）：kernel 用 `InterlockedMax` 归并，所以把键打包成 `(alpha16 << 16) | (65535 - stamp序号)` —— alpha 占高 16 位保序，低 16 位存「最小序号」做 tie-break，over 阶段再用该序号从 stamps 缓冲取回抖动桶。这样上层与 CPU 一样是「先到先得」，实测同一笔 CPU/GPU 均值差 0.001（`tests/test_stamp_color.py`）。
 - 关闭时走原来的 `asuint(a)` 分支，逐位不变；开启时才付 16bit alpha 量化代价（8bit 输出上看不出来，alpha 最大差 0）。
 
