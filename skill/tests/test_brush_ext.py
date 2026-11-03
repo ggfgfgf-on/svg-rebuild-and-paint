@@ -165,5 +165,46 @@ check("psd rle layer", len(got_rle) == 1 and got_rle[0]["name"] == "rle", [g["na
 check("psd rle pixels", np.array_equal(got_rle[0]["rgba"][0, :, 0], np.array([50, 50, 50, 50], np.uint8)) and
       int(got_rle[0]["rgba"][0, 0, 3]) == 255)
 
+
+# 12) PSD 16bit 与 unicode 名 / 图层组
+def _psd_raw(planes, name=b"tmp", extra_info=b"", depth=8, W=4, H=2):
+    import struct as _s
+    bps = depth // 8
+    ch = b""
+    for v in planes.values():
+        if bps == 1:
+            ch += _s.pack(">H", 0) + bytes([v]) * (W * H)
+        else:
+            ch += _s.pack(">H", 0) + _s.pack(">" + "H" * (W * H), *([v * 257] * (W * H)))
+    rec = _s.pack(">iiii", 0, 0, H, W) + _s.pack(">H", len(planes))
+    for cid in planes:
+        rec += _s.pack(">hI", cid, 2 + len(ch) // len(planes))
+    rec += b"8BIM" + b"norm" + bytes([255, 0, 0, 0])
+    nm_p = bytes([len(name)]) + name
+    if len(nm_p) % 4:
+        nm_p += b"\0" * (4 - len(nm_p) % 4)
+    extra_ = _s.pack(">II", 0, 0) + nm_p + extra_info
+    rec += _s.pack(">I", len(extra_)) + extra_
+    li = _s.pack(">h", -1) + rec + ch
+    lm = _s.pack(">I", len(li)) + li + _s.pack(">I", 0)
+    head = b"8BPS" + _s.pack(">H", 1) + b"\0" * 6 + _s.pack(">HIIHH", 4, H, W, depth, 3)
+    return head + _s.pack(">II", 0, 0) + _s.pack(">I", len(lm)) + lm + _s.pack(">H", 0)
+
+g16 = bx._psd_parse_layers(_psd_raw({0: 120, 1: 60, 2: 30, -1: 255}, depth=16))
+check("psd 16bit depth", g16[0]["rgba"][0, 0, 0] == 120 and int(g16[0]["rgba"][0, 0, 3]) == 255,
+      str(g16[0]["rgba"][0, 0]))
+
+def _blob(key, payload):
+    import struct as _s
+    pad = b"\0" * ((4 - len(payload) % 4) % 4)
+    return b"8BIM" + key + _s.pack(">I", len(payload)) + payload + pad
+
+nm_u = "图层一"
+luni = _blob(b"luni", __import__("struct").pack(">I", len(nm_u)) + nm_u.encode("utf-16-be"))
+lsct = _blob(b"lsct", __import__("struct").pack(">I", 1))
+gg = bx._psd_parse_layers(_psd_raw({0: 10, 1: 20, 2: 30, -1: 255}, extra_info=luni + lsct))
+check("psd unicode name + group", gg[0]["name"] == nm_u and gg[0]["kind"] == "group",
+      "kind=%s chars=%d" % (gg[0]["kind"], len(gg[0]["name"])))
+
 print("RESULT", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)

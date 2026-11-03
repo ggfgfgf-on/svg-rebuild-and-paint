@@ -398,6 +398,14 @@ def _packbits(buf, need):
     return bytes(out[:need])
 
 
+
+def _to8(raw, h, w, bps):
+    """PSD 通道样本转 uint8：8bit 原样，16bit 取高字节（>>8，等价 /257 取整）。"""
+    if bps == 1:
+        return np.frombuffer(raw, np.uint8).reshape(h, w)
+    arr = np.frombuffer(raw, ">u2").reshape(h, w)
+    return (arr >> 8).astype(np.uint8)
+
 def _psd_parse_layers(data):
     import struct
     pos = 0
@@ -424,8 +432,9 @@ def _psd_parse_layers(data):
         raise ValueError("unsupported PSD version %d" % ver)
     take(6)
     channels, height, width, depth, mode = struct.unpack(">HIIHH", take(14))
-    if depth != 8:
-        raise ValueError("only 8-bit PSD supported (got %d)" % depth)
+    if depth not in (8, 16):
+        raise ValueError("only 8/16-bit PSD supported (got %d)" % depth)
+    bps = depth // 8
     take(u32())             # color mode data
     take(u32())             # image resources
 
@@ -453,9 +462,22 @@ def _psd_parse_layers(data):
         take(u32())         # blending ranges
         nlen = data[pos]; pos += 1
         name = take(nlen).decode("latin-1", "ignore")
+        uname, sect = None, None
+        while pos + 12 <= extra_end:
+            take(4)                  # '8BIM' / '8B64'
+            key = take(4).decode("latin-1", "ignore")
+            ln = u32()
+            blob = take(ln)
+            pos += (4 - (ln % 4)) % 4
+            if key == "luni" and len(blob) >= 4:
+                cnt = struct.unpack(">I", blob[:4])[0]
+                uname = blob[4:4 + cnt * 2].decode("utf-16-be", "ignore")
+            elif key == "lsct" and len(blob) >= 4:
+                sect = struct.unpack(">I", blob[:4])[0]
         pos = extra_end
         records.append({"rect": (left, top, right, bottom), "chans": chans,
-                        "opacity": opacity, "name": name})
+                        "opacity": opacity, "name": uname or name,
+                        "section": sect})
 
     out = []
     for rec in records:
@@ -467,14 +489,14 @@ def _psd_parse_layers(data):
             if w <= 0 or h <= 0:
                 continue
             if comp == 0:
-                raw = take(w * h)
-                planes[cid] = np.frombuffer(raw, np.uint8).reshape(h, w)
+                raw = take(w * h * bps)
+                planes[cid] = _to8(raw, h, w, bps)
             elif comp == 1:
                 counts = np.frombuffer(take(h * 2), ">u2")
                 rows = []
                 for c in counts:
                     rows.append(_packbits(take(int(c)), w))
-                planes[cid] = np.frombuffer(b"".join(rows), np.uint8).reshape(h, w)
+                planes[cid] = _to8(b"".join(rows), h, w, bps)
             else:
                 raise ValueError("unsupported PSD compression %d" % comp)
         rgba = np.zeros((h, w, 4), np.uint8)
@@ -482,8 +504,9 @@ def _psd_parse_layers(data):
             if cid in planes:
                 rgba[..., cid] = planes[cid]
         rgba[..., 3] = planes.get(-1, np.full((h, w), 255, np.uint8))
-        out.append({"name": rec["name"], "rgba": rgba,
-                    "opacity": rec["opacity"] / 255.0, "blend": "normal"})
+        out.append({"name": rec["name"], "rgba": rgba, "opacity": rec["opacity"] / 255.0,
+                    "blend": "normal", "kind": "group" if rec["section"] in (1, 2) else "layer",
+                    "section": rec["section"]})
     return out
 
 

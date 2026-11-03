@@ -206,7 +206,7 @@ auto.py ref.png out.svg --region-poly "40,20 280,20 280,160 40,160:128,1"
 | `apply_color_dynamics(strokes, hue=0.02, sat=0.15, val=0.12, seed=0)` | 色相/饱和/明度幅度、seed | 逐笔触确定性色彩抖动 |
 | `grain_variant(tip, grain, amount=0.5, scale=1.0, seed=0)` | seed 决定纸纹相位 | 同一 grain 生成不同相位的笔尖变体 |
 | `apply_velocity_response(strokes, gain=0.3, boost=0.0, ref=None)` | gain 越大越快越细淡 | 按笔速缩放尺寸/不透明度 |
-| `read_kra(path)` / `read_psd(path)` | — | 读回分层。PSD 走 psd-tools → 内置 8BPS 解析器（8bit/RLE/RGBA/图层名）→ PIL 合成图兜底 |
+| `read_kra(path)` / `read_psd(path)` | — | 读回分层。PSD 走 psd-tools → 内置 8BPS 解析器（8/16bit、raw+RLE、unicode 名、图层组）→ PIL 合成图兜底 |
 
 ```python
 import brush_ext as bx
@@ -214,7 +214,7 @@ rgba = bx.impasto_rgba(bx.smudge_rgba(rgba, path, radius=18, amount=0.6), light=
 strokes = bx.apply_velocity_response(bx.apply_color_dynamics(strokes, seed=7), gain=0.35)
 ```
 
-验收：`python tests/test_brush_ext.py`（15 条断言，含 KRA/PSD 写读回环）。
+验收：`python tests/test_brush_ext.py`（31 条断言，含 KRA/PSD 写读回环、16bit、RLE、unicode 名/图层组）与 `python tests/test_effects_pipeline.py`（效果 + 增量重绘管线逐位一致）。
 
 ### 效果如何参与增量失效
 
