@@ -1135,6 +1135,31 @@ COLOUR_OPS = {"set_layer_hue", "set_layer_saturation", "set_layer_brightness",
               "tone_map", "recolor_palette", "relight_dir", "redraw"}
 
 
+def _load_measured():
+    """从 sources_measured.json 载入实测值（scripts/measure_sources.py 生成）。
+
+    这样 measured 不是我手填的画面数字，而是脚本跑出来的证据；缺文件时保持空表，
+    只是 notice 里少一列，不影响任何决策。
+    """
+    from pathlib import Path as _P
+    p = _P(__file__).resolve().parent / "sources_measured.json"
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    c = (data or {}).get("cells") or {}
+    iou = c.get("iou_by_tile") or {}
+    if iou:
+        SOURCES["cells"]["measured"] = {int(k): float(v) for k, v in iou.items()}
+        SOURCES["cells"]["measured_spec"] = data.get("spec")
+    rf = c.get("refined") or {}
+    if rf.get("iou"):
+        SOURCES["cells"]["refined_from_cells"] = float(rf["iou"])
+
+
+_load_measured()
+
+
 def spec_source(spec):
     """返回 spec 用到的第一个选择源名（没有则 None）。"""
     if not isinstance(spec, dict):
@@ -1145,32 +1170,47 @@ def spec_source(spec):
     return None
 
 
-def check_source(spec, op_name=None):
-    """闸门：粗来源（coarse）不许直接喂给改色类算子。
+LAST_NOTICES = []
 
-    这是行为约束，不是文档提醒——文档由 SOURCES 生成，所以改约束必然改文档。
-    放行方式：refine（推荐，把格子并集精修成边界）或 allow_coarse: true（明确接受溢出）。
+
+def check_source(spec, op_name=None):
+    """核对选择源是否合适：粗来源用在改色算子上 -> 记一条 notice 提醒模型，不拒绝执行。
+
+    为什么不硬拒绝：模型才是决定语义的一方；"这块区域整体调色"是合法意图，
+    硬拒绝只会逼出 allow_coarse 这种绕过开关。这里给的是证据 + 修法，
+    模型看到后再决定 refine / 更细的格子 / 就这样改。
+    真正的错误（未登记的来源、缺必需字段）仍然直接抛错。
     """
     src = spec_source(spec)
     if src is None:
         return None
     info = SOURCES.get(src)
     if info is None:
-        raise ValueError("未登记的选择源 %r（要同时改 resolve_mask 和 ops.SOURCES/_SEL_KEYS）" % (src,))
-    if op_name and info.get("coarse") and op_name in COLOUR_OPS:
-        if spec.get("allow_coarse"):
-            return info
-        inner = spec.get(src) if isinstance(spec.get(src), dict) else {}
-        if inner.get("refine"):
-            return info
-        raise ValueError(
-            "选择源 %r 是格子并集（块状，%s），不能直接给改色算子 %r：整笔改色会越出边界。"
-            "两种修法：1) 给 %r 加 refine: true（grabcut 精修，实测 IoU 0.703 -> 0.938）；"
-            "2) 用更细的格子（zoom：tile_px 16 -> 0.915，11 -> 0.924）或换像素级来源（mask/polygon）。"
-            "若确实接受溢出，显式写 allow_coarse: true。"
-            % (src, "、".join("%dpx→%.3f" % (k, v) for k, v in sorted(info["measured"].items(), reverse=True)),
-               op_name, src))
-    return info
+        raise ValueError("未登记的选择源 %r（要同时改 resolve_mask 与 ops.SOURCES/_SEL_KEYS）" % (src,))
+    if not (info.get("coarse") and op_name in COLOUR_OPS):
+        return None
+    if spec.get("allow_coarse"):
+        return None
+    inner = spec.get(src) if isinstance(spec.get(src), dict) else {}
+    if inner.get("refine"):
+        return None
+    meas = "、".join("%dpx→%.3f" % (k, v) for k, v in sorted(info.get("measured", {}).items(), reverse=True))
+    notice = {
+        "level": "warn",
+        "source": src,
+        "op": op_name,
+        "why": "来源是格子并集（块状），改色算子按整笔生效，会越出选区边界",
+        "measured": dict(sorted(info.get("measured", {}).items(), reverse=True)),
+        "refined_from_cells": info.get("refined_from_cells"),
+        "fix": ["给 %s 加 refine: true（从格子并集精修，实测见 refined_from_cells）" % src,
+                "用更细的格子（zoom / tile_px）或换像素级来源（mask / polygon）",
+                "确实要整块改色时显式写 allow_coarse: true"],
+        "text": ("选择源 %r 是格子并集（%s），给改色算子 %r 用会整笔越界；"
+                 "要边界就 refine: true，要更细就 zoom，接受溢出就 allow_coarse: true。"
+                 % (src, meas or "无实测", op_name)),
+    }
+    LAST_NOTICES.append(notice)
+    return notice
 
 
 def describe_sources():
@@ -1181,8 +1221,8 @@ def describe_sources():
         info = SOURCES.get(name) or {}
         meas = info.get("measured") or {}
         txt = "、".join("%dpx→%.3f" % (k, v) for k, v in sorted(meas.items())) if meas else "-"
-        if info.get("refined"):
-            txt += "；refine→%.3f" % info["refined"]
+        if info.get("refined_from_cells"):
+            txt += "；refine(从格子)→%.3f" % info["refined_from_cells"]
         rows.append([name, "是" if info.get("coarse") else "否",
                      "是" if info.get("pixel_accurate") else "否", txt, info.get("doc", "")])
     return head, rows
@@ -1233,6 +1273,7 @@ def select_by_tag(doc, tag):
 
 def apply(doc, specs, selection=None, weights=None, seed=0):
     """按顺序执行算子列表；返回新 doc（入参不受影响）。"""
+    LAST_NOTICES.clear()
     out = _copy_doc(doc)
     for spec in specs:
         raw = dict(spec)
