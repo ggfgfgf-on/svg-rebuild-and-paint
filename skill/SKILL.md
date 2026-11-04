@@ -83,6 +83,7 @@ python scripts/render_plan.py plan.json --ops ops.json --out edited.png --gpu
 | `contact_sheet` | 数值档可枚举（生长像素、比例阈值等） | `docs/calib/<param>.png` |
 | `multi_sample` | 阈值型，且工程里有 ≥2 份 (图, 描边) | 每样本区间 + 交集 |
 | `per_pixel_hist` | 阈值型但只有 1 张图 | `docs/calib/edge_hist.png`（逐边界像素分布） |
+| `measured` | 门限型，先量出不同设置下的实际溢出/偏差 | `scripts/spill_measured.json` 等测量表 |
 
 ```powershell
 # 数值档：枚举 + 接触表
@@ -107,12 +108,18 @@ python scripts\calibrate.py --param edge_min_contrast --choose 0.40 --evidence p
 | `min_ratio` | 0.8 | contact_sheet | 0.9/0.8 一致；1.1 开始把真实叶缘当晕边丢掉 |
 | `max_grow_px` | 2 | contact_sheet | 4 时面积 0.0637 > 描边 0.0614（+3.7%）且更胖；1 欠长 |
 | `neg_px` | 3 | contact_sheet | 扫 1/3/6/10 无差异（0.801~0.804） |
+| `neg_k` | 1.0 | contact_sheet | 扫 0.5/1/2/4 无差异（IoU 0.938~0.940，contrast 0.506~0.513） |
+| `ring` | 14 | contact_sheet | 扫 6/10/14/20 一致（0.938~0.939，2 轮收敛）：走廊不是瓶颈 |
+| `attach_gap` | 10 | contact_sheet | 看图：3/6 顶端缺口未补，10 补齐且无多余块，16 开始长出越界碎片；IoU 以 10 最高 0.952 |
+| `attach_width` | 6 | contact_sheet | 扫 3~16 完全一致 → 这张图没触发该判据（不是它无效） |
+| `attach_len` | 90 | contact_sheet | 扫 40~260 完全一致 → 同上，缺触发样本 |
 | `attach_px` | 4 | contact_sheet | 扫 0~28 无差异；**只在给 `near` 时生效** |
 | `edge_min_contrast` | 0.40 | per_pixel_hist | accurate 中位 0.432 / fat_3px −0.138；>0.40 保留 52.7% vs 21.4%。分布重叠，故只作警告门 |
 | `accept_max_area_change` | 0.044 | multi_sample | 区间 [0.042,0.045]：精修 4.13% 放行、历史失控 4.63% 拦住 |
+| `max_spill` | 0.10 | measured | 实测 `sel_mode` any 24.5% / center 0.46% / all 0%：门限放过 center/all，挡住 any 的整笔改色 |
 
 消费方：`refine_loop(neg_px/max_grow_px)`、`filter_added(min_ratio/model_grow_px)`、`edge_report(min_contrast)`、
-`ops` 循环接受门（`accept_max_area_change`）。
+`ops` 循环接受门（`accept_max_area_change`）、`attach_thin(gap/width/len)`、`masks.spill` + `ops.check_spill` 的溢出闸门（`max_spill`）。
 复验：`tests/test_calibrated.py`（字段、证据合法、接触表/交集/分布图存在、默认值确实来自文件）、
 `tests/test_calibrate_multi.py`（多图交集收窄）、`tests/test_skill_doc.py`（本文表格不许缺项）。
 
@@ -120,12 +127,26 @@ python scripts\calibrate.py --param edge_min_contrast --choose 0.40 --evidence p
 
 | 参数或能力 | 状态 | 说明 |
 | --- | --- | --- |
-| `neg_k` / `neg_max` | 未标定 | 反向提示的抑制强度与上限，仍是代码默认 |
-| `ring` | 未标定 | 环形搜索半径，默认值没扫过 |
-| `attach_thin` 的 gap/width/len | 未标定 | 细缝附着的三条判据尚未扫档 |
-| `tol` | 未标定 | 颜色容差与素材强相关，建议每个工程自测 |
-| `max_spill` 闸门 | 未实现 | 目前只有 `check_source` 提醒，没有 spill 上限检查 |
-| `auto_zoom` 辅助 | 未实现 | `zoom` 的 tile_px/max_cells 仍要手写，不能自动选窗口 |
+| `tol`（颜色容差） | 未标定 | 与素材强相关，建议每个工程自测 |
+
+`ring` / `attach_gap` / `attach_width` / `attach_len` / `neg_k` 本轮已扫档并写入 `calibrated.json`；
+`max_spill` 溢出闸门与 `auto_zoom`（`pick_instance.zoom_plan`）本轮已实现。
+
+### 溢出闸门 `max_spill`
+
+`ops.apply` 在解析出掩膜后调用 `masks.spill`：被选中笔按 *采样点数 × 笔宽* 估面积，掩膜外占比即溢出率；
+超过 `max_spill` 只**发通知**（`ops.LAST_NOTICES` 里 `kind=spill`），不抛错。
+口径是面积预估，不是像素渲染差——要精确值就重渲染后比对。
+
+### 自动选窗口 `zoom_plan`
+
+```python
+import pick_instance as PI
+plan = PI.zoom_plan(image, [80, 500, 520, 790], max_cell_px=40, max_cells=64)
+# -> {"windows": [{id, roi, cols, rows, cell_px}, ...], "cell_px": 36.67, "total_cells": 96}
+```
+按"每格 ≤ max_cell_px 且每窗格子 ≤ max_cells"自动二分 roi；`pos/neg` 仍由模型看图报。
+实测：叶子 roi 上 36.7px 格子 IoU **0.857**，固定 8×6 根窗只有 **0.703**。
 
 ### 两条限制（实测，别再踩）
 

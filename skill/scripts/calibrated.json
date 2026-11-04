@@ -34,6 +34,76 @@
   },
   "value": 0.044
  },
+ "attach_gap": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\attach_gap.png",
+  "evidence": "contact_sheet",
+  "reason": "看图：3/6 顶端缺口没补齐，10 补齐且无多余块，16 开始在下缘和右下长出越界碎片；IoU 也以 10 最高（0.952）",
+  "spec": {
+   "base_mask": "mask_leaf_tip3.json",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "10.0": {
+    "area": 0.0597,
+    "grew_px": 1666,
+    "iou": 0.952
+   },
+   "16.0": {
+    "area": 0.0604,
+    "grew_px": 2422,
+    "iou": 0.949
+   },
+   "3.0": {
+    "area": 0.0584,
+    "grew_px": 463,
+    "iou": 0.944
+   },
+   "6.0": {
+    "area": 0.059,
+    "grew_px": 968,
+    "iou": 0.948
+   }
+  },
+  "value": 10.0
+ },
+ "attach_len": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\attach_len.png",
+  "evidence": "contact_sheet",
+  "reason": "扫 40~260 完全一致（0.948/968px）：细条长度同样未触及阈值，保留默认 90",
+  "spec": {
+   "base_mask": "mask_leaf_tip3.json",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "160.0": {
+    "area": 0.059,
+    "grew_px": 968,
+    "iou": 0.948
+   },
+   "260.0": {
+    "area": 0.059,
+    "grew_px": 968,
+    "iou": 0.948
+   },
+   "40.0": {
+    "area": 0.059,
+    "grew_px": 968,
+    "iou": 0.948
+   },
+   "90.0": {
+    "area": 0.059,
+    "grew_px": 968,
+    "iou": 0.948
+   }
+  },
+  "value": 90.0
+ },
  "attach_px": {
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\attach_px.png",
@@ -68,6 +138,41 @@
    }
   },
   "value": 4.0
+ },
+ "attach_width": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\attach_width.png",
+  "evidence": "contact_sheet",
+  "reason": "扫 3~16 结果完全一致（0.948/0.059/968px）：这张图的细条宽度都低于所有档位，判据没被触发；保留默认 6，等有触发样本再扫",
+  "spec": {
+   "base_mask": "mask_leaf_tip3.json",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "10.0": {
+    "area": 0.059,
+    "grew_px": 968,
+    "iou": 0.948
+   },
+   "16.0": {
+    "area": 0.059,
+    "grew_px": 968,
+    "iou": 0.948
+   },
+   "3.0": {
+    "area": 0.059,
+    "grew_px": 968,
+    "iou": 0.948
+   },
+   "6.0": {
+    "area": 0.059,
+    "grew_px": 968,
+    "iou": 0.948
+   }
+  },
+  "value": 6.0
  },
  "edge_min_contrast": {
   "chosen_by": "model",
@@ -184,6 +289,38 @@
   },
   "value": 2.0
  },
+ "max_spill": {
+  "chosen_by": "model",
+  "contact_sheet": "",
+  "evidence": "measured",
+  "reason": "实测 sel_mode any 溢出 24.5%、center 0.46%、all 0%。门限取 0.10：放过 center/all，挡住 any 这种整笔改色；这是面积预估口径（非像素渲染差）",
+  "spec": {
+   "how": "M.spill：选中笔按 采样点数x笔宽 估面积，掩膜外占比",
+   "image": "v2.plan.json",
+   "mask": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "all": {
+    "outside_area": 0.0,
+    "paint_area": 3573671.5,
+    "selected": 1360,
+    "spill": 0.0
+   },
+   "any": {
+    "outside_area": 1224081.7,
+    "paint_area": 4997158.8,
+    "selected": 1511,
+    "spill": 0.245
+   },
+   "center": {
+    "outside_area": 17021.6,
+    "paint_area": 3721252.4,
+    "selected": 1413,
+    "spill": 0.0046
+   }
+  },
+  "value": 0.1
+ },
  "min_ratio": {
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\min_ratio.png",
@@ -282,6 +419,49 @@
   },
   "value": 20.0
  },
+ "neg_k": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\neg_k.png",
+  "evidence": "contact_sheet",
+  "reason": "扫 0.5/1/2/4 全无差异（IoU 0.938~0.940，contrast 0.506~0.513），保留中位默认 1.0",
+  "spec": {
+   "base_mask": "mask_leaf_tip3.json",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "0.5": {
+    "area": 0.058,
+    "contrast": 0.5068,
+    "edge_ok": true,
+    "iou": 0.938,
+    "iters": 2
+   },
+   "1.0": {
+    "area": 0.0582,
+    "contrast": 0.513,
+    "edge_ok": true,
+    "iou": 0.94,
+    "iters": 2
+   },
+   "2.0": {
+    "area": 0.058,
+    "contrast": 0.5063,
+    "edge_ok": true,
+    "iou": 0.938,
+    "iters": 2
+   },
+   "4.0": {
+    "area": 0.058,
+    "contrast": 0.5062,
+    "edge_ok": true,
+    "iou": 0.938,
+    "iters": 2
+   }
+  },
+  "value": 1.0
+ },
  "neg_px": {
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\neg_px.png",
@@ -324,5 +504,48 @@
    }
   },
   "value": 3.0
+ },
+ "ring": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\ring.png",
+  "evidence": "contact_sheet",
+  "reason": "扫 6/10/14/20 结论一致（IoU 0.938~0.939，只有 2 轮就收敛）：这张图走廊够宽，环半径不是瓶颈；保留默认 14",
+  "spec": {
+   "base_mask": "mask_leaf_tip3.json",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "10.0": {
+    "area": 0.058,
+    "contrast": 0.507,
+    "edge_ok": true,
+    "iou": 0.938,
+    "iters": 2
+   },
+   "14.0": {
+    "area": 0.058,
+    "contrast": 0.506,
+    "edge_ok": true,
+    "iou": 0.938,
+    "iters": 2
+   },
+   "20.0": {
+    "area": 0.058,
+    "contrast": 0.508,
+    "edge_ok": true,
+    "iou": 0.939,
+    "iters": 2
+   },
+   "6.0": {
+    "area": 0.058,
+    "contrast": 0.508,
+    "edge_ok": true,
+    "iou": 0.938,
+    "iters": 2
+   }
+  },
+  "value": 14.0
  }
 }

@@ -384,3 +384,47 @@ def from_json(obj):
     if t not in ("rect", "point", "polygon", "color", "all", "raster"):
         raise ValueError("unknown mask type %r" % (t,))
     return m
+
+
+def _inside_frac(mask, pts):
+    """每个采样点落在掩膜内的程度（0/1，羽化不计）。"""
+    t = mask.get("type")
+    if t == "all" or t == "color":
+        return np.ones(len(pts), np.float64)
+    if t == "point":
+        return point_weight(mask, pts, 0.0, 0.0)
+    if t == "rect":
+        return rect_weight(mask, pts, 0.0, 0.0)
+    if t == "polygon":
+        return poly_weight(mask, pts, 0.0)
+    if t == "raster":
+        return raster_weight(mask, pts, 0.0, 0.0)
+    if t == "and":
+        return np.min(np.stack([_inside_frac(s, pts) for s in mask["masks"]]), axis=0)
+    raise ValueError("unknown mask type %r" % (t,))
+
+
+def spill(doc, mask, mode="any", layer=None):
+    """有多少"颜料面积"落在掩膜外——笔触级算子的溢出闸门。
+
+    口径：被选中的笔按 采样点数 x 笔宽 估面积，掩膜外的那部分算溢出。
+    不算像素级渲染差（那要重渲染），所以它是**预估**，用来在改色前提示
+    "你这么选会漫出 20%"，不是精确测量。
+    """
+    sel, wts = weights(doc, mask, mode=mode, layer=layer)
+    strokes = doc["strokes"]
+    tot = out = 0.0
+    for i, w in zip(sel, wts):   # wts 与 sel 对齐，不是与 strokes 对齐
+        if w <= 0:
+            continue
+        st = strokes[i]
+        pts = _pts(st)
+        if len(pts) == 0:
+            continue
+        inside = _inside_frac(mask, pts)
+        r = max(stroke_radius(st), 0.5)
+        area = float(len(pts)) * 2.0 * r
+        tot += area
+        out += area * float(1.0 - float(np.mean(inside)))
+    return {"spill": (out / tot) if tot > 0 else 0.0, "selected": int(len(sel)),
+            "paint_area": round(tot, 1), "outside_area": round(out, 1)}

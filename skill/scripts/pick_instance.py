@@ -272,7 +272,7 @@ def cells_mask(image, windows, dilate_px=0, near=None, near_px=0, use_neg=True, 
     return bits
 
 
-def attach_thin(image, mask, gap_px=6, max_width_px=6, max_len_px=90, hue_tol=16.0,
+def attach_thin(image, mask, gap_px=None, max_width_px=None, max_len_px=None, hue_tol=16.0,
                s_min=0.06, v_min=0.02, max_area_px=5000):
     """把"细长、低饱和、贴着主体"的暗结构并回掩膜（叶尖/叶柄/细颈）。
 
@@ -283,6 +283,9 @@ def attach_thin(image, mask, gap_px=6, max_width_px=6, max_len_px=90, hue_tol=16
       hue_tol/s_min 颜色可信度：与掩膜边界色相接近，或足够低饱和（叶尖属于后者）
     返回 (mask, info)；info 里记录每个被并入块的面积/厚度/长度，便于复核。
     """
+    gap_px = int(calibrated("attach_gap", 6)) if gap_px is None else int(gap_px)
+    max_width_px = int(calibrated("attach_width", 6)) if max_width_px is None else int(max_width_px)
+    max_len_px = int(calibrated("attach_len", 90)) if max_len_px is None else int(max_len_px)
     import cv2 as _cv
     if isinstance(image, np.ndarray):
         img = np.asarray(image)
@@ -645,7 +648,7 @@ def enforce_anchors(image, mask, anchors, radius=40, cap=12000, k=3.0):
     return out, added
 
 
-def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, verbose=True,
+def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=None, verbose=True,
                 init_mask=None, anchors=None, neg_px=None, neg_k=2.5, neg_max=400, max_grow_px=None,
                 max_total_grow_px=None):
     """自动闭环：靠栅格提示起手，然后把已得掩膜的"确信内部/外圈"当作新提示反复精修。
@@ -657,6 +660,7 @@ def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, ve
       4) IoU > tol 或到上限即停，返回每轮指标
     全过程无需人工再报格子；失败会带原因抛错（而不是悄悄给一张错掩膜）。
     """
+    ring = float(calibrated("ring", 14)) if ring is None else float(ring)
     import cv2 as _cv
     if neg_px is None:
         neg_px = int(calibrated("neg_px", 3))
@@ -1694,3 +1698,49 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def zoom_plan(image, roi, max_cell_px=40.0, max_cells=64):
+    """给 zoom 自动选窗口：把 roi 切成若干窗口，使每格 <= max_cell_px 且总格子数可控。
+
+    返回可直接喂给 cells_mask / 模型的 windows 骨架（roi/cols/rows/cell_px），
+    pos/neg 仍由模型看图报——这个函数只负责"窗口粒度该多细"，不猜内容。
+    """
+    from PIL import Image
+    x0, y0, x1, y1 = [float(v) for v in roi]
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        raise ValueError("roi 非法: %r" % (roi,))
+
+    def one(rx0, ry0, rx1, ry1):
+        rw, rh = rx1 - rx0, ry1 - ry0
+        cols = max(1, int(np.ceil(rw / max_cell_px)))
+        rows = max(1, int(np.ceil(rh / max_cell_px)))
+        return {"roi": [round(rx0, 2), round(ry0, 2), round(rx1, 2), round(ry1, 2)],
+                "cols": cols, "rows": rows, "cell_px": round(max(rw / cols, rh / rows), 2)}
+
+    wins = [one(x0, y0, x1, y1)]
+    guard = 0
+    while wins and guard < 6:
+        guard += 1
+        if max(w_["cols"] * w_["rows"] for w_ in wins) <= max_cells:
+            break
+        nxt = []
+        for w_ in wins:
+            if w_["cols"] * w_["rows"] <= max_cells:
+                nxt.append(w_); continue
+            rx0, ry0, rx1, ry1 = w_["roi"]
+            if (rx1 - rx0) >= (ry1 - ry0):
+                mid = (rx0 + rx1) / 2.0
+                nxt += [one(rx0, ry0, mid, ry1), one(mid, ry0, rx1, ry1)]
+            else:
+                mid = (ry0 + ry1) / 2.0
+                nxt += [one(rx0, ry0, rx1, mid), one(rx0, mid, rx1, ry1)]
+        wins = nxt
+    out = []
+    for i, w_ in enumerate(wins):
+        out.append(dict(id=("w%d" % i) if len(wins) > 1 else "root", roi=w_["roi"],
+                        cols=w_["cols"], rows=w_["rows"], cell_px=w_["cell_px"]))
+    return {"windows": out, "cell_px": max(w_["cell_px"] for w_ in wins) if wins else None,
+            "total_cells": sum(w_["cols"] * w_["rows"] for w_ in wins),
+            "note": "pos/neg 单元格仍由模型看图报；这里只定窗口粒度"}

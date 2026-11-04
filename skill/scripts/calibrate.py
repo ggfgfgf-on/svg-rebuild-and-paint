@@ -442,6 +442,52 @@ def make_samples(folder, out=None):
     return samples, unmatched, out
 
 
+
+def sweep_ring(image, trace, cells, values, base_mask=None):
+    """ring：精修时允许的增长走廊半径（像素）。太大 = 越界，太小 = 收不回来。"""
+    import numpy as np
+    import pick_instance as PI
+    import masks as M
+    from PIL import Image
+    w, h = Image.open(image).size
+    gt = PI.rasterize(M.from_json(_load_json(trace)), w, h)
+    wins = _cells_windows(cells)
+    init = PI.rasterize(M.from_json(_load_json(base_mask)), w, h) if base_mask else PI.cells_mask(image, wins)
+    rows, panels = {}, []
+    for v in values:
+        bits, info = PI.refine_loop(image, wins, init_mask=init, anchors=PI.cells_anchors(image, wins),
+                                    iters=6, ring=float(v), verbose=False)
+        er = PI.edge_report(image, bits, search_px=6, min_contrast=0.0)
+        rows[str(v)] = {"iou": round(_iou(bits, gt), 3), "area": round(float(bits.mean()), 4),
+                        "iters": info.get("iters"), "edge_ok": bool(er["ok"]),
+                        "contrast": round(float(er["contrast"]), 3)}
+        panels.append(_panel(image, bits, _crop_of(init, pad=30),
+                             note="ring=%s iou=%.3f c=%.2f" % (v, rows[str(v)]["iou"], rows[str(v)]["contrast"])))
+    return rows, _sheet(panels)
+
+
+def sweep_attach(image, trace, cells, values, base_mask=None, which="gap_px"):
+    """attach_thin 的三条判据：缝隙宽度 gap_px / 可附着的最大细条宽度 / 最大长度。"""
+    import numpy as np
+    import pick_instance as PI
+    import masks as M
+    from PIL import Image
+    w, h = Image.open(image).size
+    gt = PI.rasterize(M.from_json(_load_json(trace)), w, h)
+    wins = _cells_windows(cells)
+    init = PI.rasterize(M.from_json(_load_json(base_mask)), w, h) if base_mask else PI.cells_mask(image, wins)
+    rows, panels = {}, []
+    for v in values:
+        kw = {"gap_px": 6, "max_width_px": 6, "max_len_px": 90}
+        kw[which] = int(float(v))
+        m, _ainfo = PI.attach_thin(image, init, **kw)
+        rows[str(v)] = {"iou": round(_iou(m, gt), 3), "area": round(float(m.mean()), 4),
+                        "grew_px": int(m.sum() - init.sum())}
+        panels.append(_panel(image, m, _crop_of(init, pad=30),
+                             note="%s=%s iou=%.3f +%dpx" % (which, v, rows[str(v)]["iou"], rows[str(v)]["grew_px"])))
+    return rows, _sheet(panels)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--param", default="", )
@@ -542,7 +588,11 @@ def main():
             print("%-22s %s" % (name, json.dumps(rows, ensure_ascii=False)))
         print("samples=%d  intersection=%s" % (out["samples"], out["intersection"]))
         return 0
-    sweeps = {"edge_hist": sweep_edge_hist,
+    sweeps = {"ring": sweep_ring,
+              "attach_gap": lambda i, t, c_, v, b: sweep_attach(i, t, c_, v, b, "gap_px"),
+              "attach_width": lambda i, t, c_, v, b: sweep_attach(i, t, c_, v, b, "max_width_px"),
+              "attach_len": lambda i, t, c_, v, b: sweep_attach(i, t, c_, v, b, "max_len_px"),
+              "edge_hist": sweep_edge_hist,
               "attach_px": sweep_attach_px, "min_ratio": sweep_min_ratio,
               "edge_min_contrast": sweep_edge_min_contrast,
               "accept_max_area_change": sweep_accept_max_area_change}

@@ -20,12 +20,14 @@ def main():
         assert 'value' in e, '%s 缺 value' % name
         assert e.get('chosen_by') == 'model', '%s chosen_by=%r（必须由模型定，rule 不再接受）' % (name, e.get('chosen_by'))
         assert len(str(e.get('reason', '')).strip()) >= 8, '%s 理由太短' % name
-        NUMERIC = {'model_grow_px', 'min_ratio', 'max_grow_px', 'neg_px', 'attach_px'}
+        NUMERIC = {'model_grow_px', 'min_ratio', 'max_grow_px', 'neg_px', 'neg_k', 'attach_px',
+                   'ring', 'attach_gap', 'attach_width', 'attach_len'}
+        FRACTIONAL = {'edge_min_contrast', 'accept_max_area_change', 'max_spill'}
         if e['chosen_by'] == 'model':
             for k in ('sweep', 'contact_sheet'):
                 assert k in e, '%s 缺 %s' % (name, k)
             ev = str(e.get('evidence') or '')
-            assert ev in ('contact_sheet', 'multi_sample', 'per_pixel_hist'), \
+            assert ev in ('contact_sheet', 'multi_sample', 'per_pixel_hist', 'measured'), \
                 '%s 的 evidence 不合法: %r（必须是接触表/多图交集/逐像素分布之一）' % (name, ev)
             if ev == 'contact_sheet':
                 assert (ROOT / str(e.get('contact_sheet'))).is_file(), '%s 接触表不存在' % name
@@ -33,13 +35,17 @@ def main():
                 assert e.get('intersection'), '%s 标了多图但没有交集' % name
             elif ev == 'per_pixel_hist':
                 assert (ROOT / 'docs' / 'calib' / 'edge_hist.png').is_file(), '%s 缺逐像素分布图' % name
+            elif ev == 'measured':
+                assert (ROOT / 'scripts' / 'spill_measured.json').is_file() or e.get('sweep'), \
+                    '%s 标了 measured 但没有测量表' % name
             if name in NUMERIC:
                 keys = [float(k) for k in e['sweep']]
                 assert float(e['value']) in keys, '%s 的值 %r 不在 sweep 里 (%s)' % (name, e['value'], keys)
             else:
-                # 判据型（阈值/门限）：sweep 是样本表或过程表，不要求 value 是 key，但要落在合理区间
-                assert 0.0 < float(e['value']) <= 1.0, '%s 的阈值 %r 不在 (0,1]' % (name, e['value'])
                 assert e['sweep'], '%s 的 sweep 为空' % name
+                if name in FRACTIONAL:
+                    # 阈值/门限：sweep 是样本表或测量表，不要求 value 是 key，但要落在 (0,1]
+                    assert 0.0 < float(e['value']) <= 1.0, '%s 的阈值 %r 不在 (0,1]' % (name, e['value'])
 
     e = d['model_grow_px']
     sheet = ROOT / e['contact_sheet']

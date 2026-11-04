@@ -147,7 +147,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 复查 attach_thin 之类"并进来的像素"到底是真结构还是晕边。
 
-### `attach_thin`(image, mask, gap_px=6, max_width_px=6, max_len_px=90, hue_tol=16.0, s_min=0.06, v_min=0.02, max_area_px=5000)
+### `attach_thin`(image, mask, gap_px=None, max_width_px=None, max_len_px=None, hue_tol=16.0, s_min=0.06, v_min=0.02, max_area_px=5000)
 
 把"细长、低饱和、贴着主体"的暗结构并回掩膜（叶尖/叶柄/细颈）。
 
@@ -237,7 +237,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 把任意类型掩膜（raster/polygon/rect/point/all）铺成整图布尔图，便于统一验证。
 
-### `refine_loop`(image, windows, iters=6, tol=0.995, model='grabcut', ring=14, verbose=True, init_mask=None, anchors=None, neg_px=None, neg_k=2.5, neg_max=400, max_grow_px=None, max_total_grow_px=None)
+### `refine_loop`(image, windows, iters=6, tol=0.995, model='grabcut', ring=None, verbose=True, init_mask=None, anchors=None, neg_px=None, neg_k=2.5, neg_max=400, max_grow_px=None, max_total_grow_px=None)
 
 自动闭环：靠栅格提示起手，然后把已得掩膜的"确信内部/外圈"当作新提示反复精修。
 
@@ -277,6 +277,10 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 直接验证模型画的掩膜（多边形也算）：面积/连通块/贴边/填充率。
 
+### `zoom_plan`(image, roi, max_cell_px=40.0, max_cells=64)
+
+给 zoom 自动选窗口：把 roi 切成若干窗口，使每格 <= max_cell_px 且总格子数可控。
+
 ## `masks`（辅助函数）
 
 ### `all_`()
@@ -312,6 +316,10 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 ### `rect_weight`(mask, pts, radius=0.0, feather=0.0)
 
 ### `select`(doc, mask, layer=None, mode='any')
+
+### `spill`(doc, mask, mode='any', layer=None)
+
+有多少"颜料面积"落在掩膜外——笔触级算子的溢出闸门。
 
 ### `stroke_bbox`(stroke)
 

@@ -9,8 +9,9 @@ import json
 
 SK = (ROOT / "SKILL.md").read_text(encoding="utf-8")
 CAL = json.loads((ROOT / "scripts" / "calibrated.json").read_text(encoding="utf-8"))
-EVIDENCE = ("contact_sheet", "multi_sample", "per_pixel_hist")
-UNSET = ("neg_k", "neg_max", "ring", "tol", "max_spill", "auto_zoom")
+EVIDENCE = ("contact_sheet", "multi_sample", "per_pixel_hist", "measured")
+UNSET = ()  # 本轮全部扫完/实现；tol 属工程自测，见手册「未标定」表
+IMPLEMENTED = ("max_spill", "auto_zoom", "zoom_plan")
 
 
 def main():
@@ -23,6 +24,9 @@ def main():
     assert "未标定" in SK, "手册缺「未标定/已知缺口」清单"
     for name in UNSET:
         assert name in SK, "未标定清单缺 %s" % name
+    for name in IMPLEMENTED:
+        assert name in SK, "新实现的能力没写进手册: %s" % name
+    assert "0.857" in SK and "0.703" in SK, "auto_zoom 的实测收益没写进手册"
     assert "attach_px" in SK and "near" in SK, "手册缺 attach_px 依赖 near 的提醒"
     assert "不重新分割" in SK or "不重分" in SK, "手册缺 refine 不能重分割的提醒"
     print("PASS 手册覆盖 %d 个已标定参数、%d 类证据、%d 个未标定项" % (len(CAL), len(EVIDENCE), len(UNSET)))

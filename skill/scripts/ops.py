@@ -1280,9 +1280,34 @@ def select_by_tag(doc, tag):
     return [i for i, s in enumerate(doc["strokes"]) if str(s.get("tag")) == str(tag)]
 
 
+LAST_SPILL = {}
+
+
+def check_spill(op_name, mask, mode, doc, max_spill=None):
+    """溢出闸门：笔触级改色的"颜料有多少落在掩膜外"。超限只发通知，不抛错。"""
+    import masks as M
+    if mask is None:
+        return None
+    limit = float(_PIcal("max_spill", 0.10) if max_spill is None else max_spill)
+    sp = M.spill(doc, mask, mode=mode)
+    sp["op"] = op_name
+    sp["mode"] = mode
+    sp["limit"] = limit
+    LAST_SPILL[op_name] = sp
+    if sp["spill"] > limit:
+        notice = {"kind": "spill", "op": op_name, "sel_mode": mode,
+                  "spill": round(sp["spill"], 4), "limit": limit,
+                  "message": "选用 %s 时预计 %.1f%% 颜料落在掩膜外（上限 %.0f%%）：改 sel_mode=center/all 或先 refine"
+                             % (mode, sp["spill"] * 100, limit * 100)}
+        LAST_NOTICES.append(notice)
+        return notice
+    return None
+
+
 def apply(doc, specs, selection=None, weights=None, seed=0):
     """按顺序执行算子列表；返回新 doc（入参不受影响）。"""
     LAST_NOTICES.clear()
+    LAST_SPILL.clear()
     out = _copy_doc(doc)
     for spec in specs:
         raw = dict(spec)
@@ -1302,6 +1327,7 @@ def apply(doc, specs, selection=None, weights=None, seed=0):
             _smode = str(raw.get("sel_mode") or "any")
             sel = M.select(out, m, mode=_smode)
             wts = M.weights(out, m, mode=_smode)[1]
+            check_spill(name, m, _smode, out)
         check_source(raw, name)
         clean = validate(dict(raw))
         clean.pop("op")
