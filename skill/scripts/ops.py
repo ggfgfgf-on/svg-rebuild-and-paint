@@ -455,7 +455,8 @@ def split_shading(doc, layer=None, guidance=1.0, selection=None, weights=None, s
         lum = _luma(s["color"])
         m = max(mean.get(s["layer"], lum), 1e-6)
         shade = lum / m
-        albedo = _np.clip(_np.asarray(_to_rgb(s["color"])) / max(shade, 0.05), 0.0, 255.0)
+        # 上限放宽到 1020：albedo 若被截在 255，后面 shade>1 就必然饱和，亮度无法守恒
+        albedo = _np.clip(_np.asarray(_to_rgb(s["color"])) / max(shade, 0.05), 0.0, 1020.0)
         if "albedo" not in s:
             s["albedo"] = [float(x) for x in albedo]
         s["shade"] = float(shade)
@@ -524,6 +525,33 @@ def replan_region(doc, ref, regions=None, layers=("band", "highlight"), mode="co
     return new_doc
 
 
+def _rendered_luma(targets, k=1.0):
+    """按笔触反照率算"过一遍渲染"的亮度（含 255 截断），用来做能量守恒。"""
+    import numpy as _np
+    tot = 0.0
+    for _, s0, _st in targets:
+        col = _np.clip(_np.asarray(s0["albedo"], _np.float64) * float(s0["shade"]) * k, 0.0, 255.0)
+        tot += 0.2126 * col[0] + 0.7152 * col[1] + 0.0722 * col[2]
+    return tot / max(1, len(targets))
+
+
+def _preserve_mean_luma(targets, target_luma, iters=24):
+    """二分一个全局系数，让"渲染后平均亮度"回到改动前（截断饱和也能补回来）。"""
+    import numpy as _np
+    lo, hi = 0.4, 2.5
+    for _ in range(int(iters)):
+        mid = (lo + hi) * 0.5
+        if _rendered_luma(targets, mid) < target_luma:
+            lo = mid
+        else:
+            hi = mid
+    k = (lo + hi) * 0.5
+    for _, s0, _st in targets:
+        s0["shade"] = float(s0["shade"]) * k
+        s0["color"] = _set_rgb(_np.clip(_np.asarray(s0["albedo"], _np.float64) * s0["shade"], 0.0, 255.0))
+    return targets
+
+
 def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="dome", layer=None,
                 guidance=1.0, selection=None, weights=None, seed=0, **_):
     """方向光：模型看图说"光从左上/右后来"，这个算子把方位角变成确定性的 shade 重算。
@@ -565,6 +593,7 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
             nm = (nx_ * nx_ + ny_ * ny_ + nz_ * nz_) ** 0.5
             lams.append((nx_ / nm) * L0[0] + (ny_ / nm) * L0[1] + (nz_ / nm) * L0[2])
         mean_lam = float(_np.mean(lams)) if lams else 0.0
+        pre_luma = _rendered_luma(targets, 1.0)
         n = 0
         for k, (_, s0, st) in enumerate(targets):
             px = sum(p[0] for p in s0["points"]) / len(s0["points"])
@@ -575,7 +604,12 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
             s0["color"] = _set_rgb(_np.clip(_np.asarray(s0["albedo"], _np.float64) * new_shade, 0.0, 255.0))
             s0["shade"] = new_shade
             n += 1
+        # 亮笔触会在 255 处截断，导致"平均亮度守恒"失效（实测叶区 -7%）；
+        # 这里按前后 shade 均值再补一次，保证换方向只改分布、不改总亮度。
+        _preserve_mean_luma(targets, pre_luma)
         return doc
+    if mode != "gradient":
+        raise ValueError("relight_dir: mode must be dome or gradient")
     if mode != "gradient":
         raise ValueError("relight_dir: mode must be dome or gradient")
     acc = _np.zeros((h, w), _np.float64)
