@@ -1157,6 +1157,16 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 5. `paint_hatch` **不是后端功能**：它是纯几何（mask → 折线），走 CPU DLL 的静态函数，
    与 painter 后端无关；之前列成"GPU 缺失"是分类错误，已改正。
 
+**texture 层 tile 合并**（消除方块接缝）：计划里 texture 是 81 笔 96px 的 `02_rough-canvas` tile 铺满画布，
+在 normal/提亮后能看到方块边。`scripts/merge_canvas_tiles.py` 把它们合并成一张覆盖全画布的纹理笔：
+
+```
+python scripts/merge_canvas_tiles.py plan.json plan_fixed.json   # 81 笔 -> 1 笔
+```
+
+实测：81 → 1 笔（size 1417.8 覆盖对角线），整图平均亮度 **11.2 → 11.3**（基本不变），
+方块接缝消失；`tests/test_merge_tiles.py` 断言合成 1 笔/覆盖画布/颜色取均值/其它层与混合模式不动。
+
 ### 导出：.kra / .psd 现在带混合模式（以前 8 层全写 svg:src-over）
 
 `export_layers.write_kra` 之前把每层写死 `composite-op="svg:src-over"`、`write_psd` 写死 `norm`，
