@@ -25,6 +25,16 @@ whenToUse: >-
 
 把任意位图重绘成**单文件自包含 HTML**：纯 SVG 平涂 `<path>` + 离散步骤播放器；用逐像素误差闭环验收，不靠目视判断。
 
+### 第三方语义改图（多模态编译）已实现
+
+`compile_ops.py compile <plan> "<指令>" --thumb --provider deepseek|ark|openai [--image path]`：
+把计划摘要 + 当前画面缩略图（base64 data URL）发给 OpenAI 兼容端点，拿回 ops JSON，
+`validate_ops` 校验后 `apply` 渲染。温度为 0、重试 2 次；端点拒图会自动退纯文本；
+缺 key 直接报 `not configured` 并把 prompt 打出来（不静默猜）。
+
+`tests/test_compile_model.py` 用本地 mock 端点验证真实 HTTP 往返：请求体里确实带 `data:image/png` 块、
+返回按 ops 解析、缺 key 抛错。真实第三方 key 的生成质量尚未实测（本机没有对应 env 变量）。
+
 ## 什么时候就是本 skill（别绕路）
 
 用户说「重绘这个 / svg重绘 / 转成SVG / 矢量化 / 去掉像素感」并给了图，**直接走本 skill**：
