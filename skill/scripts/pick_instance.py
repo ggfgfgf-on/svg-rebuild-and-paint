@@ -179,12 +179,35 @@ def tile_points(image, windows):
     return pos, neg, used
 
 
+def mask_implausible(bits, windows, grow=8.0, fill_max=0.95):
+    """提示与图像不符的早期警报：整片叶子不会占满全图，也不会面积暴涨。
+
+    实测教训：我把 11 个背景格子当成"叶尖正样本"报上去，GMM 学歪，输出 area 0.9968（整图）。
+    这种"报错输出"必须当场拦下，而不是等看图才发现。
+    """
+    tot = 0.0
+    for w in windows:
+        x0, y0, x1, y1 = [float(v) for v in w["roi"]]
+        tot += max(1.0, (x1 - x0) * (y1 - y0))
+    area = float(np.asarray(bits, bool).sum())
+    fill = area / max(1.0, float(np.asarray(bits, bool).size))
+    if area > grow * tot:
+        return "面积 %.0f px 超过窗口总面积的 %.0f 倍（提示可能把背景当正样本）" % (area, grow)
+    if fill > fill_max:
+        return "掩膜占全图 %.2f（接近整图，判别器已坍缩）" % fill
+    return None
+
+
 def prompted_from_tiles(image, windows, **kw):
     """模型给格子编号（可多级 zoom）→ 点 → prompted_mask。坐标换算全在代码里。"""
     if isinstance(windows, dict):
         windows = [windows]
     pos, neg, used = tile_points(image, windows)
-    return prompted_mask(image, pos, neg, **kw), {"pos": pos, "neg": neg, "windows": used}
+    bits = prompted_mask(image, pos, neg, **kw)
+    bad = mask_implausible(bits, used)
+    if bad:
+        raise ValueError("tiles 提示与图像不符：%s" % bad)
+    return bits, {"pos": pos, "neg": neg, "windows": used}
 
 
 def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, model="gmm",

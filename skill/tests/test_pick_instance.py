@@ -107,6 +107,20 @@ def test_tile_points_multi():
 
 
 test_tile_points_multi()
+def test_implausible_guard():
+    """守卫本身要拦得住"整图掩膜"这种明显错误（不依赖判别器是否恰好坍缩）。"""
+    full = np.ones((90, 120), bool)
+    wins = [{"roi": [0, 0, 120, 90]}]
+    msg = PI.mask_implausible(full, wins)
+    assert msg and "整图" in msg, msg
+    small = np.zeros((90, 120), bool)
+    small[30:60, 40:80] = True
+    assert PI.mask_implausible(small, wins) is None
+    print("PASS 异常掩膜被判为不合理：%s" % msg)
+    return True
+
+
+ok = test_implausible_guard() and ok
 print("RESULT", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)
 
