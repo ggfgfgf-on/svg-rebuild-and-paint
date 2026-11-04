@@ -106,6 +106,15 @@ def _build_mask(base, step):
     """一步的掩膜：优先用现成掩膜文件，否则从视觉提示（种子点+框）生长。"""
     if step.get("all") or step.get("mask") == "all":
         return {"type": "all"}          # 全画布：改光影用这个，不引入硬掩膜边界
+    if step.get("tiles"):
+        import pick_instance as _PI
+        tl = dict(step["tiles"])
+        bits, _pts = _PI.prompted_from_tiles(
+            tl["image"], tl["roi"], tl.get("pos") or [], tl.get("neg") or [],
+            cols=int(tl.get("cols", 8)), rows=int(tl.get("rows", 6)),
+            ring=float(tl.get("ring", 16)), model=str(tl.get("model", "gmm")),
+            components=int(tl.get("components", 3)))
+        return masks.from_bool(bits)
     if step.get("prompt"):
         # 提示点分割直接作为一步的选择：模型给点，判别由 pick_instance 做，参数全在 step 里
         import pick_instance as _PI

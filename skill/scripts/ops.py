@@ -769,6 +769,26 @@ def resolve_mask(doc, spec):
         return M.all_()
     if "polygon" in spec:
         return M.polygon([tuple(map(float, p)) for p in spec["polygon"]])
+    if "tiles" in spec:
+        # 模型用格子编号参与：{"tiles": {"image","roi","cols","rows","pos":["D2"],"neg":["A1"], ...}}
+        import numpy as _np
+        import pick_instance as _PI
+        from PIL import Image as _Image
+        tl = dict(spec["tiles"])
+        bits, _pts = _PI.prompted_from_tiles(
+            tl["image"], tl["roi"], tl.get("pos") or [], tl.get("neg") or [],
+            cols=int(tl.get("cols", 8)), rows=int(tl.get("rows", 6)),
+            ring=float(tl.get("ring", 16)), radius=float(tl.get("radius", 10)),
+            model=str(tl.get("model", "gmm")), components=int(tl.get("components", 3)))
+        arr = _np.asarray(_Image.open(tl["image"]).convert("RGB"))
+        hh, ww = arr.shape[:2]
+        doc_h, doc_w = int(doc.get("height", hh)), int(doc.get("width", ww))
+        if (hh, ww) != (doc_h, doc_w):
+            bits = _np.asarray(_Image.fromarray(bits.astype(_np.uint8) * 255).resize((doc_w, doc_h), _Image.NEAREST)) > 0
+        v = _PI.verify(bits, allow_border=True)
+        if v["components"] > 3 or v["fill"] < 0.4:
+            raise ValueError("tiles 选择验证不通过：components=%d fill=%.2f" % (v["components"], v["fill"]))
+        return M.from_bool(bits)
     if "prompt" in spec or "segment" in spec:
         # 语义分割选择：提示点/ROI 由模型给，判别由确定性函数做，参数全部走 spec（不硬编码）
         import numpy as _np

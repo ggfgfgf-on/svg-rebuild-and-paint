@@ -110,6 +110,46 @@ def _gmm_logpdf(F, w, mu, cov):
     return out.reshape(H, W)
 
 
+def tile_grid(image, roi, cols=8, rows=6, out=None, scale=2):
+    """把 ROI 切成带编号的格子并画出来：模型用**格子编号**回答，而不是敲像素坐标。
+
+    我两次把显示坐标当照片坐标，都是因为"看图→口算坐标"这一步容易错。
+    让模型只做它擅长的事（看图判断哪些格子属于目标），坐标换算交给代码。
+    """
+    arr = np.asarray(Image.open(image).convert("RGB"))
+    H, W = arr.shape[:2]
+    x0, y0, x1, y1 = [int(v) for v in roi]
+    cw, ch = (x1 - x0) / float(cols), (y1 - y0) / float(rows)
+    cells = {}
+    im = Image.fromarray(arr[y0:y1, x0:x1]).resize(((x1 - x0) * int(scale), (y1 - y0) * int(scale)), Image.LANCZOS)
+    dr = ImageDraw.Draw(im)
+    for r in range(rows):
+        for c in range(cols):
+            name = "%s%d" % (chr(ord("A") + c), r + 1)
+            cx = int((c + 0.5) * cw); cy = int((r + 0.5) * ch)
+            cells[name] = (x0 + cx, y0 + cy)
+            px, py = int(c * cw * scale), int(r * ch * scale)
+            dr.rectangle([px, py, px + cw * scale, py + ch * scale], outline=(0, 220, 255), width=1)
+            dr.text((px + 3, py + 2), name, fill=(255, 255, 0))
+    if out:
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        fmt = "PNG" if str(out).lower().endswith(".png") else "JPEG"
+        im.save(out, fmt, **({"quality": 92} if fmt == "JPEG" else {}))
+    return {"cells": cells, "out": str(out) if out else None, "cols": cols, "rows": rows, "roi": [x0, y0, x1, y1]}
+
+
+def prompted_from_tiles(image, roi, pos_tiles, neg_tiles, cols=8, rows=6, **kw):
+    """模型给格子编号 → 转成点 → 走 prompted_mask。坐标换算由代码完成。"""
+    g = tile_grid(image, roi, cols, rows)
+    cells = g["cells"]
+    miss = [t for t in list(pos_tiles) + list(neg_tiles) if t not in cells]
+    if miss:
+        raise ValueError("未知格子编号: %s" % ",".join(miss))
+    pos = [cells[t] for t in pos_tiles]
+    neg = [cells[t] for t in neg_tiles]
+    return prompted_mask(image, pos, neg, **kw), {"pos": pos, "neg": neg}
+
+
 def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, model="gmm",
                   components=3, bins=32, smooth_bins=2, bridge_px=11):
     """模型给正/负点提示，确定性函数出掩膜（唯一的"阈值"是似然比 0.5，不是拟合常量）。
@@ -722,6 +762,26 @@ def main():
     s5.add_argument("--out", required=True, help="吸附后多边形 JSON")
     s5.add_argument("--search", type=float, default=18)
     s5.add_argument("--smooth", type=int, default=2)
+    s9 = sub.add_parser("tiles")
+    s9.add_argument("--image", required=True)
+    s9.add_argument("--roi", required=True, help="x0,y0,x1,y1")
+    s9.add_argument("--cols", type=int, default=8)
+    s9.add_argument("--rows", type=int, default=6)
+    s9.add_argument("--scale", type=int, default=2)
+    s9.add_argument("--out", required=True)
+    s10 = sub.add_parser("tile-prompt")
+    s10.add_argument("--image", required=True)
+    s10.add_argument("--roi", required=True)
+    s10.add_argument("--cols", type=int, default=8)
+    s10.add_argument("--rows", type=int, default=6)
+    s10.add_argument("--pos", required=True, help="A3,B4 格子编号")
+    s10.add_argument("--neg", required=True)
+    s10.add_argument("--ring", type=int, default=14)
+    s10.add_argument("--model", choices=["gmm", "gauss", "hist"], default="gmm")
+    s10.add_argument("--components", type=int, default=3)
+    s10.add_argument("--width", type=int, default=900)
+    s10.add_argument("--height", type=int, default=1100)
+    s10.add_argument("--out", required=True)
     s8 = sub.add_parser("prompted")
     s8.add_argument("--image", required=True)
     s8.add_argument("--pos", required=True, help="x,y;x,y;...")
@@ -766,7 +826,22 @@ def main():
     s3.add_argument("--max", type=int, default=6)
     s3.add_argument("--sheet", help="候选叠图输出路径")
     a = ap.parse_args()
-    if a.cmd == "prompted":
+    if a.cmd == "tiles":
+        g = tile_grid(a.image, [float(t) for t in a.roi.split(",")], a.cols, a.rows, a.out, a.scale)
+        print(json.dumps({"out": g["out"], "cells": sorted(g["cells"].keys())[:6] + ["..."],
+                          "cols": g["cols"], "rows": g["rows"]}, ensure_ascii=False))
+    elif a.cmd == "tile-prompt":
+        roi = [float(t) for t in a.roi.split(",")]
+        bits, pts = prompted_from_tiles(a.image, roi, a.pos.split(","), a.neg.split(","),
+                                        a.cols, a.rows, ring=a.ring, model=a.model,
+                                        components=a.components)
+        bits = np.asarray(Image.fromarray(bits.astype(np.uint8) * 255).resize((a.width, a.height), Image.NEAREST)) > 0
+        v = verify(bits, allow_border=True)
+        Path(a.out).write_text(json.dumps(masks.to_json(masks.from_bool(bits))), encoding="utf-8")
+        print(json.dumps({"area": round(v["area_frac"], 4), "fill": round(v["fill"], 2),
+                          "components": v["components"], "bbox": v["bbox"],
+                          "pos_pts": len(pts["pos"]), "neg_pts": len(pts["neg"])}, ensure_ascii=False))
+    elif a.cmd == "prompted":
         pos = [[float(u) for u in t.split(",")] for t in a.pos.split(";")]
         neg = [[float(u) for u in t.split(",")] for t in a.neg.split(";")]
         bits = prompted_mask(a.image, pos, neg, ring=a.ring, bridge_px=a.bridge,
