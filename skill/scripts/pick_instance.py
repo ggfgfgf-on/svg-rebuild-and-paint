@@ -20,6 +20,38 @@ import masks
 import visual_mask as VM
 
 
+def grid_overlay(image, box, out, step=50, scale=2):
+    """带坐标网格的放大裁剪：模型据此读数描边，不再靠目测猜坐标。
+
+    教训：之前描错叶子就是因为"看图没坐标"，不是图不可分。所有手工描边都必须先跑这个。
+    """
+    from PIL import ImageDraw
+
+    arr = np.asarray(Image.open(image).convert("RGB"))
+    x0, y0, x1, y1 = [int(v) for v in box]
+    im = Image.fromarray(arr[y0:y1, x0:x1]).resize(((x1 - x0) * int(scale), (y1 - y0) * int(scale)),
+                                                  Image.LANCZOS)
+    dr = ImageDraw.Draw(im)
+    for gx in range(x0 - x0 % step, x1 + 1, step):
+        px = (gx - x0) * scale
+        major = gx % (step * 2) == 0
+        dr.line([(px, 0), (px, im.height)], fill=(0, 220, 255) if major else (0, 120, 150),
+                width=2 if major else 1)
+        if major:
+            dr.text((px + 3, 3), str(gx), fill=(255, 255, 0))
+    for gy in range(y0 - y0 % step, y1 + 1, step):
+        py = (gy - y0) * scale
+        major = gy % (step * 2) == 0
+        dr.line([(0, py), (im.width, py)], fill=(0, 220, 255) if major else (0, 120, 150),
+                width=2 if major else 1)
+        if major:
+            dr.text((3, py + 2), str(gy), fill=(255, 255, 0))
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    im.save(out, "JPEG", quality=92)
+    return {"out": str(out), "box": [x0, y0, x1, y1], "step": int(step), "scale": int(scale),
+            "size": [im.width, im.height]}
+
+
 def survey(image, out, cols=4, rows=4):
     """切块并标注每块像素范围：模型据此报"第几行第几列、偏左偏右"，再换算成坐标。"""
     arr = np.asarray(Image.open(image).convert("RGB"))
@@ -334,6 +366,12 @@ def main():
     s1 = sub.add_parser("survey")
     s1.add_argument("--image", required=True); s1.add_argument("--out", required=True)
     s1.add_argument("--cols", type=int, default=4); s1.add_argument("--rows", type=int, default=4)
+    s4 = sub.add_parser("grid")
+    s4.add_argument("--image", required=True)
+    s4.add_argument("--box", required=True, help="x0,y0,x1,y1")
+    s4.add_argument("--out", required=True)
+    s4.add_argument("--step", type=int, default=50)
+    s4.add_argument("--scale", type=int, default=2)
     s2 = sub.add_parser("pick")
     s2.add_argument("--image", required=True); s2.add_argument("--spec", required=True)
     s2.add_argument("--out-dir", required=True)
@@ -346,7 +384,10 @@ def main():
     s3.add_argument("--max", type=int, default=6)
     s3.add_argument("--sheet", help="候选叠图输出路径")
     a = ap.parse_args()
-    if a.cmd == "candidates":
+    if a.cmd == "grid":
+        box = tuple(int(v) for v in a.box.split(","))
+        print(json.dumps(grid_overlay(a.image, box, a.out, a.step, a.scale), ensure_ascii=False))
+    elif a.cmd == "candidates":
         roi = tuple(int(v) for v in a.roi.split(",")) if a.roi else None
         res = candidates(a.image, roi, max_out=a.max)
         Path(a.out_dir).mkdir(parents=True, exist_ok=True)
