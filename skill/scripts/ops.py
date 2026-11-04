@@ -1124,7 +1124,7 @@ SOURCES = {
     "instance": {"coarse": False, "pixel_accurate": False, "requires": ("image", "seeds"),
                  "measured": {}, "doc": "实例分割；近似边界"},
     "cells": {"coarse": True, "pixel_accurate": False, "requires": ("image", "windows"),
-              "measured": {55: 0.703, 48: 0.840, 32: 0.893, 24: 0.892, 16: 0.915, 11: 0.924, 8: 0.931},
+              "measured": {},   # 本工程实测值由 SVP_MEASURED / 工程 sources_measured.json 提供；技能只带文档化范围
               "refined": 0.938,
               "doc": "模型报的格子并集（块状）；只回答「哪一片」，必须 refine 或 zoom 才能上色"},
     "tiles": {"coarse": False, "pixel_accurate": False, "requires": ("image", "windows"),
@@ -1144,30 +1144,54 @@ COLOUR_OPS = {"set_layer_hue", "set_layer_saturation", "set_layer_brightness",
               "tone_map", "recolor_palette", "relight_dir", "redraw"}
 
 
-def _load_measured():
-    """从 sources_measured.json 载入实测值（scripts/measure_sources.py 生成）。
-
-    这样 measured 不是我手填的画面数字，而是脚本跑出来的证据；缺文件时保持空表，
-    只是 notice 里少一列，不影响任何决策。
-    """
+def _measured_candidates():
+    import os as _os
     from pathlib import Path as _P
-    p = _P(__file__).resolve().parent / "sources_measured.json"
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return
-    c = (data or {}).get("cells") or {}
-    iou = c.get("iou_by_tile") or {}
-    if iou:
-        SOURCES["cells"]["measured"] = {int(k): float(v) for k, v in iou.items()}
-        SOURCES["cells"]["measured_spec"] = data.get("spec")
-    rf = c.get("refined") or {}
-    if rf.get("iou"):
-        SOURCES["cells"]["refined_from_cells"] = float(rf["iou"])
+    out = []
+    import os as _os2
+    env = _os2.environ.get("SVP_MEASURED") or ""
+    if env:
+        out.append(_P(env))
+    here = _P.cwd().resolve()
+    for anc in [here, *here.parents]:
+        f = anc / "sources_measured.json"
+        if f.is_file():
+            out.append(f)
+            break
+    out.append(_P(__file__).resolve().parent / "sources_measured.json")  # 兼容旧位置（技能不发布）
+    return out
 
 
-_load_measured()
+SOURCES_MEASURED_SOURCE = "documented"
 
+
+def _load_measured():
+    """实测精度属于工程：SVP_MEASURED -> cwd 向上找 -> 文档化的典型范围。
+
+    技能里不再放"某张图量出来的数字"；没有工程数据时，`cells` 只带**文档化范围**
+    （由 zoom_plan/measure_sources 的文档给出，非这次实测），并在 spec_source 里标 source=documented，
+    提醒调用方"这是经验范围，不是本工程的测量值"。
+    """
+    global SOURCES_MEASURED_SOURCE
+    import json as _j
+    for p in _measured_candidates():
+        try:
+            if p and p.is_file():
+                data = _j.loads(p.read_text(encoding="utf-8"))
+                iou = data.get("iou") or data.get("cells_iou") or ((data.get("cells") or {}).get("iou_by_tile")) or {}
+                if iou:
+                    SOURCES["cells"]["measured"] = {int(k): float(v) for k, v in iou.items()}
+                    SOURCES["cells"]["measured_spec"] = data.get("spec")
+                    SOURCES_MEASURED_SOURCE = "project"
+                    return
+        except Exception:
+            continue
+    SOURCES["cells"]["measured"] = {}
+    SOURCES["cells"]["measured_doc"] = (
+        "格子并集的天花板由格子尺寸决定（经验范围，非本工程实测）："
+        "≈55px → IoU 0.70，32px → 0.86~0.89，16px → 0.91~0.93，8px → 0.93~0.97；"
+        "要本工程数字就设 SVP_MEASURED 指向 sources_measured.json（measure_sources.py 生成）")
+    SOURCES_MEASURED_SOURCE = "documented"
 
 def spec_source(spec):
     """返回 spec 用到的第一个选择源名（没有则 None）。"""
@@ -1180,6 +1204,9 @@ def spec_source(spec):
 
 
 LAST_NOTICES = []
+
+
+_load_measured()
 
 
 def check_source(spec, op_name=None):
@@ -1210,13 +1237,15 @@ def check_source(spec, op_name=None):
         "op": op_name,
         "why": "来源是格子并集（块状），改色算子按整笔生效，会越出选区边界",
         "measured": dict(sorted(info.get("measured", {}).items(), reverse=True)),
+        "measured_source": SOURCES_MEASURED_SOURCE,
+        "measured_doc": info.get("measured_doc"),
         "refined_from_cells": info.get("refined_from_cells"),
         "fix": ["给 %s 加 refine: true（从格子并集精修，实测见 refined_from_cells）" % src,
                 "用更细的格子（zoom / tile_px）或换像素级来源（mask / polygon）",
                 "确实要整块改色时显式写 allow_coarse: true"],
         "text": ("选择源 %r 是格子并集（%s），给改色算子 %r 用会整笔越界；"
                  "要边界就 refine: true，要更细就 zoom，接受溢出就 allow_coarse: true。"
-                 % (src, meas or "无实测", op_name)),
+                 % (src, meas or (info.get("measured_doc") or "无实测"), op_name)),
     }
     LAST_NOTICES.append(notice)
     return notice
@@ -1224,12 +1253,17 @@ def check_source(spec, op_name=None):
 
 def describe_sources():
     """给文档生成器用：返回 (表头, 行列表)。"""
-    head = ["来源", "coarse", "像素级", "实测（tile_px→IoU）", "说明"]
+    head = ["来源", "coarse", "像素级", "精度（tile_px→IoU，%s）" % SOURCES_MEASURED_SOURCE, "说明"]
     rows = []
     for name in _SEL_KEYS:
         info = SOURCES.get(name) or {}
         meas = info.get("measured") or {}
-        txt = "、".join("%dpx→%.3f" % (k, v) for k, v in sorted(meas.items())) if meas else "-"
+        if meas:
+            txt = "、".join("%dpx→%.3f" % (k, v) for k, v in sorted(meas.items()))
+            if SOURCES_MEASURED_SOURCE != "project":
+                txt += "（经验范围，非本工程实测）"
+        else:
+            txt = (info.get("measured_doc") or "-")
         if info.get("refined_from_cells"):
             txt += "；refine(从格子)→%.3f" % info["refined_from_cells"]
         rows.append([name, "是" if info.get("coarse") else "否",

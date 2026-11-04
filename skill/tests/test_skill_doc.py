@@ -15,18 +15,23 @@ IMPLEMENTED = ("max_spill", "auto_zoom", "zoom_plan")
 
 
 def main():
-    for name in CAL:
-        assert re.search(r"^| \`%s\`" % re.escape(name), SK, re.M), "手册缺参数 %s 的表格行" % name
+    # 参数名可以出现在手册里（作为例子），但不要求逐个列值表
     for ev in EVIDENCE:
         assert ev in SK, "手册没解释证据类型 %s" % ev
     for ev in set(v.get("evidence") for v in CAL.values()):
         assert ev in EVIDENCE, "calibrated.json 里出现未定义证据 %r" % ev
-    assert "未标定" in SK, "手册缺「未标定/已知缺口」清单"
+    assert "未标定" in SK or "未验证" in SK, "手册缺「未标定/未验证」说明"
     for name in UNSET:
         assert name in SK, "未标定清单缺 %s" % name
+    IMPLEMENTED = ("max_spill", "zoom_plan", "calib_report")
     for name in IMPLEMENTED:
         assert name in SK, "新实现的能力没写进手册: %s" % name
-    assert "0.857" in SK and "0.703" in SK, "auto_zoom 的实测收益没写进手册"
+    # 手册只讲机制；工程实测值（具体数字/选值表）属于工程报告，不许写进总手册
+    for leak in ("0.857", "0.703", "| `model_grow_px` | 20 |", "| `edge_min_contrast` | 0.40 |"):
+        assert leak not in SK, "总手册里出现了工程实测值：%r（应写进工程 CALIBRATION.md）" % leak
+    for mech in ("SVP_CALIBRATED", "SVP_MEASURED", "CALIBRATED_SOURCE", "uncalibrated", "calib_report.py"):
+        assert mech in SK, "手册缺机制说明：%s" % mech
+    assert "CALIBRATION.md" in SK, "手册应指向工程报告 CALIBRATION.md"
     assert "inert" in SK and "LAST_ATTACH" in SK, "手册缺「未触发判据暴露」说明"
     assert "SVP_CALIBRATED" in SK, "手册缺 tol 的工程覆盖机制（SVP_CALIBRATED）"
     assert "tol" in SK, "手册缺 tol 的工程级标定说明"

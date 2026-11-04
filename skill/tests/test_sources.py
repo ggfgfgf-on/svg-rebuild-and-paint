@@ -20,7 +20,8 @@ def main():
     n = ops.check_source(_spec(), 'set_layer_hue')
     assert n and n['level'] == 'warn', n
     assert 'refine' in n['text'] and 'allow_coarse' in n['text'], n['text']
-    assert n['measured'], 'notice 里要带实测值'
+    assert n.get('measured') or n.get('measured_doc'), 'notice 里要带实测值或文档化范围'
+    assert n.get('measured_source') in ('project', 'documented'), n.get('measured_source')
     assert set(n['fix']) and len(n['fix']) == 3, n['fix']
     # 三种放行方式都不该再提醒
     assert ops.check_source(_spec({'cells': dict(_spec()['cells'], refine=True)}), 'set_layer_hue') is None
@@ -30,7 +31,9 @@ def main():
     head, rows = ops.describe_sources()
     assert len(rows) == len(ops._SEL_KEYS) and head[0] == '来源'
     cells_row = [r for r in rows if r[0] == 'cells'][0]
-    assert cells_row[1] == '是' and '0.813' in cells_row[3] and '从格子' in cells_row[3], cells_row
+    assert cells_row[1] == '是', cells_row
+    # 精度列：工程实测写 px→IoU；没有工程数据时写文档化范围（不许假装是实测）
+    assert ('px→' in cells_row[3]) or ('经验范围' in cells_row[3]) or ('IoU' in cells_row[3]), cells_row
     print('PASS 注册表 %d 个来源；cells 闸门 / refine / allow_coarse / 文档行' % len(rows))
     print('RESULT OK')
     return True

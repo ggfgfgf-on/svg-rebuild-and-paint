@@ -208,6 +208,9 @@ def cells_mask(image, windows, dilate_px=0, near=None, near_px=0, use_neg=True, 
 
     这是"语义由模型决定"的那条通道：判别器（GrabCut/knn）只是辅助，报格子才是权威。
     支持多级窗口与前缀引用（"tip.D6"），几何换算复用 cell_box（浮点 roi，不漂移）。
+    
+
+    文档口径：格子并集的天花板由格子尺寸决定（经验范围）：≈55px→0.70，32px→0.86~0.89，16px→0.91~0.93，8px→0.93~0.97。要本工程数字就设 SVP_MEASURED 指向 sources_measured.json（measure_sources.py 生成）；否则这里只有范围，没有假精确值。
     """
     from PIL import Image as _Image
     W, H = _Image.open(image).size
@@ -282,6 +285,9 @@ def attach_thin(image, mask, gap_px=None, max_width_px=None, max_len_px=None, hu
       max_len_px    最大长度（连通块对角线）
       hue_tol/s_min 颜色可信度：与掩膜边界色相接近，或足够低饱和（叶尖属于后者）
     返回 (mask, info)；info 里记录每个被并入块的面积/厚度/长度，便于复核。
+    
+
+    文档口径：返回值 info.inert 会列出'一个块都没筛掉'的判据（说明该阈值在这张图上未验证），并同步到模块级 LAST_ATTACH；对应值标 inert_on_sample。
     """
     gap_px = int(calibrated("attach_gap", 6)) if gap_px is None else int(gap_px)
     max_width_px = int(calibrated("attach_width", 6)) if max_width_px is None else int(max_width_px)
@@ -411,6 +417,9 @@ def filter_added(image, base_mask, added_mask, min_ratio=None, anchors=None, kee
                  model_grow_px=None):
     """按梯度证据给"并进来的像素"分三类：edge（自带边）/ model（模型报过，梯度弱也算）/ halo（只有一圈糊边）。
     默认丢掉 halo，保留 edge 与 model——这就是"模型参与 + 可验证证据"的分工。
+    
+
+    文档口径：min_ratio/model_grow_px 都由工程 calibrated.json 提供；没有工程文件时走未验证默认值，并推 uncalibrated 通知。
     """
     import cv2 as _cvf
     if model_grow_px is None:
@@ -500,6 +509,9 @@ def edge_report(image, mask, search_px=6, blur=3, min_contrast=None):
       1) d == 0：整圈边界的最强梯度就在当前位置（fit_boundary 的峰在 0）；
       2) contrast = (s0 - 邻域平均) / s0 ≥ min_contrast：这个峰真的比 ±search 内的位置高，
          否则说明"往前挪和现在差不多"，边界是平的/模糊的，不可信。
+    
+
+    文档口径：contrast 是峰值显著度：准确掩膜 ≈0.51，故意加粗 3px ≈0.25；门限 edge_min_contrast 由工程标定，技能不发布。
     """
     import cv2 as _cv
     if min_contrast is None:
@@ -700,6 +712,9 @@ def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=None, 
       3) 重建掩膜，与上一轮比 IoU
       4) IoU > tol 或到上限即停，返回每轮指标
     全过程无需人工再报格子；失败会带原因抛错（而不是悄悄给一张错掩膜）。
+    
+
+    文档口径：只精修、不重新分割：拿粗格子当种子时 max_grow_px 扫到 4 也只有 IoU≈0.83 且视觉仍是阶梯；要形状先给像样的种子（zoom 或人工描边）。
     """
     ring = float(calibrated("ring", 14)) if ring is None else float(ring)
     import cv2 as _cv
@@ -1746,6 +1761,9 @@ def zoom_plan(image, roi, max_cell_px=40.0, max_cells=64):
 
     返回可直接喂给 cells_mask / 模型的 windows 骨架（roi/cols/rows/cell_px），
     pos/neg 仍由模型看图报——这个函数只负责"窗口粒度该多细"，不猜内容。
+    
+
+    文档口径：自动按每格 ≤max_cell_px、每窗 ≤max_cells 二分 roi，pos/neg 仍由模型报。参考工程里 36.7px 格子 IoU 0.857，固定 8×6 根窗 0.703。
     """
     from PIL import Image
     x0, y0, x1, y1 = [float(v) for v in roi]

@@ -75,100 +75,56 @@ python scripts/render_plan.py plan.json --ops ops.json --out edited.png --gpu
 
 ## 参数标定（模型看图 + 脚本取证）
 
-分工固定：脚本枚举候选值、渲染接触表/分布图、把每次测量的数字写盘；模型看图或分布后拍板。
-任何标成 `model` 的值必须带 `evidence`，三选一：
+**分工**：脚本枚举候选值、渲染接触表/分布图、把每次测量的数字写盘；模型看图或分布后拍板；值必须标证据。
 
 | evidence | 什么时候用 | 产物 |
 | --- | --- | --- |
-| `contact_sheet` | 数值档可枚举（生长像素、比例阈值等） | `docs/calib/<param>.png` |
-| `multi_sample` | 阈值型，且工程里有 ≥2 份 (图, 描边) | 每样本区间 + 交集 |
-| `per_pixel_hist` | 阈值型但只有 1 张图 | `docs/calib/edge_hist.png`（逐边界像素分布） |
-| `measured` | 门限型，先量出不同设置下的实际溢出/偏差 | `scripts/spill_measured.json` 等测量表 |
+| `contact_sheet` | 数值档可枚举 | `docs/calib/<param>.png` |
+| `multi_sample` | 阈值型，工程里有 ≥2 份 (图, 描边) | 每样本区间 + 交集 |
+| `per_pixel_hist` | 阈值型但只有 1 张图 | 逐边界像素分布图 |
+| `measured` | 门限型，先量出不同设置下的实际溢出/偏差 | 测量表（如 `spill_measured.json`） |
+
+**值属于工程，技能不发布任何“选好的值”**
+
+- 值存在工程目录的 `calibrated.json`；技能里没有这个文件（`tests/test_no_shipped_calibration.py` 守卫）。
+- 解析顺序：`SVP_CALIBRATED` → 从当前目录向上找 `calibrated.json` → 代码里的**未验证默认值**。
+- 来源可查：`pick_instance.CALIBRATED_SOURCE`（`project` / `default`）与 `CALIBRATED_PATH`。
+- 用默认值时 `ops.check_calibration()` 推 `kind=uncalibrated` 通知——不报警等于偷偷用了错值。
+- 实测精度同理：`SVP_MEASURED` 指向工程的 `sources_measured.json`；没有就用文档化**范围**，
+  并在 `SOURCES_MEASURED_SOURCE` 里标 `documented`，不许假装是本工程实测。
+
+**命令**
 
 ```powershell
-# 数值档：枚举 + 接触表
+# 数值档：枚举 + 接触表（写 sweep 与图，不写 value）
 python scripts\calibrate.py --param model_grow_px --image <图> --trace <描边.json> --cells <windows.json> [--base-mask <种子.json>] --values 0,8,14,20,30
-python scripts\calibrate.py --param model_grow_px --choose 20 --evidence contact_sheet --reason "..."
 
-# 阈值档：先看分布/交集，再选
+# 阈值/门限：先看分布或交集
 python scripts\calibrate.py --param edge_hist --image <图> --trace <描边.json> --base-mask <精确掩膜.json> --values 0.2,0.3,0.4,0.5
 python scripts\calibrate.py --param edge_min_contrast --samples <工程>\calib.samples.json --json <工程>\calibrated.json
-python scripts\calibrate.py --param edge_min_contrast --choose 0.40 --evidence per_pixel_hist --reason "..." --json <工程>\calibrated.json
+
+# 记录（必须给证据与理由）
+python scripts\calibrate.py --param model_grow_px --choose 20 --evidence contact_sheet --reason "..." --json <工程>\calibrated.json
+
+# 工程样本表与报告
+python scripts\calibrate.py --make-samples <工程目录> --make-samples-out <工程>\calib.samples.json
+python scripts\calib_report.py --json <工程>\calibrated.json --out <工程>\CALIBRATION.md
 ```
 
-**样本与被选值属于工程，不随技能发布**：`--json <工程>\calibrated.json` 只读写该文件；样本表用
-`--make-samples <工程目录>` 按命名约定生成（图 `X.png` ↔ 含 mask/trace 且名字含 `X` 的 JSON），配不上的会列出来而不是猜。
 交集为空 = 样本互相矛盾，先查哪份判据错了，不要硬选一个数。
+某个判据“一个块都没筛掉”时，`attach_thin` 的 `info.inert`（模块级 `LAST_ATTACH`）会点名，
+对应条目带 `inert_on_sample`——未验证是一等数据，不是脚注。
 
-### 本工程的实测值（13 项；技能本身不发布这些值）
+**已知限制（与工程无关的机制性坑）**
 
-下表是**这个工程**测出来的，存在工程目录 `calibrated.json`，不随技能分发。解析顺序：
-`SVP_CALIBRATED` → 从当前目录向上找 `calibrated.json` → 代码里的**未验证默认值**。
-来源通过 `pick_instance.CALIBRATED_SOURCE` 暴露；用默认值时 `ops.check_calibration()` 会推一条 `kind=uncalibrated` 通知。
+- `attach_px` 只在给了 `near` 时生效；`attach_width`/`attach_len` 只在样本真的触发判据时才起作用，
+  没触发会被 `info.inert` 点名，别把"扫了没差别"当成"调好了"。
+- `refine` 只精修、**不重新分割**：种子太粗（例如大格子并集）时它只能微调边界，阶梯还在；要形状先给像样的种子。
+- `cells` 的精度随格子尺寸单调变化，具体曲线见 `docs/API.md` 的辅助函数条目（工程实测由 `SVP_MEASURED` 提供）。
 
-| 参数 | 值 | 证据 | 依据 |
-| --- | --- | --- | --- |
-| `model_grow_px` | 20 | contact_sheet | 叶柄完整且不触邻叶；30 越界 |
-| `min_ratio` | 0.8 | contact_sheet | 0.9/0.8 一致；1.1 开始把真实叶缘当晕边丢掉 |
-| `max_grow_px` | 2 | contact_sheet | 4 时面积 0.0637 > 描边 0.0614（+3.7%）且更胖；1 欠长 |
-| `neg_px` | 3 | contact_sheet | 扫 1/3/6/10 无差异（0.801~0.804） |
-| `neg_k` | 1.0 | contact_sheet | 扫 0.5/1/2/4 无差异（IoU 0.938~0.940，contrast 0.506~0.513） |
-| `ring` | 14 | contact_sheet | 扫 6/10/14/20 一致（0.938~0.939，2 轮收敛）：走廊不是瓶颈 |
-| `attach_gap` | 10 | contact_sheet | 看图：3/6 顶端缺口未补，10 补齐且无多余块，16 开始长出越界碎片；IoU 以 10 最高 0.952 |
-| `attach_width` | 6 | contact_sheet | 扫 3~16 完全一致 → 这张图没触发该判据（不是它无效） |
-| `attach_len` | 90 | contact_sheet | 扫 40~260 完全一致 → 同上，缺触发样本 |
-| `attach_px` | 4 | contact_sheet | 扫 0~28 无差异；**只在给 `near` 时生效** |
-| `edge_min_contrast` | 0.40 | per_pixel_hist | accurate 中位 0.432 / fat_3px −0.138；>0.40 保留 52.7% vs 21.4%。分布重叠，故只作警告门 |
-| `accept_max_area_change` | 0.044 | multi_sample | 区间 [0.042,0.045]：精修 4.13% 放行、历史失控 4.63% 拦住 |
-| `max_spill` | 0.10 | measured | 实测 `sel_mode` any 24.5% / center 0.46% / all 0%：门限放过 center/all，挡住 any 的整笔改色 |
-
-消费方：`refine_loop(neg_px/max_grow_px)`、`filter_added(min_ratio/model_grow_px)`、`edge_report(min_contrast)`、
-`ops` 循环接受门（`accept_max_area_change`）、`attach_thin(gap/width/len)`、`masks.spill` + `ops.check_spill` 的溢出闸门（`max_spill`）。
-复验：`tests/test_calibrated.py`（字段、证据合法、接触表/交集/分布图存在、默认值确实来自文件）、
-`tests/test_calibrate_multi.py`（多图交集收窄）、`tests/test_skill_doc.py`（本文表格不许缺项）。
-
-### 未标定 / 工程级标定项
-
-| 参数或能力 | 状态 | 说明 |
-| --- | --- | --- |
-| `tol`（颜色容差） | **工程级**，不随技能发布 | 容差取决于该图主体与背景的颜色距离，必须每工程自测：`--param tol --image … --trace …`，值写进工程 `calibrated.json`，运行时用 `SVP_CALIBRATED` 指过去 |
-
-实测反例（值得记住）：这张叶子的描边中位色是 `[23,41,4]`（很暗），tolerance 15 时 IoU 0.717、面积 0.0829；
-**30 起直接把整幅吃掉（area 1.0）**——因为暗绿与暗背景距离太近。
-结论：低对比主体别指望颜色掩膜一档搞定，要么换色相/Lab 判据，要么直接给人工描边。
-
-### 未触发的判据要暴露（不是只在文档里说一句）
-
-`attach_thin` 返回的 `info` 里有 `inert`：哪些判据**一个块都没筛掉**（说明该阈值在这张图上没被验证过）；
-同时挂到模块级 `pick_instance.LAST_ATTACH`，管线可读。叶子样本上得到 `["attach_len", "attach_width", "attach_hue"]`。
-对应 `calibrated.json` 条目带 `inert_on_sample: true` + `inert_reason`，所以"没验证"是**数据里的一等公民**，不是脚注。
-`tests/test_inert_exposure.py` 会检查这两处同步。
-
-### 溢出闸门 `max_spill`
-
-`ops.apply` 在解析出掩膜后调用 `masks.spill`：被选中笔按 *采样点数 × 笔宽* 估面积，掩膜外占比即溢出率；
-超过 `max_spill` 只**发通知**（`ops.LAST_NOTICES` 里 `kind=spill`），不抛错。
-口径是面积预估，不是像素渲染差——要精确值就重渲染后比对。
-
-### 自动选窗口 `zoom_plan`（auto_zoom）
-
-```python
-import pick_instance as PI
-plan = PI.zoom_plan(image, [80, 500, 520, 790], max_cell_px=40, max_cells=64)
-# -> {"windows": [{id, roi, cols, rows, cell_px}, ...], "cell_px": 36.67, "total_cells": 96}
-```
-按"每格 ≤ max_cell_px 且每窗格子 ≤ max_cells"自动二分 roi；`pos/neg` 仍由模型看图报。
-实测：叶子 roi 上 36.7px 格子 IoU **0.857**，固定 8×6 根窗只有 **0.703**。
-
-### 两条限制（实测，别再踩）
-
-1. `attach_px` 只在提供 `near` 时生效（`cells_mask` 里是"把格子附着到已有掩膜"），扫它不给 `near` 会得到完全一致的结果。
-2. `refine` 只精修、不重新分割：拿 55px 格子并集当种子时，`max_grow_px` 扫到 4 也只有 IoU 0.832 且视觉仍是阶梯；要形状得先有像样的种子（zoom 或更好的初始掩膜）。
-
-### 怎么读接触表
-
-每格标了档位值与 IoU（相对人工描边）。IoU 是"与描边的重合度"，不等于"看起来对不对"：
-人为加粗 3px 的掩膜 IoU 能到 0.954，却明显漫出叶缘。选档顺序是**先看形状贴不贴边，再看 IoU**。
+**未标定 / 未验证**：`tol` 属工程级（每个工程自己量）；`attach_width`/`attach_len` 可能被标
+`inert_on_sample`（样本上判据未触发）；`max_spill`/`zoom_plan` 已实现但门限/粒度仍需工程数据校准。
+本工程的选值与实测见工程目录 `CALIBRATION.md`（脚本生成）；**不写进这份总手册**。
 
 ## 契约
 

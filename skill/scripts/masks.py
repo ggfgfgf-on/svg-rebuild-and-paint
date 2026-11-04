@@ -417,6 +417,9 @@ def spill(doc, mask, mode="any", layer=None):
     口径：被选中的笔按 采样点数 x 笔宽 估面积，掩膜外的那部分算溢出。
     不算像素级渲染差（那要重渲染），所以它是**预估**，用来在改色前提示
     "你这么选会漫出 20%"，不是精确测量。
+    
+
+    文档口径：面积是"选中笔 × 采样点数 × 笔宽"的估算，不是像素渲染差；闸门 max_spill 由工程标定，超限只发通知。
     """
     sel, wts = weights(doc, mask, mode=mode, layer=layer)
     strokes = doc["strokes"]
