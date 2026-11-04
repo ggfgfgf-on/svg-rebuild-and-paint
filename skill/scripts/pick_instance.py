@@ -172,6 +172,37 @@ def cells_for_box(roi, cols, rows, box):
     return [_tile_name(c, r) for r in range(r0, r1 + 1) for c in range(c0, c1 + 1)]
 
 
+def _cells_shape(w):
+    """窗口分辨率：cols/rows 优先，其次由 tile_px 推；两者都没有就报错（不猜）。"""
+    cols, rows = w.get("cols"), w.get("rows")
+    tp = w.get("tile_px")
+    if (not cols or not rows) and tp and w.get("roi"):
+        tw, th = (float(tp), float(tp)) if not isinstance(tp, (list, tuple)) else (float(tp[0]), float(tp[1]))
+        x0, y0, x1, y1 = [float(v) for v in w["roi"]]
+        cols = cols or max(1, int(round((x1 - x0) / max(1e-6, tw))))
+        rows = rows or max(1, int(round((y1 - y0) / max(1e-6, th))))
+    if not cols or not rows:
+        raise ValueError("窗口缺少网格分辨率：需要 cols/rows，或 tile_px（%r）" % (w.get("id") or w.get("roi")))
+    return int(cols), int(rows)
+
+
+def cells_anchors(image, windows):
+    """报的格子中心点（= 锚点）：供 loop 的锚点铁律使用。"""
+    by_id = {w.get("id"): w for w in windows if w.get("id")}
+    pts = []
+    for w in windows:
+        src = w
+        cols, rows = _cells_shape(w)
+        for raw in w.get("pos") or []:
+            lab = raw
+            if "." in raw:
+                src = by_id[raw.split(".", 1)[0]]
+                lab = raw.split(".", 1)[1]
+                cols, rows = _cells_shape(src)
+            pts.append(tuple(float(v) for v in cell_center(src["roi"], cols, rows, lab)))
+    return pts
+
+
 def cells_mask(image, windows, dilate_px=0, near=None, near_px=0):
     """把模型报的格子**直接**栅格化成掩膜：模型说属于就属于，不经过任何颜色判别器。
 
@@ -183,30 +214,39 @@ def cells_mask(image, windows, dilate_px=0, near=None, near_px=0):
     by_id = {w.get("id"): w for w in windows if w.get("id")}
     bits = np.zeros((H, W), bool)
     hit = 0
+    attached_px = 0
     for w in windows:
-        cols, rows = int(w.get("cols") or 8), int(w.get("rows") or 6)
         src = w
+        cols, rows = _cells_shape(w)
+        w_attach = int(w.get("attach_px", near_px if near is not None else 0))
+        w_bits = np.zeros((H, W), bool)
         for raw in w.get("pos") or []:
             lab = raw
-            if "." in raw and raw.split(".", 1)[0] in by_id:
-                src = by_id[raw.split(".", 1)[0]]
+            if "." in raw:
+                wid = raw.split(".", 1)[0]
+                if wid not in by_id:
+                    raise ValueError("格子引用 %r 的窗口 %r 不存在（可用窗口：%s）"
+                                     % (raw, wid, ", ".join(k for k in by_id if k) or "无"))
+                src = by_id[wid]
                 lab = raw.split(".", 1)[1]
-                cols, rows = int(src.get("cols") or 8), int(src.get("rows") or 6)
+                cols, rows = _cells_shape(src)
             b = cell_box(src["roi"], cols, rows, lab)
             y0, y1 = max(0, int(np.floor(b[1]))), min(H, int(np.ceil(b[3])))
             x0, x1 = max(0, int(np.floor(b[0]))), min(W, int(np.ceil(b[2])))
-            bits[y0:y1, x0:x1] = True
+            w_bits[y0:y1, x0:x1] = True
             hit += 1
+        if near is not None and w_attach > 0:
+            # 每个窗口可以有自己的 attach 距离：叶尖这种"离主掩膜十几像素"的凸起要放大附着距离，
+            # 主叶身用 4px 就够，避免整块方块贴上去。
+            import cv2 as _cv
+            nd = _cv.dilate(np.asarray(near, np.uint8), np.ones((2 * w_attach + 1, 2 * w_attach + 1), np.uint8)) > 0
+            w_bits = w_bits & nd
+            attached_px += int(w_bits.sum())
+        bits |= w_bits
     if dilate_px:
         import cv2 as _cv
         r = int(dilate_px)
         bits = _cv.dilate(bits.astype(np.uint8), np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
-    if near is not None and int(near_px) > 0:
-        # 附着模式：格子只允许在已有掩膜附近"补上缺的那一块"，不许整块方块生硬地贴上去
-        import cv2 as _cv
-        r = int(near_px)
-        nd = _cv.dilate(np.asarray(near, np.uint8), np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
-        bits = bits & nd
     return bits
 
 
@@ -344,7 +384,8 @@ def enforce_anchors(image, mask, anchors, radius=40, cap=12000, k=3.0):
     return out, added
 
 
-def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, verbose=True):
+def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, verbose=True,
+                init_mask=None, anchors=None):
     """自动闭环：靠栅格提示起手，然后把已得掩膜的"确信内部/外圈"当作新提示反复精修。
 
     这就是"玫瑰掩膜多轮迭代"的机械化版本：
@@ -357,7 +398,15 @@ def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, ve
     import cv2 as _cv
     img_cv = _cv.imread(str(image))
     H, W = img_cv.shape[:2]
-    bits, meta = prompted_from_tiles(image, windows, ring=ring, model=model)
+    init_ref = None
+    if init_mask is not None:
+        bits = np.asarray(init_mask, bool)
+        init_ref = bits.copy()
+        meta = {"history": []}
+        if anchors:
+            bits, _n = enforce_anchors(image, bits, anchors)
+    else:
+        bits, meta = prompted_from_tiles(image, windows, ring=ring, model=model)
     hist = [{"iter": 0, "area": round(float(bits.mean()), 4), "iou_prev": None,
              "components": int(verify(bits, allow_border=True)["components"])}]
     m_prev = bits
@@ -376,8 +425,11 @@ def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, ve
         ys2, xs2 = np.nonzero(outer); step2 = max(1, int(np.sqrt(len(xs2) / 300.0)))
         neg = [(float(x), float(y)) for x, y in zip(xs2[::step2][:300], ys2[::step2][:300])]
         # 模型报过的格子永远保留在提示里：闭环只允许细化，不许把"模型明确说属于它"的地方丢掉
-        anchors = [p for p in tile_points(str(image), windows)[0]]
+        anchors = list(anchors) if anchors else [p for p in tile_points(str(image), windows)[0]]
         m_new = prompted_mask(image, pos + anchors, neg, ring=ring, radius=6, model=model)
+        if init_ref is not None:
+            # loop 只允许"往里补"，不许把模型报过的区域再判掉：init（cells 直通）每轮并回
+            m_new = m_new | init_ref
         lost = [p for p in anchors if not m_new[min(H - 1, int(p[1])), min(W - 1, int(p[0]))]]
         if lost:
             raise ValueError("第 %d 轮把 %d 个已报正样本丢掉了：%s（掩膜比提示小，说明判别器吃掉了该区域）"

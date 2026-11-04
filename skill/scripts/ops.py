@@ -785,11 +785,18 @@ def resolve_mask(doc, spec):
         base = _PI.rasterize(resolve_mask(doc, cs["base"]), doc_w, doc_h) if cs.get("base") else None
         bits = _PI.cells_mask(cs["image"], wins, int(cs.get("dilate_px", 0)),
                               near=base, near_px=int(cs.get("attach_px", 4)))
+        # 每个窗口可在自己的 windows[i].attach_px 里覆盖附着距离（cells_mask 逐窗口处理）
         if bits.shape[:2] != (doc_h, doc_w):
             bits = _np.asarray(_Image.fromarray(bits.astype(_np.uint8) * 255).resize(
                 (doc_w, doc_h), _Image.NEAREST)) > 0
         if base is not None:
             bits = (bits | base) if str(cs.get("mode", "union")) == "union" else (bits & base)
+        lp = cs.get("loop")
+        if lp:
+            bits, _info = _PI.refine_loop(
+                cs["image"], wins, iters=int(lp.get("iters", 6)), tol=float(lp.get("tol", 0.995)),
+                model=str(lp.get("model", "grabcut")), verbose=False,
+                init_mask=bits, anchors=_PI.cells_anchors(cs["image"], wins))
         if not bits.any():
             raise ValueError("cells 选择为空：报的格子全被 base 交集裁掉了")
         return M.from_bool(bits)
@@ -802,10 +809,16 @@ def resolve_mask(doc, spec):
         wins = tl.get("windows") or [{"roi": tl.get("roi"), "cols": tl.get("cols", 8),
                                       "rows": tl.get("rows", 6), "tile_px": tl.get("tile_px"),
                                       "pos": tl.get("pos") or [], "neg": tl.get("neg") or []}]
-        bits, _pts = _PI.prompted_from_tiles(
-            tl["image"], wins,
-            ring=float(tl.get("ring", 16)), radius=float(tl.get("radius", 10)),
-            model=str(tl.get("model", "gmm")), components=int(tl.get("components", 3)))
+        lp = tl.get("loop")
+        if lp:
+            bits, _info = _PI.refine_loop(
+                tl["image"], wins, iters=int(lp.get("iters", 6)), tol=float(lp.get("tol", 0.995)),
+                model=str(lp.get("model", "grabcut")), verbose=False)
+        else:
+            bits, _pts = _PI.prompted_from_tiles(
+                tl["image"], wins,
+                ring=float(tl.get("ring", 16)), radius=float(tl.get("radius", 10)),
+                model=str(tl.get("model", "grabcut")), components=int(tl.get("components", 3)))
         arr = _np.asarray(_Image.open(tl["image"]).convert("RGB"))
         hh, ww = arr.shape[:2]
         doc_h, doc_w = int(doc.get("height", hh)), int(doc.get("width", ww))

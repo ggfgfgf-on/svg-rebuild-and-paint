@@ -1327,7 +1327,14 @@ edge_fit 0.9→1.94、平均位移 5.6px，3× 放大后绿线贴着叶缘。`--
 **模型语义直通选择源 `cells`（不复用判别器）**：`{"cells": {"image","windows","base","mode","attach_px","dilate_px"}}`。
 报的格子直接栅格化成掩膜——**模型说属于就属于**；判别器（tiles/prompt/segment）只能通过 `base` 当辅助证据。
 `mode=union` 时用 `attach_px` 限制"只在已有掩膜旁边补上缺的那块"，避免整块方块贴上去。
-实测扫描 attach_px 0/4/8/16/28 → IoU 0.930/0.947/0.938/0.931/0.930，默认取 4（叶：0.938 → 0.947）。
+每个窗口可带自己的 `attach_px`（逐窗口）：叶尖离主掩膜十几像素就要放大，叶身 4px 即可。
+
+**ops 内 loop（可选，默认关）**：`{"cells"|"tiles": {..., "loop": {"iters":6,"tol":0.995,"model":"grabcut"}}}`。
+`cells` + loop 时每轮把 init 并回（单调，不许丢模型决定的区域）。**实测本例 cells+loop 反而更差**
+（0.947→0.923，多出 2537px）：loop 用判别器重建，会把模型拍板的形状重新判一遍。
+所以 loop 只在"判别器主导（tiles 无 cells）"时用；cells 直通 + 逐窗口 attach 才是最优路径。
+
+实测：attach 4 / 16 / 28 → IoU 0.947 / 0.948 / 0.949（叶），默认 4；`--sub` 与 `tile_px` 都可作细度。
 
 **锚点铁律（enforce_anchors）**：模型报过的格子**不许从掩膜里消失**。
 - `prompted_from_tiles(..., strict=True)` 默认容差 0：任何一个正点没进掩膜就报错并给坐标。
