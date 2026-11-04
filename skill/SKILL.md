@@ -1285,8 +1285,9 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 | 软权重着色 | `ops._targets` 的强度 = guidance×掩膜权重，本来就走插值；raster feather 修好后边界是连续权重 | `set_layer_hue guidance=0.5` 色相落在中间值，不跳变 |
 | 实例级选择（**进 ops 语义**） | op 里可直接写 `selection`：`mask` / `mask_file` / `polygon`（模型自己画）/ `instance`（模型给种子点，长出掩膜并验证）/ `all`。另外 `replan_region` 已是正式算子，所以"照参考图重画这片区域"也是一条 op | 玫瑰实例 tone_map：区内 Δ7.22、区外 Δ0.029；**叶子改用模型画的多边形**（色相生长分不开同色背景）→ 验证通过（面积 4.72%、1 连通块），tone_map 区内 Δ9.14；`replan_region` 同参数重跑幂等（区内 Δ0.00） |
 | 实例自纠错 | 验证失败时 `pick_instance` 输出 `hints`（下一轮改什么）+ `--attempt-log` JSONL 记录每轮；`box_fill` 专门检测"掩膜≈手画框" | 叶子三轮：①泄漏面积 0.77 → ②收紧后仍占框 0.94 → ③按 hints 改多边形 → 通过（面积 0.047、fill 0.73） |
-| 光影分解 | `ops.split_shading` / `ops.set_light` / `ops.relight_dir`（方向光） | `relight_dir` 用球面伪法线：光从左(180°) 左半 37.8/右半 19.7；光从右(0°) 左 26.6/右 34.4，**亮面跟着方位角翻边** |
+| 光影分解 | `ops.split_shading` / `ops.set_light` / `ops.relight_dir`（方向光） | `relight_dir` 用球面伪法线并按选区均值归一：光从左(180°) 左半 37.8/右半 19.7；光从右(0°) 左 26.6/右 34.4，**亮面跟着方位角翻边**；归一前换方向会顺带压暗 15%（36.22→32.46），归一后 36.22→36.80 |
 | 验收门 | `scripts/accept.py`：schema/确定性/区外不变/方向/主体 | 白玫瑰一例：确定性通过、区外 Δ0.003、区向 +83.44 |
+| 多步链示例 | `recipe_leaf.json`：split_shading → relight_dir → set_light(warm) → tone_map，均带同一掩膜，经 `edit_loop --recipe` 执行 | 4 步逐步度量：luma 36.22→36.22→36.80→39.35→44.04，叶外 Δ≤0.29；掩膜注册 `leaf_left`、谱系 `e36fe8c80` |
 | 编辑谱系 | `scripts/lineage.py`（append-only JSONL + 快照 checkout）、`scripts/mask_registry.py`（掩膜 id + 来源） | 父子链、tree、checkout 恢复快照均有断言 |
 
 另有 `edit_loop --zoom x0,y0,x1,y1` 输出局部放大图（`zoom.jpg`）供模型看细节。

@@ -555,15 +555,22 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
         az0 = _np.deg2rad(float(azimuth))
         el0 = _np.deg2rad(float(elevation))
         L0 = _np.array([_np.cos(az0) * _np.cos(el0), -_np.sin(az0) * _np.cos(el0), _np.sin(el0)])
-        n = 0
-        for _, s0, st in targets:
+        # 先算一遍 lam，再按选区均值归一——否则换方向会顺带把整体亮度压低 15%（实测过）
+        lams = []
+        for _, s0, _st in targets:
             px = sum(p[0] for p in s0["points"]) / len(s0["points"])
             py = sum(p[1] for p in s0["points"]) / len(s0["points"])
             nx_, ny_ = (px - cx) / rx, (py - cy) / ry
             nz_ = 1.2
             nm = (nx_ * nx_ + ny_ * ny_ + nz_ * nz_) ** 0.5
-            lam = (nx_ / nm) * L0[0] + (ny_ / nm) * L0[1] + (nz_ / nm) * L0[2]
-            new_shade = float(s0["shade"]) * (1.0 + (lam - 0.5) * float(strength) * st)
+            lams.append((nx_ / nm) * L0[0] + (ny_ / nm) * L0[1] + (nz_ / nm) * L0[2])
+        mean_lam = float(_np.mean(lams)) if lams else 0.0
+        n = 0
+        for k, (_, s0, st) in enumerate(targets):
+            px = sum(p[0] for p in s0["points"]) / len(s0["points"])
+            py = sum(p[1] for p in s0["points"]) / len(s0["points"])
+            rel = (lams[k] - mean_lam) / max(abs(mean_lam), 1e-6)
+            new_shade = float(s0["shade"]) * (1.0 + rel * float(strength) * st)
             new_shade = max(0.02, min(8.0, new_shade))
             s0["color"] = _set_rgb(_np.clip(_np.asarray(s0["albedo"], _np.float64) * new_shade, 0.0, 255.0))
             s0["shade"] = new_shade
