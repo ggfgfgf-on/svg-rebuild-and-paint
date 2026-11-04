@@ -150,7 +150,29 @@ def test_cell_geometry():
     return True
 
 
+def test_refine_loop():
+    """自动闭环：合成图上必须收敛成 1 个连通块，面积接近真值，且负点不再抠洞。"""
+    import numpy as np, cv2 as cv
+    img = np.zeros((300, 400, 3), np.uint8); img[:] = (20, 30, 18)
+    cv.circle(img, (200, 150), 70, (90, 150, 60), -1)
+    p = Path(tempfile.mkdtemp()) / "loop.png"; cv.imwrite(str(p), img)
+    wins = [{"id": "w", "roi": [80, 60, 330, 250], "cols": 5, "rows": 5,
+             "pos": ["C3"], "neg": ["A1", "A5", "E1", "E5"]}]
+    bits, info = PI.refine_loop(p, wins, iters=3, tol=0.99, model="grabcut", verbose=False)
+    v = PI.verify(bits, allow_border=True)
+    assert v["components"] == 1, v
+    assert abs(float(bits.mean()) - (np.pi * 70 ** 2) / (300 * 400)) < 0.03, float(bits.mean())
+    assert len(info["history"]) >= 2, info["history"]
+    # 负点落在内部也不允许抠洞：显式硬负样本才抠
+    m_soft = PI.prompted_mask(p, [(200, 150)], [(218, 150)], radius=8, model="grabcut")
+    assert m_soft[int(150), int(200)], "负点不应在叶内抠出洞"
+    PI.prompted_mask(p, [(200, 150)], [(218, 150)], radius=8, model="grabcut", hard_negatives=True)
+    print("PASS 自动闭环收敛（iter=%d, area=%.3f, comp=%d）" % (info["iters"], float(bits.mean()), v["components"]))
+    return True
+
+
 ok = test_cell_geometry() and ok
+ok = test_refine_loop() and ok
 ok = test_implausible_guard() and ok
 print("RESULT", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)

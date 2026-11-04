@@ -10,6 +10,7 @@
 """
 import argparse
 import json
+import warnings
 from pathlib import Path
 
 import cv2
@@ -264,6 +265,47 @@ def child_window(image, parent, cells, sub=3, tile_px=None, wid=None, out=None, 
     return g
 
 
+def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, verbose=True):
+    """自动闭环：靠栅格提示起手，然后把已得掩膜的"确信内部/外圈"当作新提示反复精修。
+
+    这就是"玫瑰掩膜多轮迭代"的机械化版本：
+      1) 提示点 -> 掩膜 M
+      2) 取 erode(M) 采样作正样本、dilate(M) 减去 M 作负样本
+      3) 重建掩膜，与上一轮比 IoU
+      4) IoU > tol 或到上限即停，返回每轮指标
+    全过程无需人工再报格子；失败会带原因抛错（而不是悄悄给一张错掩膜）。
+    """
+    import cv2 as _cv
+    img_cv = _cv.imread(str(image))
+    H, W = img_cv.shape[:2]
+    bits, meta = prompted_from_tiles(image, windows, ring=ring, model=model)
+    hist = [{"iter": 0, "area": round(float(bits.mean()), 4), "iou_prev": None,
+             "components": int(verify(bits, allow_border=True)["components"])}]
+    m_prev = bits
+    for it in range(1, int(iters) + 1):
+        core = _cv.erode(m_prev.astype(np.uint8), np.ones((15, 15), np.uint8)).astype(bool)
+        outer = (_cv.dilate(m_prev.astype(np.uint8), np.ones((25, 25), np.uint8)).astype(bool) & ~m_prev)
+        if int(core.sum()) < 50 or int(outer.sum()) < 50:
+            break
+        ys, xs = np.nonzero(core); step = max(1, int(np.sqrt(len(xs) / 300.0)))
+        pos = [(float(x), float(y)) for x, y in zip(xs[::step][:300], ys[::step][:300])]
+        ys2, xs2 = np.nonzero(outer); step2 = max(1, int(np.sqrt(len(xs2) / 300.0)))
+        neg = [(float(x), float(y)) for x, y in zip(xs2[::step2][:300], ys2[::step2][:300])]
+        m_new = prompted_mask(image, pos, neg, ring=ring, radius=6, model=model)
+        inter = float((m_new & m_prev).sum()); union = float((m_new | m_prev).sum())
+        iou = inter / max(1.0, union)
+        v = verify(m_new, allow_border=True)
+        hist.append({"iter": it, "area": round(float(m_new.mean()), 4), "iou_prev": round(iou, 4),
+                     "components": int(v["components"])})
+        m_prev = m_new
+        if iou > float(tol):
+            break
+    if verbose:
+        for h in hist:
+            print(h)
+    return m_prev, {"history": hist, "windows": meta.get("windows"), "iters": len(hist) - 1}
+
+
 def mask_implausible(bits, windows, grow=8.0, fill_max=0.95):
     """提示与图像不符的早期警报：整片叶子不会占满全图，也不会面积暴涨。
 
@@ -292,11 +334,24 @@ def prompted_from_tiles(image, windows, **kw):
     bad = mask_implausible(bits, used)
     if bad:
         raise ValueError("tiles 提示与图像不符：%s" % bad)
+    H_, W_ = np.asarray(bits).shape[:2]
+    miss_pos = [(round(x, 1), round(y, 1)) for x, y in pos
+                if not (0 <= int(y) < H_ and 0 <= int(x) < W_ and bits[int(y), int(x)])]
+    hit_neg = [(round(x, 1), round(y, 1)) for x, y in neg
+               if 0 <= int(y) < H_ and 0 <= int(x) < W_ and bits[int(y), int(x)]]
+    # 少量正点落在边界/缝隙属于正常报告误差 -> 警告并继续；大面积未覆盖或负点落进前景 -> 报错。
+    tol_miss = max(2, int(round(0.2 * len(pos))))
+    if len(miss_pos) > tol_miss or hit_neg:
+        raise ValueError("tiles 提示自相矛盾：%d/%d 个正点未被覆盖（容差 %d）%s；%d 个负点落在前景内 %s"
+                         "（负点不再抠洞，但落在叶片上的负点说明格子报错了）"
+                         % (len(miss_pos), len(pos), tol_miss, miss_pos[:3], len(hit_neg), hit_neg[:3]))
+    if miss_pos:
+        warnings.warn("有 %d/%d 个正点未被覆盖，已忽略：%s" % (len(miss_pos), len(pos), miss_pos[:3]))
     return bits, {"pos": pos, "neg": neg, "windows": used}
 
 
-def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, model="gmm",
-                  components=3, bins=32, smooth_bins=2, bridge_px=11):
+def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, model="grabcut",
+                  components=3, bins=32, smooth_bins=2, bridge_px=11, hard_negatives=False):
     """模型给正/负点提示，确定性函数出掩膜（唯一的"阈值"是似然比 0.5，不是拟合常量）。
 
     单高斯会崩：背景跨"暗底/亮边/梗"三种颜色，方差一放就把前景吞了——实测全图 0.9968。
@@ -306,6 +361,67 @@ def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, mode
     import cv2 as _cv
     img = _cv.imread(str(image))
     H, W = img.shape[:2]
+    if model == "grabcut":
+        # GrabCut：有界混合高斯 + 区域先验。负点只是"背景种子"，不是抠洞刀。
+        # 之前 knn/gmm 会坍缩，是因为 Lab 里的近邻/似然没有边界，亮邻叶被吸进来。
+        # 底图必须是 GC_PR_BGD（"可能背景"），整图设成 GC_BGD 会让 GrabCut 无处可算，
+        # 实测只动 11 个像素。正样本外圈 probable、内圈 definite。
+        m = np.full((H, W), _cv.GC_PR_BGD, np.uint8)
+        for x, y in positives:
+            _cv.circle(m, (int(x), int(y)), int(radius) * 2, _cv.GC_PR_FGD, -1)
+            _cv.circle(m, (int(x), int(y)), max(2, int(radius) // 3), _cv.GC_FGD, -1)
+        for x, y in negatives:
+            _cv.circle(m, (int(x), int(y)), int(radius) * 2, _cv.GC_PR_BGD, -1)
+        if hard_negatives:
+            for x, y in negatives:
+                _cv.circle(m, (int(x), int(y)), int(radius), _cv.GC_BGD, -1)
+        bgm = np.zeros((1, 65), np.float64); fgm = np.zeros((1, 65), np.float64)
+        try:
+            _cv.grabCut(img, m, None, bgm, fgm, max(1, int(iters)), _cv.GC_INIT_WITH_MASK)
+        except _cv.error:
+            pass
+        out = ((m == _cv.GC_FGD) | (m == _cv.GC_PR_FGD)).astype(np.uint8)
+        out = _cv.morphologyEx(out, _cv.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        out = _cv.morphologyEx(out, _cv.MORPH_CLOSE, np.ones((11, 11), np.uint8))
+        n, cc, st, _ = _cv.connectedComponentsWithStats(out, 8)
+        keep = sorted({int(cc[int(y), int(x)]) for x, y in positives
+                       if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
+        if keep:
+            out = np.isin(cc, keep).astype(np.uint8)
+        elif n > 1:
+            out = (cc == (1 + int(np.argmax(st[1:, _cv.CC_STAT_AREA])))).astype(np.uint8)
+        ff = out.copy(); mm2 = np.zeros((H + 2, W + 2), np.uint8)
+        _cv.floodFill(ff, mm2, (0, 0), 1)
+        return refine_mask(image, out.astype(bool) | (ff == 0), corridor=ring, iters=iters)
+    if model == "knn":
+        # kNN 判别：对每个像素找最近的"正样本像素"和"负样本像素"，谁近算谁。
+        # 比高斯/直方图稳——后者对协方差宽度极敏感，负样本一少就整图坍缩。
+        from scipy.spatial import cKDTree as _KD
+        F = _cv.cvtColor(_cv.GaussianBlur(img, (3, 3), 0), _cv.COLOR_BGR2LAB).astype(np.float64)
+        F[:, :, 0] /= 2.55
+        def _samp(pts):
+            acc = []
+            for x, y in pts:
+                mm = np.zeros((H, W), np.uint8)
+                _cv.circle(mm, (int(x), int(y)), int(radius), 1, -1)
+                acc.append(F[mm > 0])
+            return np.concatenate(acc, 0)
+        fg_s, bg_s = _samp(positives), _samp(negatives)
+        tf, tb = _KD(fg_s), _KD(bg_s)
+        flat = F.reshape(-1, 3)
+        df = tf.query(flat, k=1)[0]
+        db = tb.query(flat, k=1)[0]
+        m = (df < db).reshape(H, W).astype(np.uint8)
+        m = _cv.morphologyEx(m, _cv.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        m = _cv.morphologyEx(m, _cv.MORPH_CLOSE, np.ones((13, 13), np.uint8))
+        n, cc, st, _ = _cv.connectedComponentsWithStats(m, 8)
+        if n > 1:
+            keep = sorted({int(cc[int(y), int(x)]) for x, y in positives
+                           if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
+            m = np.isin(cc, keep).astype(np.uint8) if keep else (cc == (1 + int(np.argmax(st[1:, _cv.CC_STAT_AREA])))).astype(np.uint8)
+        ff = m.copy(); mm2 = np.zeros((H + 2, W + 2), np.uint8)
+        _cv.floodFill(ff, mm2, (0, 0), 1)
+        return refine_mask(image, m.astype(bool) | (ff == 0), corridor=ring, iters=iters)
     if model == "gmm":
         F = _cv.cvtColor(_cv.GaussianBlur(img, (3, 3), 0), _cv.COLOR_BGR2LAB).astype(np.float64)
         F[:, :, 0] /= 2.55
@@ -321,7 +437,17 @@ def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, mode
         wb, mub, covb = _gmm_fit(bg_s, components, seed=1)
         lf = _gmm_logpdf(F, wf, muf, covf)
         lb = _gmm_logpdf(F, wb, mub, covb)
-        m = (lf > lb).astype(np.uint8)
+        score = lf - lb
+        # 阈值由提示点自己的分数分布决定：正样本的 5% 分位与负样本的 95% 分位取中点。
+        # 固定 0 会因为前景/背景分布宽度不同而整图坍缩或全丢——这是实测的真实病根。
+        sf = np.array([score[min(H - 1, max(0, int(y))), min(W - 1, max(0, int(x)))] for x, y in positives])
+        sb = np.array([score[min(H - 1, max(0, int(y))), min(W - 1, max(0, int(x)))] for x, y in negatives])
+        t_res = float(np.percentile(sf, 5)); t_bg = float(np.percentile(sb, 95))
+        if not (t_res > t_bg):
+            raise ValueError("提示不可分：正样本分数 p5=%.2f ≤ 负样本 p95=%.2f（正负点颜色叠在一起，"
+                             "请换格子或缩小窗口）" % (t_res, t_bg))
+        thr = 0.5 * (t_res + t_bg)
+        m = (score > thr).astype(np.uint8)
         m = _cv.morphologyEx(m, _cv.MORPH_OPEN, np.ones((5, 5), np.uint8))
         m = _cv.morphologyEx(m, _cv.MORPH_CLOSE, np.ones((13, 13), np.uint8))
         n, cc, st, _ = _cv.connectedComponentsWithStats(m, 8)
@@ -332,10 +458,11 @@ def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, mode
         ff = m.copy(); mm2 = np.zeros((H + 2, W + 2), np.uint8)
         _cv.floodFill(ff, mm2, (0, 0), 1)
         out = refine_mask(image, m.astype(bool) | (ff == 0), corridor=ring, iters=iters)
-        hard = np.ones((H, W), np.uint8)
-        for x, y in negatives:
-            _cv.circle(hard, (int(x), int(y)), int(radius), 0, -1)
-        out = out & (hard > 0)
+        if hard_negatives:
+            hard = np.ones((H, W), np.uint8)
+            for x, y in negatives:
+                _cv.circle(hard, (int(x), int(y)), int(radius), 0, -1)
+            out = out & (hard > 0)
         n2, cc2, _, _ = _cv.connectedComponentsWithStats(out.astype(np.uint8), 8)
         keep2 = sorted({int(cc2[int(y), int(x)]) for x, y in positives
                         if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
@@ -374,10 +501,11 @@ def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, mode
         _cv.floodFill(ff, mm2, (0, 0), 1)
         base = m.astype(bool) | (ff == 0)
         out = refine_mask(image, base, corridor=ring, iters=iters)
-        hard = np.ones((H, W), np.uint8)
-        for x, y in negatives:
-            _cv.circle(hard, (int(x), int(y)), int(radius), 0, -1)
-        out = out & (hard > 0)
+        if hard_negatives:
+            hard = np.ones((H, W), np.uint8)
+            for x, y in negatives:
+                _cv.circle(hard, (int(x), int(y)), int(radius), 0, -1)
+            out = out & (hard > 0)
         n2, cc2, _, _ = _cv.connectedComponentsWithStats(out.astype(np.uint8), 8)
         keep2 = sorted({int(cc2[int(y), int(x)]) for x, y in positives
                         if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
@@ -907,6 +1035,15 @@ def main():
     s5.add_argument("--out", required=True, help="吸附后多边形 JSON")
     s5.add_argument("--search", type=float, default=18)
     s5.add_argument("--smooth", type=int, default=2)
+    sl = sub.add_parser("loop")
+    sl.add_argument("--image", required=True)
+    sl.add_argument("--spec", required=True, help="初始 windows（栅格提示）JSON")
+    sl.add_argument("--iters", type=int, default=6)
+    sl.add_argument("--tol", type=float, default=0.995)
+    sl.add_argument("--model", choices=["grabcut", "knn", "gmm"], default="grabcut")
+    sl.add_argument("--out", required=True)
+    sl.add_argument("--width", type=int, default=900)
+    sl.add_argument("--height", type=int, default=1100)
     sz = sub.add_parser("zoom")
     sz.add_argument("--image", required=True)
     sz.add_argument("--parent", required=True, help="父窗口 JSON（roi/cols/rows/id）")
@@ -934,7 +1071,7 @@ def main():
     s10.add_argument("--neg", help="A1,H1 格子编号（单窗口时用）")
     s10.add_argument("--spec", help="多级 zoom 的 JSON：[{roi,tile_px,pos,neg}, ...]")
     s10.add_argument("--ring", type=int, default=14)
-    s10.add_argument("--model", choices=["gmm", "gauss", "hist"], default="gmm")
+    s10.add_argument("--model", choices=["grabcut", "knn", "gmm", "gauss", "hist"], default="grabcut")
     s10.add_argument("--components", type=int, default=3)
     s10.add_argument("--width", type=int, default=900)
     s10.add_argument("--height", type=int, default=1100)
@@ -945,7 +1082,7 @@ def main():
     s8.add_argument("--neg", required=True, help="x,y;x,y;...")
     s8.add_argument("--ring", type=int, default=16)
     s8.add_argument("--bridge", type=int, default=11)
-    s8.add_argument("--model", choices=["gmm", "gauss", "hist"], default="gmm")
+    s8.add_argument("--model", choices=["grabcut", "knn", "gmm", "gauss", "hist"], default="grabcut")
     s8.add_argument("--components", type=int, default=3)
     s8.add_argument("--width", type=int, default=900)
     s8.add_argument("--height", type=int, default=1100)
@@ -983,7 +1120,16 @@ def main():
     s3.add_argument("--max", type=int, default=6)
     s3.add_argument("--sheet", help="候选叠图输出路径")
     a = ap.parse_args()
-    if a.cmd == "zoom":
+    if a.cmd == "loop":
+        wins = json.loads(Path(a.spec).read_text(encoding="utf-8"))
+        bits, info = refine_loop(a.image, wins, iters=a.iters, tol=a.tol, model=a.model)
+        bits = np.asarray(Image.fromarray(bits.astype(np.uint8) * 255).resize((a.width, a.height), Image.NEAREST)) > 0
+        v = verify(bits, allow_border=True)
+        Path(a.out).write_text(json.dumps(masks.to_json(masks.from_bool(bits))), encoding="utf-8")
+        print(json.dumps({"area": round(v["area_frac"], 4), "fill": round(v["fill"], 2),
+                          "components": v["components"], "bbox": v["bbox"],
+                          "iters": info["iters"], "history": info["history"]}, ensure_ascii=False))
+    elif a.cmd == "zoom":
         parent = json.loads(Path(a.parent).read_text(encoding="utf-8"))
         g = child_window(a.image, parent, a.cells.split(","), sub=a.sub, tile_px=a.tile_px,
                          wid=a.id, out=a.out, scale=a.scale)
