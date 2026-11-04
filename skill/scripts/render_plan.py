@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 import cli_util as CU
+import look_profile as LP
 import ops
 import plan_io
 import render_util as RU
@@ -48,9 +49,11 @@ def main():
     ap.add_argument("plan")
     ap.add_argument("--ops", action="append", default=[], help="ops JSON，可重复给（按顺序作用）")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--look", help="外观 profile（默认 scripts/native/look.json；不存在=恒等）")
     CU.add_common_args(ap, quiet=False)
     a = ap.parse_args()
-    print(render_plan_with_ops(a.plan, load_specs(a.ops), a.out, gpu=a.gpu, nthreads=a.threads))
+    specs = LP.resolve(load_specs(a.ops), a.look)
+    print(render_plan_with_ops(a.plan, specs, a.out, gpu=a.gpu, nthreads=a.threads))
 
 
 if __name__ == "__main__":

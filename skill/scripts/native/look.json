@@ -1,0 +1,10 @@
+{
+  "_comment": "默认外观 profile：参数是数据，不是代码常量。改这里即改默认出图；单次实验用 --ops 覆盖；要重新标定亮度用 calibrate_tone.py --target-image。",
+  "tone": {
+    "gain": 1.0,
+    "lift": 0,
+    "gamma": 1
+  },
+  "ops": [],
+  "notes": "当前为恒等：默认不改变像素。若以 rose5-full.png 为基准标定，把 calibrate_tone 求出的 gain 写回这里。"
+}

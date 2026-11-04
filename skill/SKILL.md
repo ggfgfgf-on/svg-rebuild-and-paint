@@ -1269,6 +1269,12 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 `set_layer_hue highlight 100 + set_layer_saturation 0.9 + tone_map(layer=highlight) gain 0.55`
 （实测叶子裁剪区 32.1，色相对、仍偏粉笔感）。
 
+**外观参数三层（默认值也是数据，不是代码）**：`scripts/native/look.json` 是默认 profile，
+优先级 `--ops`（单次） > `--look <file>`（本次） > `native/look.json`（仓库默认） > 恒等。
+改 JSON 即改默认出图，不用改代码、不用发版；实测 `painting_clean`：恒等 25.69 → profile gain 0.95 得 24.37
+→ 再叠 `--ops` gain 0.85 得 20.61（`render_plan.py --look/--ops`）。要换亮度基准不手改数字：
+`calibrate_tone.py --target-image <ref>` 求出 gain 再写回 profile。
+
 **亮度不硬编码**：用 `scripts/calibrate_tone.py` 从参考图现场反解 gain：
 
 ```
