@@ -108,11 +108,24 @@ def _build_mask(base, step):
     return masks.from_bool(m)
 
 
-def _full_mask(mask, h, w):
-    b = masks._decode_bits(mask)
-    full = np.zeros((h, w), bool)
-    full[mask["y"]:mask["y"] + b.shape[0], mask["x"]:mask["x"] + b.shape[1]] = b
-    return full
+def _full_mask(mask, h, w, base=None):
+    """把任意掩膜转成像素布尔图（只用于度量；选择仍走笔触权重）。"""
+    t = mask.get("type")
+    if t == "raster":
+        b = masks._decode_bits(mask)
+        full = np.zeros((h, w), bool)
+        full[mask["y"]:mask["y"] + b.shape[0], mask["x"]:mask["x"] + b.shape[1]] = b
+        return full
+    if t == "rect":
+        full = np.zeros((h, w), bool)
+        full[int(mask["y"]):int(mask["y"] + mask["h"]), int(mask["x"]):int(mask["x"] + mask["w"])] = True
+        return full
+    if t == "color":
+        if base is None:
+            raise SystemExit("color 掩膜需要基线像素来度量")
+        d = np.linalg.norm(base.astype(np.float64) - np.asarray(mask["rgb"], np.float64), axis=2)
+        return d <= float(mask.get("tol", 40))
+    raise SystemExit("暂不支持用 %r 掩膜做度量" % t)
 
 
 def run_steps(plan, steps, out_dir, tag="it", ref=None, gpu=False, threads=8, crop_pad=24,
@@ -129,7 +142,7 @@ def run_steps(plan, steps, out_dir, tag="it", ref=None, gpu=False, threads=8, cr
     step_metrics, crop_box = [], None
     for i, st in enumerate(steps):
         mask = _build_mask(base_arr, st)
-        full = _full_mask(mask, h, w)
+        full = _full_mask(mask, h, w, base_arr)
         out, nsel = _apply_masked(doc, st["ops"], mask, st.get("feather", 0.0),
                                   st.get("mask_mode", "any"))
         arr = RU.render_arr(out, gpu=gpu, nthreads=threads)[..., :3]

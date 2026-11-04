@@ -169,6 +169,21 @@ def stroke_weight(mask, stroke, feather=0.0, mode="any"):
     return float(w.min()) if mode == "all" else float(w.max())
 
 
+def _densify(pts, step):
+    """在折线上按 step 像素插点（端点保留）。"""
+    pts = np.asarray(pts, np.float64)
+    if len(pts) < 2:
+        return pts
+    out = [pts[0]]
+    for a, b in zip(pts[:-1], pts[1:]):
+        d = float(np.linalg.norm(b - a))
+        n = int(d // max(step, 1e-6))
+        for k in range(1, n + 1):
+            out.append(a + (b - a) * (k / float(n + 1)) if n else b)
+        out.append(b)
+    return np.asarray(out, np.float64)
+
+
 def _mask_bbox(mask):
     t = mask.get("type")
     if t == "rect":
@@ -289,16 +304,32 @@ def from_bool(b, x0=0, y0=0):
             "bits": _encode_bits(b)}
 
 
-def raster_weight(mask, pts, r=0.0):
+_RASTER_FEATHER_CACHE = {}
+
+
+def _dist_map(mask):
+    """掩膜内部到边界的距离图（feather 用）；按内容缓存。"""
+    key = (mask.get("w"), mask.get("h"), mask.get("x"), mask.get("y"), mask.get("bits"))
+    hit = _RASTER_FEATHER_CACHE.get(key)
+    if hit is not None:
+        return hit
+    import cv2
+    dist = cv2.distanceTransform(_decode_bits(mask).astype(np.uint8), cv2.DIST_L2, 3)
+    _RASTER_FEATHER_CACHE[key] = dist
+    return dist
+
+
+def raster_weight(mask, pts, r=0.0, feather=0.0):
     import numpy as np_mod
     b = _decode_bits(mask)
     h, w = b.shape
+    dist = _dist_map(mask) if feather and feather > 0 else None
     out = np_mod.zeros(len(pts), np_mod.float64)
     for k, p in enumerate(pts):
         x = int(np_mod.floor(p[0] - mask["x"]))
         y = int(np_mod.floor(p[1] - mask["y"]))
         if 0 <= x < w and 0 <= y < h and b[y, x]:
-            out[k] = 1.0
+            out[k] = 1.0 if dist is None else float(min(1.0, dist[y, x] / float(feather)))
     return out
 
 
