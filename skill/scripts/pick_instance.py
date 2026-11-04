@@ -111,7 +111,7 @@ def verify_mask(mask, W, H, **kw):
     return verify(rasterize(mask, W, H), **kw)
 
 
-def refine_polygon(image, polygon, iters=6, seed_band=9):
+def refine_polygon(image, polygon, iters=6, seed_band=9, out_band=0):
     """模型画的多边形 + grabCut 边界吸附：不需要分割模型，也能把粗描边贴到真实边缘。
 
     做法：多边形内部腐蚀一圈当确定前景、外侧一圈当确定背景，边界带当"可能前景"，
@@ -128,12 +128,25 @@ def refine_polygon(image, polygon, iters=6, seed_band=9):
     gc[m] = cv2.GC_PR_FGD
     gc[inner] = cv2.GC_FGD
     gc[outer] = cv2.GC_PR_BGD
+    if out_band:                      # 允许向外长：把多边形外一圈标成"可能前景"，
+        grow = cv2.dilate(m.astype(np.uint8), np.ones((2 * int(out_band) + 1,) * 2, np.uint8)).astype(bool)
+        gc[grow & ~m] = cv2.GC_PR_FGD   # 否则 grabCut 被框死，只能挪几个像素（实测只有 4.9% 变化）
     bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
     cv2.grabCut(arr, gc, None, bgd, fgd, int(iters), cv2.GC_INIT_WITH_MASK)
     out = (gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD)
+    # 边缘贴合度：轮廓落在图像强边缘上的程度。只做参考，不当通过/不通过（叶脉也是强边缘，会虚高）
+    gray = cv2.GaussianBlur(cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY).astype(np.float32), (3, 3), 0)
+    gyy, gxx = np.gradient(gray)
+    mag = np.sqrt(gxx * gxx + gyy * gyy)
+    kk = np.ones((3, 3), np.uint8)
+
+    def _fit(bits):
+        e = cv2.morphologyEx(bits.astype(np.uint8), cv2.MORPH_GRADIENT, kk).astype(bool)
+        return float(mag[e].mean()) if e.any() else 0.0
+
     stats = {"changed_px": int((out != m).sum()), "polygon_px": int(m.sum()),
-             "refined_px": int(out.sum()),
-             "grew": bool(out.sum() > m.sum())}
+             "refined_px": int(out.sum()), "grew": bool(out.sum() > m.sum()),
+             "edge_fit_polygon": round(_fit(m), 2), "edge_fit_refined": round(_fit(out), 2)}
     return out, stats
 
 
@@ -202,6 +215,8 @@ def pick(image, specs, out_dir, attempt_log=None, attempt=1):
                 x0, y0, x1, y1 = box
                 clip[max(0, y0):min(H, y1), max(0, x0):min(W, x1)] = True
                 full &= clip
+        if refine_stats:
+            refine_stats["edge_fit_gain"] = round(refine_stats["edge_fit_refined"] - refine_stats["edge_fit_polygon"], 2)
         v = verify(full, sp.get("min_area", 0.002), sp.get("max_area", 0.35),
                    sp.get("max_components", 1), sp.get("border_tol", 0.10), sp.get("allow_border", False),
                    box, sp.get("box_fill_max", 0.90))
