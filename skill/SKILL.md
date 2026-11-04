@@ -68,26 +68,11 @@ python scripts/render_plan.py plan.json --ops ops.json --out edited.png --gpu
 `vision-skills` 里的 SVG 描摹是**通用素材工具**；本 skill 多了三件事它没有：**可度量的误差闭环**（mean / ≤5 / uncovered）、**分层步骤播放器**、**批量巡检与回归测试**。同样一张图，先跑这里的 `metric.py` 再决定要不要换路线。
 
 
-## 选择源：先看这张表（接口签名见 docs/API.md，自动生成）
+## 选择源
 
-| 来源 | 分辨率 | 像素级边缘 | 该在什么时候用 | 代价 / 坑 |
-| --- | --- | --- | --- | --- |
-| `mask` / `mask_file` | 你给的位置图 | 是 | 已有精确掩膜（人工描边、上次结果） | 要自己准备；跨进程按内容缓存（键含 bits 哈希） |
-| `all` | 全图 | — | 整幅调色 | 没有区域限制 |
-| `polygon` | 你给的多边形 | 是 | 快速圈一块，形状简单 | 描边就是边界，锯齿由顶点决定 |
-| `cells` | **格子并集（55×48 那种块）** | **否** | 让模型用格子回答“是哪一片 / 哪些格子” | 粗：55px 格子 IoU≈0.70，11px≈0.92，8px≈0.93（还要 900 个正格）。**必须配 zoom 或 refine 才能上色** |
-| `tiles` | 格子 + 颜色判别器 | 近似 | 格子太粗时让 grabcut/knn/gmm 在格子内定边 | knn/gmm 会坍缩到整帧，默认 grabcut |
-| `prompt` | 点/框 → grabcut | 近似 | 没人画掩膜，只有“叶子在这” | 一致性依赖初始化，边界 1~2px 抖动 |
-| `segment` | 提示词 → 分割 | 近似 | 一句话选物体 | 需要模型/分割后端 |
-| `instance` | 实例分割 | 近似 | 多同类物体选其一 | 同上 |
-| `include` / `exclude` | 任意来源的组合 | 取决于内层 | “这片叶子，但去掉这块” | 结果为空会报错；`_SEL_KEYS` 里必须登记 |
+语义表与闸门都由 ops.SOURCES 生成/执行，见 docs/API.md 的「选择源语义」（自动生成）。
+要点：cells 是格子并集（coarse），改色类算子必须 refine: true 或 allow_coarse: true，否则报错。
 
-**zoom（逐窗口细网格）**：`cells.windows[]` 每个窗口自带 `roi/cols/rows`（或 `tile_px`），`ref` 可带前缀（`tip.D6`），`attach_px` 逐窗口给。
-实测同一片叶子：根窗口 8×6（55px 格）→ IoU 0.703；16px 格 → 0.915；11px 格（= tip 窗口那种）→ 0.924；再细到 8px → 0.931（但要 900 个正格，模型答不过来）。
-
-**refine（精修）**：`refine_loop(image, windows, init_mask=...)` 把格子并集当种子喂 grabcut，贴边负样本 + 生长上限，实测 0.703 → **0.938**（梯度判据 contrast 0.51、ok=True）。
-
-**结论（一句话）**：`cells` 只回答“哪一片”，`zoom` 只把不确定性缩小，边界靠 `refine`；三者不能互相替代。
 ## 契约
 
 - 输入：PNG/JPEG，宽×高 ≤ 2MP。JPEG 先解码并**固化无损副本**，之后所有比较只对这份副本（解码器不同结果不同）。

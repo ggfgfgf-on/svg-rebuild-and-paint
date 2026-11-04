@@ -775,7 +775,7 @@ INTERNAL = {"seed", "selection", "weights", "mask", "mask_file", "all", "polygon
             "select_tag", "sel_box", "sel_hue", "sel_sat_min", "sel_val_min",
             "cells", "tiles", "prompt", "segment", "include", "exclude", "grow_px", "loop", "steps",
             "fit_boundary", "attach_thin", "filter_halo", "min_ratio", "model_grow_px",
-            "keep_model", "edge_ok", "edge_min_contrast", "search_px", "sel_mode"}
+            "keep_model", "edge_ok", "edge_min_contrast", "search_px", "sel_mode", "refine", "allow_coarse"}
 
 
 def validate(spec):
@@ -806,6 +806,30 @@ def _copy_doc(doc):
 def _canvas(doc):
     w, h = [int(v) for v in (doc.get("canvas") or [0, 0])]
     return w, h
+
+
+def _refine_cells_mask(doc, cs, rf):
+    """把格子并集精修成边界：cells + refine=true -> grabcut 迭代。
+
+    为什么必须显式走这一步：cells 是格子并集（55px 级块状），直接上色会溢出边界。
+    精修后同一片叶子实测 0.703 -> 0.938。
+    """
+    import numpy as _np
+    import pick_instance as _PIr
+    from PIL import Image as _Im
+    rf = {} if rf is True else dict(rf)
+    w, h = _Im.open(cs["image"]).size
+    coarse = resolve_mask(doc, {"cells": cs})
+    bits0 = _PIr.rasterize(coarse, w, h)
+    wins = cs.get("windows") or []
+    if not wins:
+        raise ValueError("cells.refine 需要 windows（精修要用窗口里的正/负格子作种子）")
+    anchors = _PIr.cells_anchors(cs["image"], wins)
+    bits, _info = _PIr.refine_loop(cs["image"], wins, init_mask=bits0, anchors=anchors,
+                                   iters=int(rf.get("iters", 6)), verbose=bool(rf.get("verbose", False)),
+                                   neg_px=int(rf.get("neg_px", 3)), neg_k=float(rf.get("neg_k", 2.5)))
+    import masks as _Mr
+    return _Mr.from_bool(bits)
 
 
 def resolve_mask(doc, spec):
@@ -866,6 +890,10 @@ def resolve_mask(doc, spec):
     if "polygon" in spec:
         return M.polygon([tuple(map(float, p)) for p in spec["polygon"]])
     if "cells" in spec:
+        _rspec = dict(spec["cells"])
+        _rf = _rspec.pop("refine", None)
+        if _rf:
+            return _refine_cells_mask(doc, _rspec, _rf)
         # 模型语义直通：报了的格子就是选中，不经过颜色判别器（判别器只是辅助证据）。
         # spec = {"cells": {"image": p, "windows": [...], "dilate_px": 0,
         #                   "base": <另一个 selection spec>, "mode": "union"|"intersect"}}
@@ -1069,6 +1097,97 @@ _SEL_KEYS = ("mask", "mask_file", "all", "polygon", "instance", "tiles", "cells"
              "prompt", "segment", "include", "exclude")
 
 
+# ---------- 选择源注册表：语义即约束 ----------
+# 这张表同时被两处读取：
+#   1) ops.check_source()：coarse 的来源不许直接给改色类算子（会整笔改色 → 溢出边界）；
+#   2) scripts/api_doc.py：生成 docs/API.md 里的「选择源语义」表。
+# 所以改这里 = 改行为 + 改文档，不存在"只改文档"或"只改代码"的漂移。
+# measured 里是实测精度（tile_px → IoU vs 人工描边，来源 scripts/pick_instance.py + 叶子那组数据）。
+SOURCES = {
+    "mask": {"coarse": False, "pixel_accurate": True, "requires": (), "measured": {},
+             "doc": "内联掩膜；像素级"},
+    "mask_file": {"coarse": False, "pixel_accurate": True, "requires": ("path",), "measured": {},
+                  "doc": "掩膜文件；像素级"},
+    "all": {"coarse": False, "pixel_accurate": False, "requires": (), "measured": {},
+            "doc": "全图"},
+    "polygon": {"coarse": False, "pixel_accurate": True, "requires": ("points",), "measured": {},
+                "doc": "多边形；边界由顶点决定"},
+    "instance": {"coarse": False, "pixel_accurate": False, "requires": ("image", "seeds"),
+                 "measured": {}, "doc": "实例分割；近似边界"},
+    "cells": {"coarse": True, "pixel_accurate": False, "requires": ("image", "windows"),
+              "measured": {55: 0.703, 48: 0.840, 32: 0.893, 24: 0.892, 16: 0.915, 11: 0.924, 8: 0.931},
+              "refined": 0.938,
+              "doc": "模型报的格子并集（块状）；只回答「哪一片」，必须 refine 或 zoom 才能上色"},
+    "tiles": {"coarse": False, "pixel_accurate": False, "requires": ("image", "windows"),
+              "measured": {}, "doc": "格子 + 颜色判别器（默认 grabcut）定边"},
+    "prompt": {"coarse": False, "pixel_accurate": False, "requires": ("image",), "measured": {},
+               "doc": "点/框 → grabcut；近似边界"},
+    "segment": {"coarse": False, "pixel_accurate": False, "requires": ("prompt",), "measured": {},
+                "doc": "文本提示分割；近似边界"},
+    "include": {"coarse": False, "pixel_accurate": False, "requires": ("include",), "measured": {},
+                "doc": "组合：include & ~exclude"},
+    "exclude": {"coarse": False, "pixel_accurate": False, "requires": ("exclude",), "measured": {},
+                "doc": "组合：include & ~exclude"},
+}
+
+# 改的是笔触颜色/亮度，整笔生效会越出选区 → 必须要求来源够精确
+COLOUR_OPS = {"set_layer_hue", "set_layer_saturation", "set_layer_brightness",
+              "tone_map", "recolor_palette", "relight_dir", "redraw"}
+
+
+def spec_source(spec):
+    """返回 spec 用到的第一个选择源名（没有则 None）。"""
+    if not isinstance(spec, dict):
+        return None
+    for k in _SEL_KEYS:
+        if k in spec:
+            return k
+    return None
+
+
+def check_source(spec, op_name=None):
+    """闸门：粗来源（coarse）不许直接喂给改色类算子。
+
+    这是行为约束，不是文档提醒——文档由 SOURCES 生成，所以改约束必然改文档。
+    放行方式：refine（推荐，把格子并集精修成边界）或 allow_coarse: true（明确接受溢出）。
+    """
+    src = spec_source(spec)
+    if src is None:
+        return None
+    info = SOURCES.get(src)
+    if info is None:
+        raise ValueError("未登记的选择源 %r（要同时改 resolve_mask 和 ops.SOURCES/_SEL_KEYS）" % (src,))
+    if op_name and info.get("coarse") and op_name in COLOUR_OPS:
+        if spec.get("allow_coarse"):
+            return info
+        inner = spec.get(src) if isinstance(spec.get(src), dict) else {}
+        if inner.get("refine"):
+            return info
+        raise ValueError(
+            "选择源 %r 是格子并集（块状，%s），不能直接给改色算子 %r：整笔改色会越出边界。"
+            "两种修法：1) 给 %r 加 refine: true（grabcut 精修，实测 IoU 0.703 -> 0.938）；"
+            "2) 用更细的格子（zoom：tile_px 16 -> 0.915，11 -> 0.924）或换像素级来源（mask/polygon）。"
+            "若确实接受溢出，显式写 allow_coarse: true。"
+            % (src, "、".join("%dpx→%.3f" % (k, v) for k, v in sorted(info["measured"].items(), reverse=True)),
+               op_name, src))
+    return info
+
+
+def describe_sources():
+    """给文档生成器用：返回 (表头, 行列表)。"""
+    head = ["来源", "coarse", "像素级", "实测（tile_px→IoU）", "说明"]
+    rows = []
+    for name in _SEL_KEYS:
+        info = SOURCES.get(name) or {}
+        meas = info.get("measured") or {}
+        txt = "、".join("%dpx→%.3f" % (k, v) for k, v in sorted(meas.items())) if meas else "-"
+        if info.get("refined"):
+            txt += "；refine→%.3f" % info["refined"]
+        rows.append([name, "是" if info.get("coarse") else "否",
+                     "是" if info.get("pixel_accurate") else "否", txt, info.get("doc", "")])
+    return head, rows
+
+
 def select_by_predicate(doc, spec):
     """按笔触自身属性选（框 + 色相/饱和/亮度阈值），完全绕开"给照片做分割"。
 
@@ -1133,6 +1252,7 @@ def apply(doc, specs, selection=None, weights=None, seed=0):
             _smode = str(raw.get("sel_mode") or "any")
             sel = M.select(out, m, mode=_smode)
             wts = M.weights(out, m, mode=_smode)[1]
+        check_source(raw, name)
         clean = validate(dict(raw))
         clean.pop("op")
         if any(k in raw for k in _SEL_KEYS):

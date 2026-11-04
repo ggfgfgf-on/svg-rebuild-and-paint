@@ -2,6 +2,24 @@
 
 > 由 `scripts/api_doc.py` 从代码生成；改了接口就重跑，否则 `tests/test_api_doc.py` 会失败。语义（每个源该在什么场景用、代价多少）在 SKILL.md 的「选择源」一节，这里只保证签名不漂移。
 
+## 选择源语义（由 ops.SOURCES 生成，与闸门同源）
+
+| 来源 | coarse | 像素级 | 实测（tile_px→IoU） | 说明 |
+|---|---|---|---|---|
+| mask | 否 | 是 | - | 内联掩膜；像素级 |
+| mask_file | 否 | 是 | - | 掩膜文件；像素级 |
+| all | 否 | 否 | - | 全图 |
+| polygon | 否 | 是 | - | 多边形；边界由顶点决定 |
+| instance | 否 | 否 | - | 实例分割；近似边界 |
+| tiles | 否 | 否 | - | 格子 + 颜色判别器（默认 grabcut）定边 |
+| cells | 是 | 否 | 8px→0.931、11px→0.924、16px→0.915、24px→0.892、32px→0.893、48px→0.840、55px→0.703；refine→0.938 | 模型报的格子并集（块状）；只回答「哪一片」，必须 refine 或 zoom 才能上色 |
+| prompt | 否 | 否 | - | 点/框 → grabcut；近似边界 |
+| segment | 否 | 否 | - | 文本提示分割；近似边界 |
+| include | 否 | 否 | - | 组合：include & ~exclude |
+| exclude | 否 | 否 | - | 组合：include & ~exclude |
+
+**闸门**：coarse=是 的来源直接给改色类算子会抛错（整笔改色会越界）；放行方式是 refine: true 或 allow_coarse: true。约束在 ops.check_source，本表由 ops.describe_sources() 渲染，所以不可能只改行为不改表。
+
 ## 选择源（selection sources）
 
 `resolve_mask` 认识这些键；`ops.apply` 只解析 `ops._SEL_KEYS` 里登记过的来源——**新增来源要同时改两处**，否则算子静默作用到全图。
@@ -12,7 +30,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 ## 通用键（所有算子都接受）
 
-结构类：`all`, `attach_thin`, `cells`, `edge_min_contrast`, `edge_ok`, `exclude`, `filter_halo`, `fit_boundary`, `grow_px`, `include`, `instance`, `keep_model`, `loop`, `mask`, `mask_file`, `mask_obj`, `min_ratio`, `model_grow_px`, `polygon`, `prompt`, `search_px`, `seed`, `segment`, `sel_box`, `sel_hue`, `sel_mode`, `sel_sat_min`, `sel_val_min`, `select_tag`, `selection`, `steps`, `tiles`, `weights`
+结构类：`all`, `allow_coarse`, `attach_thin`, `cells`, `edge_min_contrast`, `edge_ok`, `exclude`, `filter_halo`, `fit_boundary`, `grow_px`, `include`, `instance`, `keep_model`, `loop`, `mask`, `mask_file`, `mask_obj`, `min_ratio`, `model_grow_px`, `polygon`, `prompt`, `refine`, `search_px`, `seed`, `segment`, `sel_box`, `sel_hue`, `sel_mode`, `sel_sat_min`, `sel_val_min`, `select_tag`, `selection`, `steps`, `tiles`, `weights`
 
 执行类：`selection`, `weights`, `guidance`, `seed`, `mask_obj`, `sel_mode`
 
