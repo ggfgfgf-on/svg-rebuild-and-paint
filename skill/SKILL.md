@@ -1210,6 +1210,18 @@ calibrate_tone、rebuild_shadow_layer、planner_8layer、instruction_demo 都走
 `write_json` / `load_json`。calibrate_tone、rebuild_shadow_layer、instruction_demo 都改用它（instruction_demo 只输出报告，传 `quiet=False`），
 `--quiet` 会关掉逐轮标定日志（只留最终 JSON）。`tests/test_cli_util.py` 覆盖默认值、互斥与报错。
 
+**全流程一条命令**：`scripts/plan_pipeline.py` 串起 planner → 报告 → 标定 → 最终图：
+
+```
+python scripts/plan_pipeline.py rose5-full.png regions2.npz --out demo \
+    --target-image rose5-full.png --gpu          # --dry-run 只打印命令
+```
+
+planner 侧新增两个开关：`--report <path>`（写 canvas/层/混合模式/笔触数/luma/产物路径的 JSON）
+和 `--calibrate <参考图>`（跑完用参考图反解 tone gain，写 `<plan>.tone.json`）。
+pipeline 再把 tone 应用到计划、渲染 `<前缀>.final.png`，并把 `final_luma` 并回报告。
+`tests/test_plan_pipeline.py` 锁住路径派生、命令拼装（无 target 就不带 `--calibrate`）、dry-run 不落盘、合并保留 planner 字段。
+
 **出图一条命令**：`scripts/render_plan.py plan.json --ops a.json --ops b.json --out final.png --gpu`
 把多个 ops 顺序作用后整份渲染（不需要掩膜/增量重建；`--ops` 可重复，后者作用于前者结果）。
 标定完的 ops 直接喂进来即可：

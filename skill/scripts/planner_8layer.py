@@ -531,6 +531,37 @@ def main():
                                tip_names={v: k for k, v in TIPS.items()})
         print("plan written", _plan_out, _n, "strokes")
     stats = {k: len(v) for k, v in layers.items()}
+    _report = _arg("--report")
+    if _report:
+        # 亮度与统计写进报告：出图后不用再手算，也方便和参考图对比
+        import render_util as _RU2
+        _obj = {"paper": PAPER, "tips": USE_TIPS, "canvas": [W, H],
+                "layers": [{n: b} for n, b in spec],
+                "blends": {n: b for n, b in spec},
+                "strokes": stats, "total": sum(stats.values()),
+                "luma": round(_RU2.luma_of(comp), 2),
+                "outputs": {ext: OUT + ext for ext in (".png", ".kra", ".psd")},
+                "plan": _plan_out or None,
+                "seconds": round(time.time() - t0, 2)}
+        with open(_report, "w", encoding="utf-8") as f:
+            json.dump(_obj, f, ensure_ascii=False, indent=1)
+        print("report written", _report, "luma", _obj["luma"])
+    _cal = _arg("--calibrate")
+    if _cal and _plan_out:
+        # 用参考图现场反解 tone gain（不硬编码），写出可直接喂给 render_plan 的 ops
+        import calibrate_tone as _CT
+        import plan_io as _PIO
+        import render_util as _RU3
+        _doc, _w, _h = _PIO.load_plan(_plan_out)
+        _target = _RU3.target_luma_from_image(_cal)
+        _gain, _luma, _renders = _CT.calibrate(_doc, _target, gpu=False, nthreads=THREADS)
+        _ops_path = _plan_out.rsplit(".", 1)[0] + ".tone.json"
+        _specs = [{"op": "tone_map", "gain": _gain}]
+        with open(_ops_path, "w", encoding="utf-8") as f:
+            json.dump(_specs, f, ensure_ascii=False, indent=1)
+        print(json.dumps({"calibrate": _cal, "target_luma": round(_target, 2),
+                          "gain": _gain, "achieved_luma": _luma, "renders": _renders,
+                          "ops": _ops_path}, ensure_ascii=False))
     print(json.dumps({"paper": PAPER, "tips": USE_TIPS, "strokes": stats,
                       "total": sum(stats.values()), "seconds": round(time.time() - t0, 2)}))
 
