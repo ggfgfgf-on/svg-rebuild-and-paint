@@ -110,44 +110,81 @@ def _gmm_logpdf(F, w, mu, cov):
     return out.reshape(H, W)
 
 
-def tile_grid(image, roi, cols=8, rows=6, out=None, scale=2):
-    """把 ROI 切成带编号的格子并画出来：模型用**格子编号**回答，而不是敲像素坐标。
+def _tile_name(c, r):
+    n, lab = c, ""
+    while True:
+        lab = chr(ord("A") + n % 26) + lab
+        n = n // 26 - 1
+        if n < 0:
+            break
+    return "%s%d" % (lab, r + 1)
 
-    我两次把显示坐标当照片坐标，都是因为"看图→口算坐标"这一步容易错。
-    让模型只做它擅长的事（看图判断哪些格子属于目标），坐标换算交给代码。
+
+def tile_grid(image, roi, cols=None, rows=None, tile_px=None, out=None, scale=None, pad=0):
+    """带编号格子的放大图：格子大小可以按像素指定（`tile_px`），细到单像素也能标。
+
+    命名：列用字母（A..Z, AA..），行用数字；`tile_px=1` 时一个格子就是一个像素，
+    等价于"逐像素点选"，但不需要模型去口算坐标。
     """
     arr = np.asarray(Image.open(image).convert("RGB"))
     H, W = arr.shape[:2]
     x0, y0, x1, y1 = [int(v) for v in roi]
+    x0 = max(0, x0); y0 = max(0, y0); x1 = min(W, x1); y1 = min(H, y1)
+    if tile_px:
+        tp = float(tile_px)
+        cols, rows = max(1, int(np.ceil((x1 - x0) / tp))), max(1, int(np.ceil((y1 - y0) / tp)))
+    cols = int(cols or 8); rows = int(rows or 6)
     cw, ch = (x1 - x0) / float(cols), (y1 - y0) / float(rows)
+    scale = int(scale or max(1, round(1400.0 / max(1, (x1 - x0), (y1 - y0)))))
     cells = {}
-    im = Image.fromarray(arr[y0:y1, x0:x1]).resize(((x1 - x0) * int(scale), (y1 - y0) * int(scale)), Image.LANCZOS)
+    im = Image.fromarray(arr[y0:y1, x0:x1]).resize(((x1 - x0) * scale, (y1 - y0) * scale), Image.LANCZOS)
     dr = ImageDraw.Draw(im)
+    show_labels = (cw * scale) >= 14 and (ch * scale) >= 10
     for r in range(rows):
         for c in range(cols):
-            name = "%s%d" % (chr(ord("A") + c), r + 1)
-            cx = int((c + 0.5) * cw); cy = int((r + 0.5) * ch)
-            cells[name] = (x0 + cx, y0 + cy)
+            name = _tile_name(c, r)
+            cells[name] = (x0 + (c + 0.5) * cw, y0 + (r + 0.5) * ch)
             px, py = int(c * cw * scale), int(r * ch * scale)
-            dr.rectangle([px, py, px + cw * scale, py + ch * scale], outline=(0, 220, 255), width=1)
-            dr.text((px + 3, py + 2), name, fill=(255, 255, 0))
+            if (cw * scale) >= 4:
+                dr.rectangle([px, py, px + cw * scale, py + ch * scale], outline=(0, 200, 230), width=1)
+            if show_labels:
+                dr.text((px + 1, py + 1), name, fill=(255, 255, 0))
     if out:
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         fmt = "PNG" if str(out).lower().endswith(".png") else "JPEG"
         im.save(out, fmt, **({"quality": 92} if fmt == "JPEG" else {}))
-    return {"cells": cells, "out": str(out) if out else None, "cols": cols, "rows": rows, "roi": [x0, y0, x1, y1]}
+    return {"cells": cells, "out": str(out) if out else None, "cols": cols, "rows": rows,
+            "tile_px": [round(cw, 3), round(ch, 3)], "roi": [x0, y0, x1, y1], "scale": scale}
 
 
-def prompted_from_tiles(image, roi, pos_tiles, neg_tiles, cols=8, rows=6, **kw):
-    """模型给格子编号 → 转成点 → 走 prompted_mask。坐标换算由代码完成。"""
-    g = tile_grid(image, roi, cols, rows)
-    cells = g["cells"]
-    miss = [t for t in list(pos_tiles) + list(neg_tiles) if t not in cells]
-    if miss:
-        raise ValueError("未知格子编号: %s" % ",".join(miss))
-    pos = [cells[t] for t in pos_tiles]
-    neg = [cells[t] for t in neg_tiles]
-    return prompted_mask(image, pos, neg, **kw), {"pos": pos, "neg": neg}
+def tile_points(image, windows):
+    """多级/多次 zoom：每个 window 自己的 roi + 格子密度，各自的正负编号合成一组点。
+
+    windows 形如 [{"roi":[x0,y0,x1,y1], "tile_px":55, "pos":["D2"], "neg":["A1"]},
+                  {"roi":[440,700,520,790], "tile_px":4, "pos":["C3","D3"], "neg":["A1"]}]
+    """
+    pos, neg, used = [], [], []
+    for w in windows:
+        g = tile_grid(image, w["roi"], cols=w.get("cols"), rows=w.get("rows"),
+                      tile_px=w.get("tile_px"))
+        cells = g["cells"]
+        for tag, key, bucket in (("pos", "pos", pos), ("neg", "neg", neg)):
+            for t in w.get(key) or []:
+                if t not in cells:
+                    raise ValueError("window roi=%s 没有格子 %s（可用示例：%s）" % (
+                        w["roi"], t, ", ".join(list(cells)[:4])))
+                bucket.append(cells[t])
+        used.append({"roi": g["roi"], "cols": g["cols"], "rows": g["rows"], "tile_px": g["tile_px"],
+                     "pos": w.get("pos") or [], "neg": w.get("neg") or []})
+    return pos, neg, used
+
+
+def prompted_from_tiles(image, windows, **kw):
+    """模型给格子编号（可多级 zoom）→ 点 → prompted_mask。坐标换算全在代码里。"""
+    if isinstance(windows, dict):
+        windows = [windows]
+    pos, neg, used = tile_points(image, windows)
+    return prompted_mask(image, pos, neg, **kw), {"pos": pos, "neg": neg, "windows": used}
 
 
 def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, model="gmm",
@@ -767,15 +804,17 @@ def main():
     s9.add_argument("--roi", required=True, help="x0,y0,x1,y1")
     s9.add_argument("--cols", type=int, default=8)
     s9.add_argument("--rows", type=int, default=6)
-    s9.add_argument("--scale", type=int, default=2)
+    s9.add_argument("--tile-px", type=float, dest="tile_px", default=None, help="格子边长（像素），1=逐像素")
+    s9.add_argument("--scale", type=int, default=None)
     s9.add_argument("--out", required=True)
     s10 = sub.add_parser("tile-prompt")
     s10.add_argument("--image", required=True)
-    s10.add_argument("--roi", required=True)
+    s10.add_argument("--roi", help="单窗口 ROI；用 --spec 时可省")
     s10.add_argument("--cols", type=int, default=8)
     s10.add_argument("--rows", type=int, default=6)
-    s10.add_argument("--pos", required=True, help="A3,B4 格子编号")
-    s10.add_argument("--neg", required=True)
+    s10.add_argument("--pos", help="A3,B4 格子编号（单窗口时用）")
+    s10.add_argument("--neg", help="A1,H1 格子编号（单窗口时用）")
+    s10.add_argument("--spec", help="多级 zoom 的 JSON：[{roi,tile_px,pos,neg}, ...]")
     s10.add_argument("--ring", type=int, default=14)
     s10.add_argument("--model", choices=["gmm", "gauss", "hist"], default="gmm")
     s10.add_argument("--components", type=int, default=3)
@@ -827,20 +866,28 @@ def main():
     s3.add_argument("--sheet", help="候选叠图输出路径")
     a = ap.parse_args()
     if a.cmd == "tiles":
-        g = tile_grid(a.image, [float(t) for t in a.roi.split(",")], a.cols, a.rows, a.out, a.scale)
+        g = tile_grid(a.image, [float(t) for t in a.roi.split(",")], cols=a.cols, rows=a.rows,
+                      tile_px=a.tile_px, out=a.out, scale=a.scale)
         print(json.dumps({"out": g["out"], "cells": sorted(g["cells"].keys())[:6] + ["..."],
-                          "cols": g["cols"], "rows": g["rows"]}, ensure_ascii=False))
+                          "cols": g["cols"], "rows": g["rows"], "tile_px": g["tile_px"],
+                          "scale": g["scale"]}, ensure_ascii=False))
     elif a.cmd == "tile-prompt":
-        roi = [float(t) for t in a.roi.split(",")]
-        bits, pts = prompted_from_tiles(a.image, roi, a.pos.split(","), a.neg.split(","),
-                                        a.cols, a.rows, ring=a.ring, model=a.model,
+        if a.spec:
+            windows = json.loads(Path(a.spec).read_text(encoding="utf-8"))
+        else:
+            if not (a.pos and a.neg and a.roi):
+                raise SystemExit("tile-prompt 需要 --spec，或同时给 --roi/--pos/--neg")
+            windows = [{"roi": [float(t) for t in a.roi.split(",")], "cols": a.cols, "rows": a.rows,
+                        "pos": a.pos.split(","), "neg": a.neg.split(",")}]
+        bits, pts = prompted_from_tiles(a.image, windows, ring=a.ring, model=a.model,
                                         components=a.components)
         bits = np.asarray(Image.fromarray(bits.astype(np.uint8) * 255).resize((a.width, a.height), Image.NEAREST)) > 0
         v = verify(bits, allow_border=True)
         Path(a.out).write_text(json.dumps(masks.to_json(masks.from_bool(bits))), encoding="utf-8")
         print(json.dumps({"area": round(v["area_frac"], 4), "fill": round(v["fill"], 2),
                           "components": v["components"], "bbox": v["bbox"],
-                          "pos_pts": len(pts["pos"]), "neg_pts": len(pts["neg"])}, ensure_ascii=False))
+                          "pos_pts": len(pts["pos"]), "neg_pts": len(pts["neg"]),
+                          "windows": len(pts["windows"])}, ensure_ascii=False))
     elif a.cmd == "prompted":
         pos = [[float(u) for u in t.split(",")] for t in a.pos.split(";")]
         neg = [[float(u) for u in t.split(",")] for t in a.neg.split(";")]

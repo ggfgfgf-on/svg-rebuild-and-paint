@@ -775,9 +775,11 @@ def resolve_mask(doc, spec):
         import pick_instance as _PI
         from PIL import Image as _Image
         tl = dict(spec["tiles"])
+        wins = tl.get("windows") or [{"roi": tl.get("roi"), "cols": tl.get("cols", 8),
+                                      "rows": tl.get("rows", 6), "tile_px": tl.get("tile_px"),
+                                      "pos": tl.get("pos") or [], "neg": tl.get("neg") or []}]
         bits, _pts = _PI.prompted_from_tiles(
-            tl["image"], tl["roi"], tl.get("pos") or [], tl.get("neg") or [],
-            cols=int(tl.get("cols", 8)), rows=int(tl.get("rows", 6)),
+            tl["image"], wins,
             ring=float(tl.get("ring", 16)), radius=float(tl.get("radius", 10)),
             model=str(tl.get("model", "gmm")), components=int(tl.get("components", 3)))
         arr = _np.asarray(_Image.open(tl["image"]).convert("RGB"))

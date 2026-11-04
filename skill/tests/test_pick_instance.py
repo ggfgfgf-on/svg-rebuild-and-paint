@@ -88,6 +88,25 @@ with tempfile.TemporaryDirectory() as td:
     sheet_info = PI.candidate_sheet(path2, res, td / "sheet.jpg")
     check("候选叠图落盘", sheet_info is not None and Path(sheet_info["sheet"]).exists())
 
+def test_tile_points_multi():
+    """多级 zoom：每个 window 自己的 roi/tile_px，正负编号各自换算到照片坐标。"""
+    W, H = 200, 150
+    img = np.zeros((H, W, 3), np.uint8)
+    img[:, :] = (30, 60, 20)
+    p = Path(tempfile.mkdtemp()) / "g.png"
+    Image.fromarray(img).save(p)
+    wins = [{"roi": [0, 0, 200, 150], "tile_px": 50, "pos": ["B2"], "neg": ["A1"]},
+            {"roi": [100, 50, 140, 90], "tile_px": 10, "pos": ["C3"], "neg": ["A1"]}]
+    pos, neg, used = PI.tile_points(str(p), wins)
+    assert len(pos) == 2 and len(neg) == 2, (pos, neg)
+    # 第一窗 B2 = 第一列第二行中心；第二窗 C3 = 细格中心，必须落在各自 roi 内
+    assert 50 < pos[0][0] < 100 and 50 <= pos[0][1] <= 100, pos[0]
+    assert 100 <= pos[1][0] <= 140 and 50 <= pos[1][1] <= 90, pos[1]
+    assert [w["cols"] for w in used] == [4, 4], used
+    print("PASS tile_points 多级 zoom 坐标换算 %s" % (pos,))
+
+
+test_tile_points_multi()
 print("RESULT", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)
 
@@ -109,3 +128,5 @@ def test_segment_band(tmpdir=None):
     iou = float((got & truth).sum()) / max(1, int((got | truth).sum()))
     assert iou > 0.90, "segment IoU=%.3f" % iou
     print("PASS segment 自动分割 IoU %.3f" % iou)
+
+

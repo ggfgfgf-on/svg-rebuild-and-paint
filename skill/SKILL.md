@@ -1304,6 +1304,11 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 edge_fit 0.9→1.94、平均位移 5.6px，3× 放大后绿线贴着叶缘。`--search 20` 会跳到相邻亮叶上（右侧凸出）。`edge_fit` 指标在这张图上不可靠（r1 1.51 → r2 1.09：
 叶子边缘亮、背景更暗，梯度反而不高），**判据只能是局部放大目视**。
 
+**格子细度与多次 zoom**：`tile_grid(..., cols/rows/tile_px/scale)` —— `tile_px` 是**像素**边长，
+`tile_px=1` 即逐像素（格子=像素，标签 A1/AA1…）；`scale` 自动随窗口放大（默认让长边≈1400px）。
+多级 zoom 用 `windows` 列表，每级自己的 `roi/tile_px/pos/neg`，`tile_points` 统一换算后合成一次掩膜。
+实测两级（8×6 全局 55px + 右下 4px 细格，36 正 28 负）→ IoU 0.914。
+
 **模型的参与手段 = 格子编号，不是像素坐标**：`pick_instance tiles` 画带编号的网格，
 `tile-prompt --pos D2,E2 --neg A1,H1` 直接把编号换成点（代码做坐标换算）。ops 里对应
 `{"tiles": {"image","roi","cols","rows","pos":[...],"neg":[...],"ring","model","components"}}`，
