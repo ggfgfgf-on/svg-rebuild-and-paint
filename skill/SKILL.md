@@ -1281,7 +1281,7 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 
 | 缺口 | 组件 | 实测 |
 |---|---|---|
-| 区域重规划 | `scripts/planner_region.py`：只在掩膜内按参考图重画笔触，按层合并 | 玫瑰区替换 2,128 笔，区内 Δ7.81、区外 Δ1.71（跨边界笔触所致） |
+| 区域重规划 | `scripts/planner_region.py`：只在掩膜内按参考图重画笔触，按层合并；`--mode cover --thr 0.9 --ring 10` 按覆盖率判定并外扩吸收边界笔触，原位替换保绘制顺序 | 玫瑰区替换 2,257 笔：区内 Δ2.19、边环(30px) Δ0.84、**区外 Δ0.000** |
 | 软权重着色 | `ops._targets` 的强度 = guidance×掩膜权重，本来就走插值；raster feather 修好后边界是连续权重 | `set_layer_hue guidance=0.5` 色相落在中间值，不跳变 |
 | 实例级选择 | `visual_mask` 加负样本点 + 掩膜加减（`--negative`/`--add-mask`/`--sub-mask`） | 同色干扰物被色相门控+负样本挡住 |
 | 光影分解 | `ops.split_shading` / `ops.set_light`：笔画级 albedo+shade，改光只动 shade | scale=0.5 时 luma 恰好减半、色相不变；未拆分就报错 |
@@ -1289,6 +1289,10 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 | 编辑谱系 | `scripts/lineage.py`（append-only JSONL + 快照 checkout）、`scripts/mask_registry.py`（掩膜 id + 来源） | 父子链、tree、checkout 恢复快照均有断言 |
 
 另有 `edit_loop --zoom x0,y0,x1,y1` 输出局部放大图（`zoom.jpg`）供模型看细节。
+
+**比较对象要选对**：plan 里的坐标是 2 位小数，planner 出图用的是内存全精度，两者差异有 2.02 的基线；
+重规划效果要和 `render(plan)` 比，不要和 planner 自己出的 PNG 比，否则会把基线差算成泄漏。
+渲染本身跨进程是确定的（同一文件两次渲染 mean_abs 0.0000）。
 
 **改夜色要动光影，不是全局套一层暖色**：全局 hue+压暗会把整幅压成单色棕
 （实测玫瑰 41.8→66.5 反而更亮、色彩尽失）。正确姿势是**按亮度分离**：从渲染图取 luma 分位做掩膜，

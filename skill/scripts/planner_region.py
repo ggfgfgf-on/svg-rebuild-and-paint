@@ -17,6 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import numpy as np
+
 import cli_util as CU
 import masks
 import plan_io
@@ -26,6 +28,40 @@ def _load_mask(path):
     return masks.from_json(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
+def stroke_coverage(mask, stroke):
+    """笔触落在掩膜内的比例（按加密采样点算，反映"这一笔有多大部分在区域里"）。"""
+    import numpy as _np
+    from masks import _densify, _pts, _decode_bits
+    if mask.get("type") != "raster":
+        pts = _pts(stroke)
+        inside = sum(1 for pt in pts if stroke_in_mask(mask, {"points": [[pt[0], pt[1], 1.0]]}, "any", 0.0))
+        return inside / max(1, len(pts))
+    bits = _decode_bits(mask)
+    h, w = bits.shape
+    pts = _densify(_pts(stroke), max(2.0, float(stroke.get("size", 10)) * 0.5))
+    if len(pts) == 0:
+        return 0.0
+    xs = _np.floor(pts[:, 0] - mask["x"]).astype(int)
+    ys = _np.floor(pts[:, 1] - mask["y"]).astype(int)
+    ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+    hit = _np.zeros(len(pts), bool)
+    hit[ok] = bits[ys[ok], xs[ok]]
+    return float(hit.mean())
+
+
+def dilate_mask(mask, ring):
+    """把 raster 掩膜外扩 ring 像素（给"边界笔触归谁"留缓冲）。"""
+    if ring <= 0 or mask.get("type") != "raster":
+        return mask
+    import cv2
+    from masks import _decode_bits
+    bits = _decode_bits(mask)
+    grown = cv2.dilate(bits.astype("uint8"), np.ones((3, 3), "uint8"), iterations=int(ring)).astype(bool)
+    out = dict(mask)
+    out["bits"] = masks._encode_bits(grown)
+    return out
+
+
 def stroke_in_mask(mask, stroke, mode="center", thr=0.5):
     """笔触是否算"在区域内"：center=采样点均值，any=任一点，all=全部点。"""
     from masks import stroke_weight, _pts
@@ -33,6 +69,8 @@ def stroke_in_mask(mask, stroke, mode="center", thr=0.5):
         return stroke_weight(mask, stroke, 0.0, mode="any") >= thr
     if mode == "all":
         return stroke_weight(mask, stroke, 0.0, mode="all") >= thr
+    if mode == "cover":
+        return stroke_coverage(mask, stroke) >= thr
     pts = _pts(stroke)
     if len(pts) == 0:
         return False
@@ -41,15 +79,14 @@ def stroke_in_mask(mask, stroke, mode="center", thr=0.5):
     return float(sum(w) / max(1, len(w))) >= thr
 
 
-def merge(base, new, mask, layers, mode="center", thr=0.5):
-    """保留区域外原笔触，用区域内的新笔触替换同层旧笔触。"""
+def merge(base, new, mask, layers, mode="center", thr=0.5, ring=0):
+    """保留区域外原笔触，用区域内的新笔触替换同层旧笔触。
+
+    mode="cover" 时按覆盖率判定（thr 建议 0.8~0.95），并可用 ring 外扩掩膜吸收边界笔触，
+    这样跨边界的笔触不会被"整笔换掉"，区外像素也就不再被牵连。
+    """
     layers = set(layers)
-    kept, dropped = [], 0
-    for st in base["strokes"]:
-        if st["layer"] in layers and stroke_in_mask(mask, st, mode, thr):
-            dropped += 1
-            continue
-        kept.append(st)
+    mask = dilate_mask(mask, ring)
     added, skipped = [], 0
     for st in new["strokes"]:
         if st["layer"] not in layers:
@@ -57,16 +94,28 @@ def merge(base, new, mask, layers, mode="center", thr=0.5):
             continue
         if stroke_in_mask(mask, st, mode, thr):
             added.append(st)
+    # 原位替换：把新笔触填到被替换笔触的位置上，保持原有绘制顺序
+    # （顺序一变，半透明笔触的叠色结果就会跟着变）
+    queue = list(added)
+    out_strokes, dropped = [], 0
+    for st in base["strokes"]:
+        if st["layer"] in layers and stroke_in_mask(mask, st, mode, thr):
+            dropped += 1
+            if queue:
+                out_strokes.append(queue.pop(0))
+            continue
+        out_strokes.append(st)
+    out_strokes.extend(queue)
     out = dict(base)
-    out["strokes"] = kept + added
-    out["count"] = len(out["strokes"])
-    out["subject_layers"] = base.get("subject_layers") or sorted({s["layer"] for s in out["strokes"]})
+    out["strokes"] = out_strokes
+    out["count"] = len(out_strokes)
+    out["subject_layers"] = base.get("subject_layers") or sorted({s["layer"] for s in out_strokes})
     return out, {"dropped": dropped, "added": len(added), "skipped_other_layers": skipped}
 
 
 def run(plan_path, out_path, mask_path, layers=("band", "highlight"), ref=None, regions=None,
         strokes_plan=None, style_file=None, highlight_mode="keep", shadow_mode="drop",
-        mode="center", thr=0.5, gpu=False, threads=8, report=None):
+        mode="center", thr=0.5, ring=0, gpu=False, threads=8, report=None):
     base_doc, w, h = plan_io.load_plan(plan_path)
     mask = _load_mask(mask_path)
 
@@ -85,12 +134,13 @@ def run(plan_path, out_path, mask_path, layers=("band", "highlight"), ref=None, 
     else:
         raise SystemExit("需要 --ref（用参考图重画）或 --strokes（已有新笔触计划）")
 
-    merged, stats = merge(base_doc, new_doc, mask, layers, mode, thr)
-    blends = {l["name"]: l.get("blend", "normal") for l in base_doc.get("layers") or []}
-    plan_io.dump_plan(out_path, w, h, merged["strokes"], layer_blends=blends,
-                      regions=merged.get("regions"), subject_layers=merged.get("subject_layers"))
+    merged, stats = merge(base_doc, new_doc, mask, layers, mode, thr, ring)
+    # 直接写回原始结构，不经 dump_plan 重编码（它会改写 preset 名并重新四舍五入坐标）。
+    # 注意比较对象：plan 里坐标是 2 位小数，planner 直接出图用的是内存里的全精度，
+    # 所以「重规划结果」要和 render(plan) 比，不要和 planner 自己出的 PNG 比（那有 2.02 的基线差）。
+    Path(out_path).write_text(json.dumps(merged, separators=(",", ":")), encoding="utf-8")
     res = {"plan": str(plan_path), "out": str(out_path), "layers": list(layers),
-           "mask": mask_path, "mode": mode, "thr": thr, **stats,
+           "mask": mask_path, "mode": mode, "thr": thr, "ring": ring, **stats,
            "strokes_before": len(base_doc["strokes"]), "strokes_after": len(merged["strokes"])}
     if report:
         Path(report).write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -102,6 +152,7 @@ def main():
     ap.add_argument("--plan", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--mask", required=True, help="区域掩膜 JSON")
+    ap.add_argument("--ring", type=int, default=0, help="掩膜外扩像素（吸收边界笔触）")
     ap.add_argument("--ref", help="参考图（交给 planner_8layer 重画整幅，再按区域裁）")
     ap.add_argument("--regions", help="planner 需要的 regions.npz")
     ap.add_argument("--strokes", help="直接给一份新笔触计划（跳过 planner）")
@@ -109,14 +160,14 @@ def main():
     ap.add_argument("--style-file")
     ap.add_argument("--highlight-mode", default="keep")
     ap.add_argument("--shadow-mode", default="drop")
-    ap.add_argument("--mode", default="center", choices=["center", "any", "all"])
+    ap.add_argument("--mode", default="center", choices=["center", "any", "all", "cover"])
     ap.add_argument("--thr", type=float, default=0.5)
     ap.add_argument("--report")
     CU.add_common_args(ap, quiet=False)
     a = ap.parse_args()
     print(json.dumps(run(a.plan, a.out, a.mask, [x for x in a.layers.split(",") if x], a.ref,
                          a.regions, a.strokes, a.style_file, a.highlight_mode, a.shadow_mode,
-                         a.mode, a.thr, a.gpu, a.threads, a.report), ensure_ascii=False))
+                         a.mode, a.thr, a.ring, a.gpu, a.threads, a.report), ensure_ascii=False))
 
 
 if __name__ == "__main__":
