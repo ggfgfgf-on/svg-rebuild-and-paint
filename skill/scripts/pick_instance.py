@@ -70,6 +70,115 @@ def snap_polygon(image, poly, search=18, smooth=2, step=2.0):
     return new_poly, stats
 
 
+def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, model="gauss",
+                  bins=32, smooth_bins=2, bridge_px=11):
+    """模型给正/负点提示，确定性函数出掩膜（唯一的"阈值"是似然比 0.5，不是拟合常量）。
+
+    单高斯会崩：背景跨"暗底/亮边/梗"三种颜色，方差一放就把前景吞了——实测全图 0.9968。
+    改用**颜色直方图似然比**（多峰、无需正定性）：正点/负点各堆一张 32³ Lab 直方图，平滑后
+    ratio = hf/(hf+hb)；ratio>0.5 即"更像前景"。模型看图后增删点重跑，判据在图里。
+    """
+    import cv2 as _cv
+    img = _cv.imread(str(image))
+    H, W = img.shape[:2]
+    if model == "gauss":
+        # 单高斯判别：对这张图实测 IoU 0.936（直方图版 0.707，会更糊）
+        F = _cv.cvtColor(_cv.GaussianBlur(img, (3, 3), 0), _cv.COLOR_BGR2LAB).astype(np.float64)
+        F[:, :, 0] /= 2.55
+        def _samp(pts):
+            acc = []
+            for x, y in pts:
+                mm = np.zeros((H, W), np.uint8)
+                _cv.circle(mm, (int(x), int(y)), int(radius), 1, -1)
+                acc.append(F[mm > 0])
+            return np.concatenate(acc, 0)
+        fg, bg = _samp(positives), _samp(negatives)
+        mu_f, mu_b = fg.mean(0), bg.mean(0)
+        inv_f = np.linalg.inv(np.cov(fg.T) + np.eye(3) * 1e-2)
+        inv_b = np.linalg.inv(np.cov(bg.T) + np.eye(3) * 1e-2)
+        Zf, Zb = F - mu_f, F - mu_b
+        df = np.einsum("...i,ij,...j->...", Zf, inv_f, Zf)
+        db = np.einsum("...i,ij,...j->...", Zb, inv_b, Zb)
+        m = ((df - db) < 0.0).astype(np.uint8)
+        m = _cv.morphologyEx(m, _cv.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        m = _cv.morphologyEx(m, _cv.MORPH_CLOSE, np.ones((13, 13), np.uint8))
+        n, cc, st, _ = _cv.connectedComponentsWithStats(m, 8)
+        if n > 1:
+            keep = sorted({int(cc[int(y), int(x)]) for x, y in positives
+                           if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
+            m = np.isin(cc, keep).astype(np.uint8) if keep else (cc == (1 + int(np.argmax(st[1:, _cv.CC_STAT_AREA])))).astype(np.uint8)
+        ff = m.copy(); mm2 = np.zeros((H + 2, W + 2), np.uint8)
+        _cv.floodFill(ff, mm2, (0, 0), 1)
+        base = m.astype(bool) | (ff == 0)
+        out = refine_mask(image, base, corridor=ring, iters=iters)
+        hard = np.ones((H, W), np.uint8)
+        for x, y in negatives:
+            _cv.circle(hard, (int(x), int(y)), int(radius), 0, -1)
+        out = out & (hard > 0)
+        n2, cc2, _, _ = _cv.connectedComponentsWithStats(out.astype(np.uint8), 8)
+        keep2 = sorted({int(cc2[int(y), int(x)]) for x, y in positives
+                        if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
+        if keep2 and n2 > 1:
+            out = np.isin(cc2, keep2)
+        ff3 = out.astype(np.uint8).copy(); mm3 = np.zeros((H + 2, W + 2), np.uint8)
+        _cv.floodFill(ff3, mm3, (0, 0), 1)
+        return out | (ff3 == 0)
+    lab = _cv.cvtColor(img, _cv.COLOR_BGR2LAB)
+    Lb = (lab[:, :, 0].astype(np.int32) * bins) // 256
+    Ab = ((lab[:, :, 1].astype(np.int32) + 0) * bins) // 256
+    Bb = ((lab[:, :, 2].astype(np.int32) + 0) * bins) // 256
+    idx = (Lb * bins + Ab) * bins + Bb
+
+    def _hist(pts):
+        m = np.zeros((H, W), np.uint8)
+        for x, y in pts:
+            _cv.circle(m, (int(x), int(y)), int(radius), 1, -1)
+        hh = np.bincount(idx[m > 0].ravel(), minlength=bins ** 3).astype(np.float64)
+        hh = hh.reshape(bins, bins, bins)
+        return _cv.GaussianBlur(hh, (0, 0), float(smooth_bins))
+
+    hf = _hist(positives)
+    hb = _hist(negatives)
+    if hf.sum() < 1 or hb.sum() < 1:
+        raise ValueError("prompted_mask: 正负点各至少一个")
+    ratio = hf / (hf + hb + 1e-9)
+    p = ratio.ravel()[idx]
+    m = (p > 0.5).astype(np.uint8)
+    m = _cv.morphologyEx(m, _cv.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    m = _cv.morphologyEx(m, _cv.MORPH_CLOSE, np.ones((13, 13), np.uint8))
+    n, cc, st, _ = _cv.connectedComponentsWithStats(m, 8)
+    if n > 1:
+        keep = sorted({int(cc[int(y), int(x)]) for x, y in positives
+                       if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
+        if keep:
+            m = np.isin(cc, keep).astype(np.uint8)
+        else:
+            m = (cc == (1 + int(np.argmax(st[1:, _cv.CC_STAT_AREA])))).astype(np.uint8)
+    ff = m.copy(); mm = np.zeros((H + 2, W + 2), np.uint8)
+    _cv.floodFill(ff, mm, (0, 0), 1)
+    base = m.astype(bool) | (ff == 0)
+    out = refine_mask(image, base, corridor=ring, iters=iters)
+    # 负点是硬约束：负数点周围不许是前景（否则同色区域会被 GrabCut 又拉回来）
+    hard = np.ones((H, W), np.uint8)
+    for x, y in negatives:
+        _cv.circle(hard, (int(x), int(y)), int(radius), 0, -1)
+    out = out & (hard > 0)
+    # 只保留与正点连通的部分（先断开细桥，防止沿 1–2px 通道渗到别的色块）
+    br = int(bridge_px)
+    if br > 1:
+        o = _cv.morphologyEx(out.astype(np.uint8), _cv.MORPH_OPEN, np.ones((br, br), np.uint8))
+        if o.any():
+            out = o.astype(bool)
+    n2, cc2, _, _ = _cv.connectedComponentsWithStats(out.astype(np.uint8), 8)
+    keep2 = sorted({int(cc2[int(y), int(x)]) for x, y in positives
+                    if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
+    if keep2 and n2 > 1:
+        out = np.isin(cc2, keep2)
+    ff3 = out.astype(np.uint8).copy(); mm3 = np.zeros((H + 2, W + 2), np.uint8)
+    _cv.floodFill(ff3, mm3, (0, 0), 1)
+    return out | (ff3 == 0)
+
+
 def segment(image, roi=None, seeds=None, ring=18, iters=5, hue_k=3.0, sat_q=15,
             chroma_scale=0.55, seed_radius=14, passes=2):
     """自动区域分割：按"色度 Otsu + 同色彩带"切出主体，再走廊精修。
@@ -527,6 +636,16 @@ def main():
     s5.add_argument("--out", required=True, help="吸附后多边形 JSON")
     s5.add_argument("--search", type=float, default=18)
     s5.add_argument("--smooth", type=int, default=2)
+    s8 = sub.add_parser("prompted")
+    s8.add_argument("--image", required=True)
+    s8.add_argument("--pos", required=True, help="x,y;x,y;...")
+    s8.add_argument("--neg", required=True, help="x,y;x,y;...")
+    s8.add_argument("--ring", type=int, default=16)
+    s8.add_argument("--bridge", type=int, default=11)
+    s8.add_argument("--model", choices=["gauss", "hist"], default="gauss")
+    s8.add_argument("--width", type=int, default=900)
+    s8.add_argument("--height", type=int, default=1100)
+    s8.add_argument("--out", required=True)
     s7 = sub.add_parser("segment")
     s7.add_argument("--image", required=True)
     s7.add_argument("--roi", required=False, help="x0,y0,x1,y1")
@@ -560,7 +679,16 @@ def main():
     s3.add_argument("--max", type=int, default=6)
     s3.add_argument("--sheet", help="候选叠图输出路径")
     a = ap.parse_args()
-    if a.cmd == "segment":
+    if a.cmd == "prompted":
+        pos = [[float(u) for u in t.split(",")] for t in a.pos.split(";")]
+        neg = [[float(u) for u in t.split(",")] for t in a.neg.split(";")]
+        bits = prompted_mask(a.image, pos, neg, ring=a.ring, bridge_px=a.bridge, model=a.model)
+        bits = np.asarray(Image.fromarray(bits.astype(np.uint8) * 255).resize((a.width, a.height), Image.NEAREST)) > 0
+        v = verify(bits, allow_border=True)
+        Path(a.out).write_text(json.dumps(masks.to_json(masks.from_bool(bits))), encoding="utf-8")
+        print(json.dumps({"area": round(v["area_frac"], 4), "fill": round(v["fill"], 2),
+                          "components": v["components"], "bbox": v["bbox"]}, ensure_ascii=False))
+    elif a.cmd == "segment":
         roi = [float(t) for t in a.roi.split(",")] if a.roi else None
         seeds = [[float(u) for u in t.split(",")] for t in a.seeds.split(";")] if a.seeds else None
         bits = segment(a.image, roi=roi, seeds=seeds, ring=a.ring, passes=a.passes)
