@@ -1178,6 +1178,17 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 根治要在计划生成侧改 shadow 的填充方式（连续覆盖 / 相邻格重叠一定像素），或换掉 flat 刷的格填策略，
 需要原始参考图 + planner 参数重跑；`scripts/jitter_strokes.py` 目前只是诊断工具（`--expand` 可试重叠）。
 
+**已落地的修复（计划空间）**：`scripts/rebuild_shadow_layer.py` 把 shadow 层重采样成连续软笔：
+
+- `--mode random`（推荐）：按 alpha 接受率随机抛洒 6,486 支 `round_soft` 软笔（size≈46、opacity 0.16），
+  叠出连续阴影，**网格消失**；实测整图 luma 45.6 → **47.0**（基本不变）。
+- `--mode grid`：按格重采样并抖动，仍会留"气泡"边界，不推荐。
+
+`tests/test_rebuild_shadow.py`：同 seed 逐字节相同、只换 shadow、混合模式保留、坐标离开 16px 格点，全 PASS。
+根治仍建议在 `plan_region` 的 shadow 填充里做相邻格重叠；重采样是"不需要参考图的可用修复"。
+
+
+
 **texture 层 tile 合并**（消除方块接缝）：计划里 texture 是 81 笔 96px 的 `02_rough-canvas` tile 铺满画布，
 在 normal/提亮后能看到方块边。`scripts/merge_canvas_tiles.py` 把它们合并成一张覆盖全画布的纹理笔：
 
