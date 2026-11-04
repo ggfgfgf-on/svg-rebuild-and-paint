@@ -20,12 +20,18 @@ def main():
         assert 'value' in e, '%s 缺 value' % name
         assert e.get('chosen_by') in ('model', 'rule'), '%s chosen_by=%r' % (name, e.get('chosen_by'))
         assert len(str(e.get('reason', '')).strip()) >= 8, '%s 理由太短' % name
+        NUMERIC = {'model_grow_px', 'min_ratio', 'max_grow_px', 'neg_px', 'attach_px'}
         if e['chosen_by'] == 'model':
             for k in ('sweep', 'contact_sheet'):
                 assert k in e, '%s 缺 %s' % (name, k)
-            keys = [float(k) for k in e['sweep']]
-            assert float(e['value']) in keys, '%s 的值 %r 不在 sweep 里 (%s)' % (name, e['value'], keys)
             assert (ROOT / e['contact_sheet']).exists(), '%s 接触表不存在' % name
+            if name in NUMERIC:
+                keys = [float(k) for k in e['sweep']]
+                assert float(e['value']) in keys, '%s 的值 %r 不在 sweep 里 (%s)' % (name, e['value'], keys)
+            else:
+                # 判据型（阈值/门限）：sweep 是样本表或过程表，不要求 value 是 key，但要落在合理区间
+                assert 0.0 < float(e['value']) <= 1.0, '%s 的阈值 %r 不在 (0,1]' % (name, e['value'])
+                assert e['sweep'], '%s 的 sweep 为空' % name
         else:
             assert 'rule' in e or e.get('reason'), '%s 规则型要写 rule' % name
     e = d['model_grow_px']
