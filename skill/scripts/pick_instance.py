@@ -387,6 +387,19 @@ def _calibrated_candidates():
     return out
 
 
+def _validate_calibrated(data, path):
+    """工程值必须是数：坏值在这里立刻报错，别让它流到 np.ones/float 里变成远处崩溃。"""
+    for name, entry in data.items():
+        v = entry.get("value") if isinstance(entry, dict) else entry
+        if isinstance(v, bool):
+            raise ValueError("工程标定值非法：%s=%r（来自 %s）——布尔不是数" % (name, v, path))
+        if not isinstance(v, (int, float)):
+            try:
+                float(v)
+            except (TypeError, ValueError):
+                raise ValueError("工程标定值非法：%s=%r（来自 %s）——必须是数字，重跑 calibrate.py --choose"
+                                 % (name, v, path))
+
 def _load_calibrated():
     """标定值属于工程：SVP_CALIBRATED → cwd 向上找 calibrated.json → 空。
 
@@ -396,15 +409,17 @@ def _load_calibrated():
     global CALIBRATED_SOURCE, CALIBRATED_PATH
     import json as _j
     for p in _calibrated_candidates():
-        try:
-            if p and p.is_file():
-                data = _j.loads(p.read_text(encoding="utf-8"))
-                if isinstance(data, dict) and data:
-                    CALIBRATED_SOURCE = "project"
-                    CALIBRATED_PATH = str(p)
-                    return data
-        except Exception:
+        if not (p and p.is_file()):
             continue
+        try:
+            data = _j.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue          # 读不到/JSON 坏了：换下一个候选
+        if isinstance(data, dict) and data:
+            _validate_calibrated(data, p)   # 坏值必须抛出去，不能被上面的 except 吞掉
+            CALIBRATED_SOURCE = "project"
+            CALIBRATED_PATH = str(p)
+            return data
     CALIBRATED_SOURCE = "default"
     CALIBRATED_PATH = None
     return {}
@@ -414,10 +429,15 @@ def calibrated(name, default=None):
     """读工程 calibrated.json 里的标定值；没有工程文件就返回未验证默认值。"""
     v = _load_calibrated().get(name)
     if isinstance(v, dict) and "value" in v:
-        return v["value"]
+        v = v["value"]
+    if isinstance(v, bool):
+        return default
     if isinstance(v, (int, float)):
         return v
-    return default
+    try:                      # 数字字符串也认，别把 "20" 传成 str
+        return float(v)
+    except (TypeError, ValueError):
+        return default
 
 def filter_added(image, base_mask, added_mask, min_ratio=None, anchors=None, keep_model=True,
                  model_grow_px=None):
