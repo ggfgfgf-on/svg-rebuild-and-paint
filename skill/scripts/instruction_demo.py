@@ -23,6 +23,7 @@ import compile_ops
 import masks
 import ops
 import ops_incremental_demo as D
+import cli_util as CU
 import plan_io
 import render_util as RU
 import tile_inc
@@ -37,8 +38,8 @@ def main():
     ap.add_argument("--mask", default=None, help="完整掩膜 JSON，优先于 --rect")
     ap.add_argument("--mask-file", default=None, help="掩膜 JSON 文件（多模态框选的产物）")
     ap.add_argument("--feather", type=float, default=32.0)
-    ap.add_argument("--gpu", action="store_true")
     ap.add_argument("--no-check", action="store_true", help="跳过与整份重画的逐位对比")
+    CU.add_common_args(ap, quiet=False)       # --gpu / --threads 与其他脚本同形（本脚本只输出报告，无需 --quiet）
     ap.add_argument("--out", default=str(Path.home() / ".cache" / "ops_demo" / "instruction.png"))
     a = ap.parse_args()
 
@@ -60,7 +61,7 @@ def main():
 
     t0 = time.perf_counter()
     p, cat, w, h = D.new_painter(doc, gpu=a.gpu)
-    plan1, spec, region = RU.draw_full(p, cat, doc, w, h, gpu=a.gpu)
+    plan1, spec, region = RU.draw_full(p, cat, doc, w, h, gpu=a.gpu, nthreads=a.threads)
     p.composite()                      # 基线画布（真实场景里是上一次的合成结果）
     base_s = time.perf_counter() - t0
 
@@ -109,7 +110,7 @@ def main():
     y1 = max(r[3] for rs in dirty.values() for r in rs) if dirty else h - 1
 
     t0 = time.perf_counter()
-    tile_inc.rebuild(p, plan2, spec2, dirty, lambda nm: region, gpu=a.gpu, nthreads=8)
+    tile_inc.rebuild(p, plan2, spec2, dirty, lambda nm: region, gpu=a.gpu, nthreads=a.threads)
     arr = np.ascontiguousarray(p.composite())   # composite 结果就是 render_util.render_arr 的同一口径
     rebuild_s = time.perf_counter() - t0
 
@@ -122,7 +123,7 @@ def main():
     if not a.no_check:
         q, _, _, _ = D.new_painter(doc, gpu=a.gpu)
         t0 = time.perf_counter()
-        tile_inc.full(q, plan2, spec2, lambda nm: region, gpu=a.gpu, nthreads=8)
+        tile_inc.full(q, plan2, spec2, lambda nm: region, gpu=a.gpu, nthreads=a.threads)
         ref = np.ascontiguousarray(q.composite())
         q.close()
         report["full_render_after_s"] = round(time.perf_counter() - t0, 2)
