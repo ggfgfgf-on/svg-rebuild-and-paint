@@ -70,6 +70,111 @@ def snap_polygon(image, poly, search=18, smooth=2, step=2.0):
     return new_poly, stats
 
 
+def segment(image, roi=None, seeds=None, ring=18, iters=5, hue_k=3.0, sat_q=15,
+            chroma_scale=0.55, seed_radius=14, passes=2):
+    """自动区域分割：按"色度 Otsu + 同色彩带"切出主体，再走廊精修。
+
+    为什么不用"从种子增长"：同一片叶子上，边缘被照亮的 5–10px 与背景亮度接近，
+    增长要么漏进来、要么沿相近色一路渗到别处。真正能分开它们的是**色度（s·v）**
+    和**色相**：叶子 chroma 0.14 / hue 0.25，背景 chroma 0.05 / hue 0.41。
+    所以先对 chroma 做 Otsu 定一个粗前景，再用它的色相中位数 ± k·MAD 收边。
+    seeds 给了就只在种子附近统计（多主体/多色主体），否则用 roi 内的统计。
+    """
+    import cv2 as _cv
+    img = _cv.imread(str(image))
+    H, W = img.shape[:2]
+    hsv = _cv.cvtColor(img, _cv.COLOR_BGR2HSV).astype(np.float64)
+    h, s_, v = hsv[:, :, 0] / 180.0, hsv[:, :, 1] / 255.0, hsv[:, :, 2] / 255.0
+    chroma = s_ * v
+    if seeds is not None:
+        sx = np.array([[float(p[0]), float(p[1])] for p in seeds])
+        roi_box = (max(0, int(sx[:, 0].min()) - 80), max(0, int(sx[:, 1].min()) - 80),
+                   min(W - 1, int(sx[:, 0].max()) + 80), min(H - 1, int(sx[:, 1].max()) + 80))
+    elif roi is not None:
+        roi_box = tuple(int(x) for x in roi)
+    else:
+        raise ValueError("segment: roi 或 seeds 至少给一个")
+    roi_mask = np.zeros((H, W), bool)
+    roi_mask[roi_box[1]:roi_box[3], roi_box[0]:roi_box[2]] = True
+    stat = roi_mask
+    if seeds is not None:
+        sm = np.zeros((H, W), np.uint8)
+        for x, y in seeds:
+            _cv.circle(sm, (int(x), int(y)), int(seed_radius), 1, -1)
+        stat = roi_mask & (sm > 0)
+    ch8 = (chroma * 255).astype(np.uint8)
+    th, _ = _cv.threshold(ch8[stat], 0, 255, _cv.THRESH_BINARY + _cv.THRESH_OTSU)
+    sel = stat & (ch8 >= th)
+    if not sel.any():
+        raise ValueError("segment: chroma Otsu 没找到前景")
+    hm = float(np.median(h[sel])); mad = float(1.4826 * np.median(np.abs(h[sel] - hm)))
+    sq = float(np.percentile(s_[sel], sat_q))
+    dh = np.abs(h - hm); dh = np.minimum(dh, 1.0 - dh)          # 色相环绕距离
+    m = roi_mask & (ch8 >= th * chroma_scale) & (dh <= hue_k * max(mad, 1e-3)) & (s_ >= sq * 0.8) & (v >= 0.05)
+    m = _cv.morphologyEx(m.astype(np.uint8), _cv.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    m = _cv.morphologyEx(m, _cv.MORPH_CLOSE, np.ones((13, 13), np.uint8))
+    n, cc, st, _ = _cv.connectedComponentsWithStats(m, 8)
+    if n > 1:
+        m = (cc == (1 + int(np.argmax(st[1:, _cv.CC_STAT_AREA])))).astype(np.uint8)
+    ff = m.copy(); mm = np.zeros((H + 2, W + 2), np.uint8)
+    _cv.floodFill(ff, mm, (0, 0), 1)
+    base = m.astype(bool) | (ff == 0)
+    # 第二遍：用自己内部重新估一次色带（亮部/低饱和的花瓣、叶缘才会被收进来），
+    # 但增长限制在上一遍的 ±ring 内，防止越收越大。
+    for _ in range(max(0, int(passes) - 1)):
+        core = _cv.erode(base.astype(np.uint8), np.ones((15, 15), np.uint8)).astype(bool) & roi_mask
+        if core.sum() < 50:
+            break
+        hm2 = float(np.median(h[core])); mad2 = float(1.4826 * np.median(np.abs(h[core] - hm2)))
+        sq2 = float(np.percentile(s_[core], 5))
+        dh2 = np.abs(h - hm2); dh2 = np.minimum(dh2, 1.0 - dh2)
+        near = _cv.dilate(base.astype(np.uint8), np.ones((int(ring) * 2 + 1,) * 2, np.uint8)).astype(bool)
+        m2 = (near & roi_mask & (dh2 <= max(4.0, hue_k) * max(mad2, 1e-3))
+              & (s_ >= sq2 * 0.6) & (ch8 >= th * chroma_scale * 0.7) & (v >= 0.05)).astype(np.uint8)
+        m2 = _cv.morphologyEx(m2, _cv.MORPH_CLOSE, np.ones((13, 13), np.uint8))
+        n2, cc2, st2, _ = _cv.connectedComponentsWithStats(m2, 8)
+        if n2 > 1:
+            m2 = (cc2 == (1 + int(np.argmax(st2[1:, _cv.CC_STAT_AREA])))).astype(np.uint8)
+        ff2 = m2.copy(); mm2 = np.zeros((H + 2, W + 2), np.uint8)
+        _cv.floodFill(ff2, mm2, (0, 0), 1)
+        base = m2.astype(bool) | (ff2 == 0)
+    return refine_mask(image, base, corridor=ring, iters=iters)
+
+
+def refine_mask(image, mask, corridor=12, iters=5, open_px=0):
+    """走廊约束的 GrabCut 掩膜精修：只在原掩膜 ±corridor 内重判前景/背景。
+
+    直接对全图跑 GrabCut 会漏到背景和相邻物体（实测面积 0.27 vs 0.07）；把搜索限制在
+    一条窄走廊里，它就只能把边界吸到最近的色差上——这既保住轮廓拓扑，又能修掉
+    "线浮在叶子外面/里面"的手画误差。
+    """
+    import cv2 as _cv
+    img = _cv.imread(str(image))
+    H, W = img.shape[:2]
+    sd = mask.astype(np.uint8) if mask.dtype != np.uint8 else mask
+    sd = (sd > 0).astype(np.uint8)
+    k = int(corridor) * 2 + 1
+    allowed = _cv.dilate(sd, np.ones((k, k), np.uint8)).astype(bool)
+    inner = _cv.erode(sd, np.ones((9, 9), np.uint8)).astype(bool)
+    gc = np.full((H, W), _cv.GC_BGD, np.uint8)
+    gc[allowed & ~sd.astype(bool)] = _cv.GC_PR_BGD
+    gc[sd.astype(bool)] = _cv.GC_PR_FGD
+    gc[inner] = _cv.GC_FGD
+    bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
+    _cv.grabCut(img, gc, None, bgd, fgd, int(iters), _cv.GC_INIT_WITH_MASK)
+    bits = (((gc == _cv.GC_FGD) | (gc == _cv.GC_PR_FGD)) & allowed).astype(np.uint8)
+    if open_px:
+        bits = _cv.morphologyEx(bits, _cv.MORPH_OPEN, np.ones((int(open_px), int(open_px)), np.uint8))
+    bits = _cv.morphologyEx(bits, _cv.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    bits = _cv.medianBlur(bits, 5)
+    n, cc, stats, _ = _cv.connectedComponentsWithStats(bits, 8)
+    if n > 1:
+        bits = (cc == (1 + int(np.argmax(stats[1:, _cv.CC_STAT_AREA])))).astype(np.uint8)
+    ff = bits.copy(); m2 = np.zeros((H + 2, W + 2), np.uint8)
+    _cv.floodFill(ff, m2, (0, 0), 1)
+    return bits.astype(bool) | (ff == 0)
+
+
 def grid_overlay(image, box, out, step=50, scale=2):
     """带坐标网格的放大裁剪：模型据此读数描边，不再靠目测猜坐标。
 
@@ -422,6 +527,21 @@ def main():
     s5.add_argument("--out", required=True, help="吸附后多边形 JSON")
     s5.add_argument("--search", type=float, default=18)
     s5.add_argument("--smooth", type=int, default=2)
+    s7 = sub.add_parser("segment")
+    s7.add_argument("--image", required=True)
+    s7.add_argument("--roi", required=False, help="x0,y0,x1,y1")
+    s7.add_argument("--seeds", required=False, help="x,y;x,y;...")
+    s7.add_argument("--ring", type=int, default=18)
+    s7.add_argument("--passes", type=int, default=2)
+    s7.add_argument("--width", type=int, default=900)
+    s7.add_argument("--height", type=int, default=1100)
+    s7.add_argument("--out", required=True)
+    s6 = sub.add_parser("refine")
+    s6.add_argument("--image", required=True)
+    s6.add_argument("--mask", required=True)
+    s6.add_argument("--out", required=True)
+    s6.add_argument("--corridor", type=int, default=12)
+    s6.add_argument("--iters", type=int, default=5)
     s4 = sub.add_parser("grid")
     s4.add_argument("--image", required=True)
     s4.add_argument("--box", required=True, help="x0,y0,x1,y1")
@@ -440,7 +560,27 @@ def main():
     s3.add_argument("--max", type=int, default=6)
     s3.add_argument("--sheet", help="候选叠图输出路径")
     a = ap.parse_args()
-    if a.cmd == "snap":
+    if a.cmd == "segment":
+        roi = [float(t) for t in a.roi.split(",")] if a.roi else None
+        seeds = [[float(u) for u in t.split(",")] for t in a.seeds.split(";")] if a.seeds else None
+        bits = segment(a.image, roi=roi, seeds=seeds, ring=a.ring, passes=a.passes)
+        bits = np.asarray(Image.fromarray(bits.astype(np.uint8) * 255).resize((a.width, a.height), Image.NEAREST)) > 0
+        v = verify(bits, allow_border=True)
+        Path(a.out).write_text(json.dumps(masks.to_json(masks.from_bool(bits))), encoding="utf-8")
+        print(json.dumps({"area": round(v["area_frac"], 4), "fill": round(v["fill"], 2),
+                          "components": v["components"], "bbox": v["bbox"]}, ensure_ascii=False))
+    elif a.cmd == "refine":
+        m0 = masks.from_json(json.loads(Path(a.mask).read_text(encoding="utf-8")))
+        W0 = int(m0.get("width", 900)); H0 = int(m0.get("height", 1100))
+        b0 = rasterize(m0, W0, H0)
+        b1 = refine_mask(a.image, b0, a.corridor, a.iters)
+        v0, v1 = verify(b0, allow_border=True), verify(b1, allow_border=True)
+        iou = float((b0 & b1).sum()) / max(1, int((b0 | b1).sum()))
+        Path(a.out).write_text(json.dumps(masks.to_json(masks.from_bool(b1))), encoding="utf-8")
+        print(json.dumps({"before": {"area": round(v0["area_frac"], 4), "fill": round(v0["fill"], 2)},
+                          "after": {"area": round(v1["area_frac"], 4), "fill": round(v1["fill"], 2),
+                                    "bbox": v1["bbox"]}, "iou": round(iou, 3)}, ensure_ascii=False))
+    elif a.cmd == "snap":
         poly = json.loads(Path(a.poly).read_text(encoding="utf-8"))
         new_poly, st = snap_polygon(a.image, poly, a.search, a.smooth)
         Path(a.out).write_text(json.dumps(new_poly), encoding="utf-8")

@@ -90,3 +90,22 @@ with tempfile.TemporaryDirectory() as td:
 
 print("RESULT", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)
+
+def test_segment_band(tmpdir=None):
+    """segment 的属性：同色块 + 淡色背景，自动分割应恢复 >0.9 IoU（不许手画点）。"""
+    import tempfile, os
+    from PIL import Image
+    W, H = 240, 180
+    img = np.zeros((H, W, 3), np.uint8)
+    img[:, :] = (18, 30, 12)                      # 暗绿背景
+    yy, xx = np.mgrid[0:H, 0:W]
+    blob = ((xx - 120) / 70.0) ** 2 + ((yy - 90) / 50.0) ** 2 <= 1.0
+    img[blob] = (40, 90, 20)                      # 亮一些的绿叶子
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "s.png"); Image.fromarray(img).save(p)
+    m = PI.segment(p, roi=[20, 20, 220, 160], ring=6, passes=2)
+    got = PI.rasterize(masks.from_bool(m) if hasattr(masks, "from_bool") else m, W, H)
+    truth = cv2.resize(blob.astype(np.uint8), (W, H), interpolation=cv2.INTER_NEAREST).astype(bool)
+    iou = float((got & truth).sum()) / max(1, int((got | truth).sum()))
+    assert iou > 0.90, "segment IoU=%.3f" % iou
+    print("PASS segment 自动分割 IoU %.3f" % iou)
