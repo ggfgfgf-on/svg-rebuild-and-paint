@@ -77,6 +77,8 @@ def _sheet(base, edited, box, path, labels=("before", "after"), h=340):
 def run(plan, specs, out_dir, tag="it", seeds=None, box=None, tolerance=80, hue_tol=16.0,
         grow=4, mask_file=None, mask_mode="any", feather=0.0, ref=None, gpu=False,
         threads=8, crop_pad=24):
+    if not mask_file and not seeds:
+        raise SystemExit("需要 --seeds（视觉提示）或 --mask-file")
     doc, w, h = plan_io.load_plan(plan)
     compile_ops.validate_ops(doc, specs)
 
@@ -86,8 +88,6 @@ def run(plan, specs, out_dir, tag="it", seeds=None, box=None, tolerance=80, hue_
         mask = masks.from_json(json.loads(Path(mask_file).read_text(encoding="utf-8")))
         overlay = None
     else:
-        if not seeds:
-            raise SystemExit("需要 --seeds（视觉提示）或 --mask-file")
         close = VM.seeds_mask(base, seeds, tolerance, hue_tol)
         if box:
             clip = np.zeros_like(close)
