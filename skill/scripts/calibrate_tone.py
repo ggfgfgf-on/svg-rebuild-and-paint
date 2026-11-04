@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
 from PIL import Image
 
+import cli_util as CU
 import ops
 import plan_io
 import render_util as RU
@@ -40,7 +41,8 @@ def _with_gain(specs, gain):
     return out
 
 
-def calibrate(doc, target, specs=(), lo=0.2, hi=3.0, tol=0.1, iters=12, gpu=False, log=None):
+def calibrate(doc, target, specs=(), lo=0.2, hi=3.0, tol=0.1, iters=12, gpu=False, nthreads=8,
+              log=None):
     """二分求 gain，使实测 luma 命中 target；返回 (gain, achieved_luma, renders)。"""
     base = ops.apply(doc, [dict(s) for s in specs], selection=None, weights=None) if specs else doc
     renders = 0
@@ -49,7 +51,7 @@ def calibrate(doc, target, specs=(), lo=0.2, hi=3.0, tol=0.1, iters=12, gpu=Fals
         nonlocal renders
         renders += 1
         cur = ops.apply(base, _with_gain([], g), selection=None, weights=None)
-        v = render_luma(cur, gpu=gpu)
+        v = render_luma(cur, gpu=gpu, nthreads=nthreads)
         if log:
             log("gain %.4f -> luma %.2f" % (g, v))
         return v
@@ -77,29 +79,26 @@ def calibrate(doc, target, specs=(), lo=0.2, hi=3.0, tol=0.1, iters=12, gpu=Fals
 
 
 def main():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description="按参考亮度标定 tone_map 的 gain（解写回 ops JSON）")
     ap.add_argument("plan")
-    ap.add_argument("--target-image")
-    ap.add_argument("--target-luma", type=float)
-    ap.add_argument("--base-ops")
+    CU.add_target_args(ap)
+    ap.add_argument("--base-ops", help="其它算子的 JSON（如 erase highlight），会被保留")
     ap.add_argument("--out", default="tone_calibrated.json")
-    ap.add_argument("--lo", type=float, default=0.2)
-    ap.add_argument("--hi", type=float, default=3.0)
-    ap.add_argument("--tol", type=float, default=0.1)
-    ap.add_argument("--iters", type=int, default=12)
-    ap.add_argument("--gpu", action="store_true")
+    ap.add_argument("--lo", type=float, default=0.2, help="gain 搜索下界")
+    ap.add_argument("--hi", type=float, default=3.0, help="gain 搜索上界")
+    ap.add_argument("--tol", type=float, default=0.1, help="亮度收敛阈值")
+    ap.add_argument("--iters", type=int, default=12, help="最多渲染次数")
+    CU.add_common_args(ap)
     a = ap.parse_args()
-    if (a.target_image is None) == (a.target_luma is None):
-        raise SystemExit("need exactly one of --target-image / --target-luma")
 
     doc, w, h = plan_io.load_plan(a.plan)
-    target = target_luma_from_image(a.target_image) if a.target_image else a.target_luma
-    specs = json.loads(Path(a.base_ops).read_text(encoding="utf-8")) if a.base_ops else []
+    target = CU.resolve_target(a, RU.target_luma_from_image)
+    specs = CU.load_json(a.base_ops) if a.base_ops else []
     gain, luma, renders = calibrate(doc, target, specs, a.lo, a.hi, a.tol, a.iters, a.gpu,
-                                    log=lambda s: print(s, flush=True))
+                                    a.threads, log=lambda s: CU.log_unless_quiet(a, s))
     out = [dict(s) for s in specs if s.get("op") != "tone_map"]
     out.append({"op": "tone_map", "gain": gain})
-    Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    CU.write_json(a.out, out)
     print(json.dumps({"plan": Path(a.plan).name, "target_luma": round(target, 2),
                       "solved_gain": gain, "achieved_luma": luma,
                       "abs_error": round(abs(luma - target), 3), "renders": renders,

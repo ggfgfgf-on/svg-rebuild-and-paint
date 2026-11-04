@@ -15,13 +15,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 
+import cli_util as CU
 import plan_io
 import render_util as RU
 
 
-def render_layer(doc, layer):
+def render_layer(doc, layer, gpu=False, threads=8):
     """单层 RGBA —— 委托给 render_util（同一套渲染/亮度辅助，避免各脚本各写一份）。"""
-    return RU.render_layer_rgba(doc, layer)
+    return RU.render_layer_rgba(doc, layer, gpu=gpu, nthreads=threads)
 
 
 def resample_strokes(arr, w, h, cell=12, layer="shadow", size_k=5.0, op_max=0.85, op_scale=0.12,
@@ -99,9 +100,9 @@ def apply_shadow_mode(strokes, w, h, mode="drop", seed=0, **kw):
 
 
 def rebuild(plan_path, out_path, cell=12, layer="shadow", op_scale=0.12, seed=0, mode="grid",
-            size_k=5.0, hardness=0.6, jitter=0.5, size_spread=0.15):
+            size_k=5.0, hardness=0.6, jitter=0.5, size_spread=0.15, gpu=False, threads=8):
     doc, w, h = plan_io.load_plan(plan_path)
-    arr = render_layer(doc, layer)
+    arr = render_layer(doc, layer, gpu=gpu, threads=threads)
     if mode == "random":
         fresh = resample_random(arr, w, h, layer, seed=seed)
     else:
@@ -124,8 +125,13 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--mode", choices=("grid", "random"), default="grid")
     ap.add_argument("--size-k", type=float, default=5.0)
+    ap.add_argument("--hardness", type=float, default=0.6)
+    ap.add_argument("--jitter", type=float, default=0.5)
+    ap.add_argument("--size-spread", type=float, default=0.15)
+    CU.add_common_args(ap)
     a = ap.parse_args()
-    n = rebuild(a.plan, a.out, a.cell, a.layer, a.op_scale, a.seed, a.mode, a.size_k)
+    n = rebuild(a.plan, a.out, a.cell, a.layer, a.op_scale, a.seed, a.mode, a.size_k,
+                a.hardness, a.jitter, a.size_spread, gpu=a.gpu, threads=a.threads)
     print("reshaped %r: %d soft strokes (cell=%d) -> %s" % (a.layer, n, a.cell, a.out))
 
 

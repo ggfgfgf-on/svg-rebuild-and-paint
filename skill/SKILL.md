@@ -1205,6 +1205,11 @@ calibrate_tone、rebuild_shadow_layer、planner_8layer、instruction_demo 都走
 （instruction_demo 换成 `draw_full` 后输出与改前逐像素相同：diff_px=0）；
 `tests/test_render_util.py` 锁住亮度口径、单层 alpha、确定性。
 
+**CLI 参数统一在 `scripts/cli_util.py`**：`add_common_args`（`--gpu/--threads/--quiet`）、
+`add_target_args` + `resolve_target`（`--target-image` / `--target-luma` 互斥，缺省即报错，不给默认常数）、
+`write_json` / `load_json`。calibrate_tone 与 rebuild_shadow_layer 都改用它，
+`--quiet` 会关掉逐轮标定日志（只留最终 JSON）。`tests/test_cli_util.py` 覆盖默认值、互斥与报错。
+
 **亮度不硬编码**：用 `scripts/calibrate_tone.py` 从参考图现场反解 gain：
 
 ```
