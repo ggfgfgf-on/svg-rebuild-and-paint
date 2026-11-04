@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import numpy as np
 from PIL import Image
 
+import ops_incremental_demo as D
 import plan_io
 import render_util as RU
 
@@ -55,12 +56,27 @@ def test_render_paths(tmp):
           % (arr.shape[1], arr.shape[0], l1))
 
 
+def test_draw_full(tmp):
+    doc, w, h = make_doc(Path(tmp) / "d.json")
+    p, cat, W, H = D.new_painter(doc)
+    try:
+        plan, spec, region = RU.draw_full(p, cat, doc, W, H)
+        arr = np.ascontiguousarray(p.composite())
+    finally:
+        p.close()
+    assert arr.shape[:2] == (H, W)
+    assert abs(RU.luma_of(arr) - RU.render_luma(doc)) < 1e-6
+    assert plan and spec is not None
+    print("PASS draw_full: painter path == render_arr (luma %.2f)" % RU.luma_of(arr))
+
+
 def main():
     import tempfile
     test_luma()
     with tempfile.TemporaryDirectory() as td:
         test_target_image(td)
         test_render_paths(td)
+        test_draw_full(td)
     print("RESULT OK")
 
 
