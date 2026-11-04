@@ -79,14 +79,24 @@ def stroke_in_mask(mask, stroke, mode="center", thr=0.5):
     return float(sum(w) / max(1, len(w))) >= thr
 
 
-def merge(base, new, mask, layers, mode="center", thr=0.5, ring=0):
+def auto_ring(base, layers, frac=0.5, cap=24):
+    """外扩环默认值由笔触尺寸推出来（不用固定魔法数）。"""
+    sizes = [float(s.get("size", 10)) for s in base.get("strokes") or [] if s.get("layer") in set(layers)]
+    if not sizes:
+        return 0
+    return int(min(cap, max(1, round(float(np.median(sizes)) * frac))))
+
+
+def merge(base, new, mask, layers, mode="cover", thr=0.9, ring="auto"):
     """保留区域外原笔触，用区域内的新笔触替换同层旧笔触。
 
     mode="cover" 时按覆盖率判定（thr 建议 0.8~0.95），并可用 ring 外扩掩膜吸收边界笔触，
     这样跨边界的笔触不会被"整笔换掉"，区外像素也就不再被牵连。
     """
     layers = set(layers)
-    mask = dilate_mask(mask, ring)
+    if ring == "auto":
+        ring = auto_ring(base, layers)
+    mask = dilate_mask(mask, int(ring or 0))
     added, skipped = [], 0
     for st in new["strokes"]:
         if st["layer"] not in layers:
@@ -115,7 +125,7 @@ def merge(base, new, mask, layers, mode="center", thr=0.5, ring=0):
 
 def run(plan_path, out_path, mask_path, layers=("band", "highlight"), ref=None, regions=None,
         strokes_plan=None, style_file=None, highlight_mode="keep", shadow_mode="drop",
-        mode="center", thr=0.5, ring=0, gpu=False, threads=8, report=None):
+        mode="cover", thr=0.9, ring="auto", gpu=False, threads=8, report=None):
     base_doc, w, h = plan_io.load_plan(plan_path)
     mask = _load_mask(mask_path)
 
@@ -152,7 +162,7 @@ def main():
     ap.add_argument("--plan", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--mask", required=True, help="区域掩膜 JSON")
-    ap.add_argument("--ring", type=int, default=0, help="掩膜外扩像素（吸收边界笔触）")
+    ap.add_argument("--ring", default="auto", help="掩膜外扩像素：数字或 auto（按笔触中位尺寸推算）")
     ap.add_argument("--ref", help="参考图（交给 planner_8layer 重画整幅，再按区域裁）")
     ap.add_argument("--regions", help="planner 需要的 regions.npz")
     ap.add_argument("--strokes", help="直接给一份新笔触计划（跳过 planner）")
@@ -160,8 +170,8 @@ def main():
     ap.add_argument("--style-file")
     ap.add_argument("--highlight-mode", default="keep")
     ap.add_argument("--shadow-mode", default="drop")
-    ap.add_argument("--mode", default="center", choices=["center", "any", "all", "cover"])
-    ap.add_argument("--thr", type=float, default=0.5)
+    ap.add_argument("--mode", default="cover", choices=["center", "any", "all", "cover"])
+    ap.add_argument("--thr", type=float, default=0.9)
     ap.add_argument("--report")
     CU.add_common_args(ap, quiet=False)
     a = ap.parse_args()

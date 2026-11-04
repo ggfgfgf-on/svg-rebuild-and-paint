@@ -21,7 +21,7 @@ from PIL import Image
 import masks
 
 
-def seeds_mask(arr, seeds, tolerance, hue_tol=14.0, negatives=()):
+def seeds_mask(arr, seeds, tolerance, hue_tol=14.0, negatives=(), min_value=0.0):
     """与任意种子"同色系"的像素：先比色相（避免暗红和暗绿混淆），再比明度。
 
     纯 RGB 阈值会在暗部失效：深红 (67,0,1) 与深绿 (8,18,16) 的逐通道差只有 45~59，
@@ -37,6 +37,8 @@ def seeds_mask(arr, seeds, tolerance, hue_tol=14.0, negatives=()):
         near = (dh <= hue_tol) & (np.abs(val - vs) <= tolerance) & (sat >= ss * 0.35)
         close |= near
     # 负样本：把"看起来像但其实不是"的实例排除（同色相邻物体最典型的串扰来源）
+    if min_value > 0:
+        close &= (val >= min_value)   # 暗部色相不可靠，用亮度地板挡住背景
     for x, y in negatives:
         hs, vs, ss = h[y, x], val[y, x], sat[y, x]
         dh = np.abs(h - hs)

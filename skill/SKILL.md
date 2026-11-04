@@ -1281,9 +1281,9 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 
 | 缺口 | 组件 | 实测 |
 |---|---|---|
-| 区域重规划 | `scripts/planner_region.py`：只在掩膜内按参考图重画笔触，按层合并；`--mode cover --thr 0.9 --ring 10` 按覆盖率判定并外扩吸收边界笔触，原位替换保绘制顺序 | 玫瑰区替换 2,257 笔：区内 Δ2.19、边环(30px) Δ0.84、**区外 Δ0.000** |
+| 区域重规划 | `scripts/planner_region.py`：默认 `--mode cover --thr 0.9 --ring auto`（外扩环 = 目标层笔触中位尺寸×0.5，上限 24，不用固定魔法数），按覆盖率判定 + 原位替换保绘制顺序 | 玫瑰区替换 2,009 笔：区内 Δ2.09、边环(30px) Δ0.275、**区外 Δ0.000** |
 | 软权重着色 | `ops._targets` 的强度 = guidance×掩膜权重，本来就走插值；raster feather 修好后边界是连续权重 | `set_layer_hue guidance=0.5` 色相落在中间值，不跳变 |
-| 实例级选择 | `visual_mask` 加负样本点 + 掩膜加减（`--negative`/`--add-mask`/`--sub-mask`） | 同色干扰物被色相门控+负样本挡住 |
+| 实例级选择 | `visual_mask` 加负样本点 + 掩膜加减（`--negative`/`--add-mask`/`--sub-mask`）；`scripts/pick_instance.py` 让模型自己从整图挑实例（`survey` 出带坐标的分块图 → 模型报种子点 → `pick` 长掩膜并客观验证：面积占比/连通块/贴边率/填充率/掩膜是否≈矩形框） | 玫瑰自主挑中：面积 6.48%、1 连通块、fill 0.66、bbox 440,84,718,436；同色背景的叶子被验证器拦下（fill 0.99 = 等于手画框），暗背景被贴边规则拦下 |
 | 光影分解 | `ops.split_shading` / `ops.set_light`：笔画级 albedo+shade，改光只动 shade | scale=0.5 时 luma 恰好减半、色相不变；未拆分就报错 |
 | 验收门 | `scripts/accept.py`：schema/确定性/区外不变/方向/主体 | 白玫瑰一例：确定性通过、区外 Δ0.003、区向 +83.44 |
 | 编辑谱系 | `scripts/lineage.py`（append-only JSONL + 快照 checkout）、`scripts/mask_registry.py`（掩膜 id + 来源） | 父子链、tree、checkout 恢复快照均有断言 |
