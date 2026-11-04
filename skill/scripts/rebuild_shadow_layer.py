@@ -34,7 +34,7 @@ def render_layer(doc, layer):
 
 
 def resample_strokes(arr, w, h, cell=12, layer="shadow", size_k=5.0, op_max=0.85, op_scale=0.12,
-                     seed=0):
+                     seed=0, hardness=0.6, jitter=0.5, size_spread=0.15):
     """每格一支软笔；位置/大小/不透明度都加确定性抖动，避免软笔落在规则网格上再出摩尔纹。"""
     a = arr.astype(np.float64) / 255.0
     alpha = a[..., 3]
@@ -48,13 +48,13 @@ def resample_strokes(arr, w, h, cell=12, layer="shadow", size_k=5.0, op_max=0.85
                 continue
             wgt = blk.sum()
             rgb = (a[y0:y0 + cell, x0:x0 + cell, :3] * blk[..., None]).sum(axis=(0, 1)) / max(wgt, 1e-6)
-            jx = rng.uniform(-0.5, 0.5) * cell
-            jy = rng.uniform(-0.5, 0.5) * cell
+            jx = rng.uniform(-jitter, jitter) * cell
+            jy = rng.uniform(-jitter, jitter) * cell
             out.append({"layer": layer, "preset": "round_soft",
-                        "size": round(cell * size_k * rng.uniform(0.85, 1.15), 2),
+                        "size": round(cell * size_k * rng.uniform(1.0 - size_spread, 1.0 + size_spread), 2),
                         "opacity": round(min(op_max, max(0.002, cov * op_scale * rng.uniform(0.85, 1.15))), 4),
                         "color": [round(float(v) * 255.0, 2) for v in rgb],
-                        "hardness": 0.7,
+                        "hardness": hardness,
                         "points": [[x0 + cell / 2.0 + jx, y0 + cell / 2.0 + jy, 1.0]]})
     return out
 
@@ -116,14 +116,26 @@ def smooth_layer_strokes(strokes, w, h, layer="shadow", seed=0, cell=12, size_k=
     return resample_strokes(arr, w, h, cell, layer, size_k=size_k, op_scale=op_scale, seed=seed)
 
 
+def apply_shadow_mode(strokes, w, h, mode="drop", seed=0, **kw):
+    """planner 用的三档：drop=删掉格填 shadow（默认，最锐利）、smooth=重采样软笔、keep=原样。"""
+    if mode == "keep" or not strokes:
+        return strokes
+    if mode == "drop":
+        return []
+    if mode == "smooth":
+        return smooth_layer_strokes(strokes, w, h, seed=seed, **kw)
+    raise ValueError("unknown shadow mode: %r" % (mode,))
+
+
 def rebuild(plan_path, out_path, cell=12, layer="shadow", op_scale=0.12, seed=0, mode="grid",
-            size_k=5.0):
+            size_k=5.0, hardness=0.6, jitter=0.5, size_spread=0.15):
     doc, w, h = plan_io.load_plan(plan_path)
     arr = render_layer(doc, layer)
     if mode == "random":
         fresh = resample_random(arr, w, h, layer, seed=seed)
     else:
-        fresh = resample_strokes(arr, w, h, cell, layer, size_k=size_k, op_scale=op_scale, seed=seed)
+        fresh = resample_strokes(arr, w, h, cell, layer, size_k=size_k, op_scale=op_scale, seed=seed,
+                                 hardness=hardness, jitter=jitter, size_spread=size_spread)
     strokes = [s for s in doc["strokes"] if s["layer"] != layer] + fresh
     blends = {l["name"]: l.get("blend", "normal") for l in (doc.get("layers") or [])}
     plan_io.dump_plan(str(out_path), w, h, strokes, layer_blends=blends,

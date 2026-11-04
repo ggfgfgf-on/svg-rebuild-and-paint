@@ -478,15 +478,16 @@ def main():
     spec = [(l["name"], l.get("blend", "normal")) for l in S("layers", default=[])]
     _t0 = time.time()
     layers = build(21, p)
-    if _arg("--shadow-smooth", 1, int):
+    _sh_mode = _arg("--shadow-mode", "drop")
+    if _sh_mode != "keep":
         try:
             import rebuild_shadow_layer as _rs
             _before = len(layers.get("shadow") or [])
-            layers["shadow"] = _rs.smooth_layer_strokes(layers.get("shadow") or [], W, H,
-                                                       seed=int(_arg("--seed", 21, int)))
-            print("shadow-smooth %d -> %d strokes" % (_before, len(layers["shadow"])))
+            layers["shadow"] = _rs.apply_shadow_mode(layers.get("shadow") or [], W, H,
+                                                     mode=_sh_mode, seed=int(_arg("--seed", 21, int)))
+            print("shadow-mode %s: %d -> %d strokes" % (_sh_mode, _before, len(layers["shadow"])))
         except Exception as ex:
-            print("shadow-smooth skipped:", ex)
+            print("shadow-mode skipped:", ex)
     _t_build = time.time() - _t0
     for name, blend in spec:
         p.add_layer(blend)

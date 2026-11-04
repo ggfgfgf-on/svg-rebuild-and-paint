@@ -48,11 +48,25 @@ def test_rebuild_grid(tmp):
     print("PASS rebuild(grid): %d soft dabs, size %.1f..%.1f (>= 4.8*cell)" % (n, min(sizes), max(sizes)))
 
 
+def test_modes():
+    st = [{"layer": "shadow", "preset": "flat", "size": 3.0, "opacity": 0.4,
+           "color": [0, 0, 0], "points": [[1, 1, 1.0]]}]
+    assert R.apply_shadow_mode(st, 8, 8, mode="drop") == []
+    assert R.apply_shadow_mode(st, 8, 8, mode="keep") is st
+    try:
+        R.apply_shadow_mode(st, 8, 8, mode="nope")
+        raise AssertionError("unknown mode must raise")
+    except ValueError:
+        pass
+    print("PASS apply_shadow_mode: drop -> [], keep -> same list, unknown raises")
+
+
 def main():
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         test_rebuild_random(td)
         test_rebuild_grid(td)
+        test_modes()
     print("RESULT OK")
 
 
