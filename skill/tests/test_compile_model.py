@@ -77,11 +77,32 @@ def test_status_errors():
     print("PASS missing key: RuntimeError 'not configured' (no silent fallback here)")
 
 
+def test_brief_material(tmp):
+    """当前模型自己编译的入口：brief 只产出材料（摘要+prompt），不需要任何 key。"""
+    import plan_io
+    from PIL import Image
+    p = Path(tmp) / "p.json"
+    strokes = [{"layer": "bed", "preset": "round_soft", "size": 12.0, "opacity": 1.0,
+                "color": [20, 30, 15], "points": [[10, 10, 1.0]]}]
+    plan_io.dump_plan(str(p), 32, 32, strokes, layer_blends={"bed": "normal"})
+    doc, w, h = plan_io.load_plan(p)
+    summ = C.summarize(doc)
+    assert [l["name"] for l in summ["layers"]] == ["bed"], summ
+    prompt = C.build_prompt(summ, "把背景改成墨绿", None, has_image=True)
+    for token in ("draw_path", "tone_map", "bed", "JSON"):
+        assert token in prompt, token
+    assert "image" in prompt.lower() or "图" in prompt
+    print("PASS brief material: summary layers + prompt carries ops contract (no key needed)")
+
+
 def main():
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         test_image_roundtrip(td)
     test_status_errors()
+    import tempfile
+    with tempfile.TemporaryDirectory() as td2:
+        test_brief_material(td2)
     print("RESULT OK")
 
 

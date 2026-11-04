@@ -286,6 +286,23 @@ def main():
         specs = json.loads(Path(ops_arg).read_text(encoding="utf-8"))
         validate_ops(doc, specs)
         print(json.dumps({"ok": True, "ops": len(specs)}))
+    elif cmd == "brief":
+        # 给"当前模型自己编译"用的材料包：摘要 + 指令模板 + 可选缩略图。
+        # 不需要任何第三方 key —— 会话里的多模态模型（或子代理）读图后直接产出 ops。
+        doc, w, h = plan_io.load_plan(sys.argv[2])
+        instruction = sys.argv[3]
+        thumb = None
+        if "--thumb" in sys.argv:
+            import tempfile
+            tp = Path(tempfile.gettempdir()) / "compile_thumb.png"
+            render_thumb(sys.argv[2], tp, gpu="--no-gpu" not in sys.argv)
+            thumb = str(tp)
+        prompt = build_prompt(summarize(doc), instruction, None, has_image=bool(thumb))
+        brief = {"plan": sys.argv[2], "canvas": [w, h], "thumb": thumb, "prompt": prompt}
+        if "--out" in sys.argv:
+            Path(sys.argv[sys.argv.index("--out") + 1]).write_text(
+                json.dumps(brief, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(json.dumps(brief, ensure_ascii=False))
     elif cmd == "compile":
         doc, w, h = plan_io.load_plan(sys.argv[2])
         instruction = sys.argv[3]

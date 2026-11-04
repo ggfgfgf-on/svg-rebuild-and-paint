@@ -27,9 +27,22 @@ whenToUse: >-
 
 ### 第三方语义改图（多模态编译）已实现
 
+**默认路径：当前会话的多模态模型自己编译（零 key）**
+
+```
+python scripts/compile_ops.py brief plan.json "把背景压深成墨绿夜色，花心加柔和高光" --thumb --out brief.json
+# -> {prompt, thumb, canvas}；模型读 thumb + prompt 后直接写出 ops JSON
+python scripts/compile_ops.py validate plan.json --ops ops.json
+python scripts/render_plan.py plan.json --ops ops.json --out edited.png --gpu
+```
+
+实测（本会话模型，未用任何 API key）：luma 25.69 → 23.71，花心出现柔和高光、背景转墨绿。
+
+**可选路径：第三方端点**（给无人值守/批量/其它程序调用）
+
 `compile_ops.py compile <plan> "<指令>" --thumb --provider deepseek|ark|openai [--image path]`：
 把计划摘要 + 当前画面缩略图（base64 data URL）发给 OpenAI 兼容端点，拿回 ops JSON，
-`validate_ops` 校验后 `apply` 渲染。温度为 0、重试 2 次；端点拒图会自动退纯文本；
+`validate_ops` 校验后 `apply` 渲染。两条路径共用同一套 ops 契约与 validate/apply。温度为 0、重试 2 次；端点拒图会自动退纯文本；
 缺 key 直接报 `not configured` 并把 prompt 打出来（不静默猜）。
 
 `tests/test_compile_model.py` 用本地 mock 端点验证真实 HTTP 往返：请求体里确实带 `data:image/png` 块、
