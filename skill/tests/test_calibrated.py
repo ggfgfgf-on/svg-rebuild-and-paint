@@ -18,7 +18,7 @@ def main():
     for name in sorted(want):
         e = d[name]
         assert 'value' in e, '%s 缺 value' % name
-        assert e.get('chosen_by') in ('model', 'rule'), '%s chosen_by=%r' % (name, e.get('chosen_by'))
+        assert e.get('chosen_by') == 'model', '%s chosen_by=%r（必须由模型定，rule 不再接受）' % (name, e.get('chosen_by'))
         assert len(str(e.get('reason', '')).strip()) >= 8, '%s 理由太短' % name
         NUMERIC = {'model_grow_px', 'min_ratio', 'max_grow_px', 'neg_px', 'attach_px'}
         if e['chosen_by'] == 'model':
@@ -40,8 +40,7 @@ def main():
                 # 判据型（阈值/门限）：sweep 是样本表或过程表，不要求 value 是 key，但要落在合理区间
                 assert 0.0 < float(e['value']) <= 1.0, '%s 的阈值 %r 不在 (0,1]' % (name, e['value'])
                 assert e['sweep'], '%s 的 sweep 为空' % name
-        else:
-            assert 'rule' in e or e.get('reason'), '%s 规则型要写 rule' % name
+
     e = d['model_grow_px']
     sheet = ROOT / e['contact_sheet']
     # 默认值必须来自标定文件，而不是代码里的常量

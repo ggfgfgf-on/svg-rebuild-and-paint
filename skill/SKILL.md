@@ -75,58 +75,67 @@ python scripts/render_plan.py plan.json --ops ops.json --out edited.png --gpu
 
 ## 参数标定（模型看图 + 脚本取证）
 
-可量化参数不靠手填，也不靠脚本 argmax：脚本枚举并渲染**接触表**，模型看图拍板，选择与依据落盘。
+分工固定：脚本枚举候选值、渲染接触表/分布图、把每次测量的数字写盘；模型看图或分布后拍板。
+任何标成 `model` 的值必须带 `evidence`，三选一：
 
-```
-# 1) 枚举 + 渲染接触表（写 sweep 与图，不写 value）
-python scripts/calibrate.py --param model_grow_px --image <图> --trace <描边.json> \
-    --cells <windows.json> [--base-mask <种子掩膜.json>] --values 0,8,14,20,30
-
-# 2) 模型看完 docs/calib/<param>.png 后记录选择（必须给理由）
-python scripts/calibrate.py --param model_grow_px --choose 20 --reason "20 时叶柄完整且不触邻叶；30 越界"
-```
-
-落盘 `scripts/calibrated.json`：`value` / `chosen_by=model` / `reason` / `sweep` / `contact_sheet` / `spec`。
-消费方：`pick_instance.calibrated(name, default)`；例如 `filter_added` 的 `model_grow_px` 默认取 `calibrated('model_grow_px', 14)`。
-复验：`tests/test_calibrated.py`（字段齐全、值在 sweep 内、接触表存在、默认值确实来自文件）。
-
-**已标定的参数（`scripts/calibrated.json`，默认值由代码读取，不写在代码里）**
-
-| 参数 | 值 | 谁定的 | 依据 |
-| --- | --- | --- | --- |
-| `model_grow_px` | 20 | 模型看图 | 叶柄完整且不触邻叶；30 越界 |
-| `min_ratio` | 0.8 | 模型看图 | 0.9/0.8 一致，1.1 开始把真实叶缘当晕边丢掉 |
-| `max_grow_px` | 2 | 模型看图 | 4 时面积 0.0637 > 描边 0.0614（+3.7%），1 欠长 |
-| `neg_px` | 3 | 模型 | 扫 1/3/6/10 无差异（0.801~0.804），保留默认 |
-| `attach_px` | 4 | 模型 | 扫 0~28 无可辨差异；只在有 near 时生效 |
-| `edge_min_contrast` | 0.40 | 模型 | 多图接口给区间 [0.304,0.505]（1 个样本）：放行 accurate 0.51、拒 fat_3px 0.25 与 refined 0.30；区间内取 0.40 |
-| `accept_max_area_change` | 0.044 | 模型 | 多图接口给区间 [0.042,0.045]：正常精修 4.13% 放行、历史失控 4.63% 拦住；取中点（此前写的 0.08 落在区间外，已作废） |
-
-消费方：`refine_loop(neg_px/max_grow_px)`、`filter_added(min_ratio/model_grow_px)`、`edge_report(min_contrast)`、`ops` 的循环接受门（`accept_max_area_change`）。
-复验：`tests/test_calibrated.py`（字段、`chosen_by`、值在 sweep 内、接触表存在、默认值确实来自文件）。
-
-**标定是每个工程各自的事（不随技能走固定样本）**
-
-样本与被选值都属于**当前工程**，技能只提供工具：
+| evidence | 什么时候用 | 产物 |
+| --- | --- | --- |
+| `contact_sheet` | 数值档可枚举（生长像素、比例阈值等） | `docs/calib/<param>.png` |
+| `multi_sample` | 阈值型，且工程里有 ≥2 份 (图, 描边) | 每样本区间 + 交集 |
+| `per_pixel_hist` | 阈值型但只有 1 张图 | `docs/calib/edge_hist.png`（逐边界像素分布） |
 
 ```powershell
-# 1) 在工程目录生成样本表（配对规则：图 X.png ↔ 同目录含 mask/trace 且名字含 X 的 JSON；配不上的会列出来，不猜）
-python scripts/calibrate.py --make-samples D:\工程 --make-samples-out D:\工程\calib.samples.json
+# 数值档：枚举 + 接触表
+python scripts\calibrate.py --param model_grow_px --image <图> --trace <描边.json> --cells <windows.json> [--base-mask <种子.json>] --values 0,8,14,20,30
+python scripts\calibrate.py --param model_grow_px --choose 20 --evidence contact_sheet --reason "..."
 
-# 2) 跑判据，写回本工程的 calibrated.json（--json 隔离，不碰技能默认值）
-python scripts/calibrate.py --param edge_min_contrast --samples D:\工程\calib.samples.json --json D:\工程\calibrated.json
-python scripts/calibrate.py --param accept_max_area_change --samples D:\工程\calib.samples.json --json D:\工程\calibrated.json
-
-# 3) 我看图/看分布后记录，必须给 --evidence
-python scripts/calibrate.py --param edge_min_contrast --choose 0.40 --evidence per_pixel_hist --reason "..." --json D:\工程\calibrated.json
+# 阈值档：先看分布/交集，再选
+python scripts\calibrate.py --param edge_hist --image <图> --trace <描边.json> --base-mask <精确掩膜.json> --values 0.2,0.3,0.4,0.5
+python scripts\calibrate.py --param edge_min_contrast --samples <工程>\calib.samples.json --json <工程>\calibrated.json
+python scripts\calibrate.py --param edge_min_contrast --choose 0.40 --evidence per_pixel_hist --reason "..." --json <工程>\calibrated.json
 ```
 
-- **证据三选一**（`evidence` 字段，测试强制）：`contact_sheet`（扫档接触表）、`multi_sample`（多图交集非空）、`per_pixel_hist`（逐边界像素分布图 `docs/calib/edge_hist.png`）。
-- 单图也能判阈值：`--param edge_hist` 渲染逐像素分布，一张图的边界有上千个像素样本，比"1 个聚合数"强，但仍只是**警告门**——两分布重叠时它不能当分类器用。
-- 样本数、交集、每样本区间都会写进 `calibrated.json`；交集为空表示样本互相矛盾，要先查哪个判据错了，不要硬选。
+**样本与被选值属于工程，不随技能发布**：`--json <工程>\calibrated.json` 只读写该文件；样本表用
+`--make-samples <工程目录>` 按命名约定生成（图 `X.png` ↔ 含 mask/trace 且名字含 `X` 的 JSON），配不上的会列出来而不是猜。
+交集为空 = 样本互相矛盾，先查哪份判据错了，不要硬选一个数。
 
-**口径要点**：参数只在“已有较好种子 + 新增细结构落在模型报的格子里”时才起作用；
-用格子并集当种子扫 5 档会**完全一样**（实测），所以 `--base-mask` 值得给。
+### 已标定（7 项，默认值由代码从 `calibrated.json` 读取，不写死在代码里）
+
+| 参数 | 值 | 证据 | 依据 |
+| --- | --- | --- | --- |
+| `model_grow_px` | 20 | contact_sheet | 叶柄完整且不触邻叶；30 越界 |
+| `min_ratio` | 0.8 | contact_sheet | 0.9/0.8 一致；1.1 开始把真实叶缘当晕边丢掉 |
+| `max_grow_px` | 2 | contact_sheet | 4 时面积 0.0637 > 描边 0.0614（+3.7%）且更胖；1 欠长 |
+| `neg_px` | 3 | contact_sheet | 扫 1/3/6/10 无差异（0.801~0.804） |
+| `attach_px` | 4 | contact_sheet | 扫 0~28 无差异；**只在给 `near` 时生效** |
+| `edge_min_contrast` | 0.40 | per_pixel_hist | accurate 中位 0.432 / fat_3px −0.138；>0.40 保留 52.7% vs 21.4%。分布重叠，故只作警告门 |
+| `accept_max_area_change` | 0.044 | multi_sample | 区间 [0.042,0.045]：精修 4.13% 放行、历史失控 4.63% 拦住 |
+
+消费方：`refine_loop(neg_px/max_grow_px)`、`filter_added(min_ratio/model_grow_px)`、`edge_report(min_contrast)`、
+`ops` 循环接受门（`accept_max_area_change`）。
+复验：`tests/test_calibrated.py`（字段、证据合法、接触表/交集/分布图存在、默认值确实来自文件）、
+`tests/test_calibrate_multi.py`（多图交集收窄）、`tests/test_skill_doc.py`（本文表格不许缺项）。
+
+### 未标定 / 已知缺口（别假设它们被调过）
+
+| 参数或能力 | 状态 | 说明 |
+| --- | --- | --- |
+| `neg_k` / `neg_max` | 未标定 | 反向提示的抑制强度与上限，仍是代码默认 |
+| `ring` | 未标定 | 环形搜索半径，默认值没扫过 |
+| `attach_thin` 的 gap/width/len | 未标定 | 细缝附着的三条判据尚未扫档 |
+| `tol` | 未标定 | 颜色容差与素材强相关，建议每个工程自测 |
+| `max_spill` 闸门 | 未实现 | 目前只有 `check_source` 提醒，没有 spill 上限检查 |
+| `auto_zoom` 辅助 | 未实现 | `zoom` 的 tile_px/max_cells 仍要手写，不能自动选窗口 |
+
+### 两条限制（实测，别再踩）
+
+1. `attach_px` 只在提供 `near` 时生效（`cells_mask` 里是"把格子附着到已有掩膜"），扫它不给 `near` 会得到完全一致的结果。
+2. `refine` 只精修、不重新分割：拿 55px 格子并集当种子时，`max_grow_px` 扫到 4 也只有 IoU 0.832 且视觉仍是阶梯；要形状得先有像样的种子（zoom 或更好的初始掩膜）。
+
+### 怎么读接触表
+
+每格标了档位值与 IoU（相对人工描边）。IoU 是"与描边的重合度"，不等于"看起来对不对"：
+人为加粗 3px 的掩膜 IoU 能到 0.954，却明显漫出叶缘。选档顺序是**先看形状贴不贴边，再看 IoU**。
 
 ## 契约
 
