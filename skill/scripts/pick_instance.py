@@ -265,6 +265,47 @@ def child_window(image, parent, cells, sub=3, tile_px=None, wid=None, out=None, 
     return g
 
 
+def enforce_anchors(image, mask, anchors, radius=40, cap=12000, k=3.0):
+    """模型明确报过的格子，绝不允许从掩膜里消失。
+
+    GrabCut 会把"比叶身亮、比背景只亮一点"的小凸起（本例叶尖）整块判成背景。
+    这里对每个丢失的锚点做一次局部自适应生长：以该点邻域颜色的中位数 + k*MAD 为容差，
+    只在 radius 半径内、面积不超过 cap 的连通块才并回掩膜（防呆：不会顺手把邻居吞掉）。
+    """
+    import cv2 as _cv
+    img = _cv.imread(str(image))
+    H, W = img.shape[:2]
+    lab = _cv.cvtColor(img, _cv.COLOR_BGR2LAB).astype(np.float32)
+    out = np.asarray(mask, bool).copy()
+    added = 0
+    for x, y in anchors:
+        xi, yi = int(x), int(y)
+        if out[yi, xi]:
+            continue
+        patch = lab[max(0, yi - 2):yi + 3, max(0, xi - 2):xi + 3].reshape(-1, 3)
+        med = np.median(patch, 0)
+        mad = float(np.median(np.abs(patch - med))) * 1.4826 + 1e-6
+        tol = max(6.0, k * mad)
+        d = np.sqrt(((lab - med) ** 2).sum(-1))
+        like = ((d < tol) & (np.indices((H, W))[1] >= 0)).astype(np.uint8)
+        yy, xx = np.ogrid[:H, :W]
+        like[(xx - xi) ** 2 + (yy - yi) ** 2 > radius ** 2] = 0
+        n, cc = _cv.connectedComponents(like, 8)
+        target = cc[yi, xi]
+        if target == 0:
+            continue
+        comp = (cc == target)
+        if int(comp.sum()) > cap:
+            continue
+        # 必须贴着已有掩膜（或与之距离 ≤ 8px），否则不许凭空加一块
+        near = _cv.dilate(out.astype(np.uint8), np.ones((17, 17), np.uint8)) > 0
+        if not (comp & near).any():
+            continue
+        out |= comp
+        added += 1
+    return out, added
+
+
 def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, verbose=True):
     """自动闭环：靠栅格提示起手，然后把已得掩膜的"确信内部/外圈"当作新提示反复精修。
 
@@ -284,14 +325,25 @@ def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, ve
     m_prev = bits
     for it in range(1, int(iters) + 1):
         core = _cv.erode(m_prev.astype(np.uint8), np.ones((15, 15), np.uint8)).astype(bool)
-        outer = (_cv.dilate(m_prev.astype(np.uint8), np.ones((25, 25), np.uint8)).astype(bool) & ~m_prev)
+        # 负样本必须取自"离开边缘至少 margin 像素"的外圈：直接取 dilate(M) 减 M 会把真实叶缘的
+        # 像素当成背景教给判别器，每轮再缩几像素 —— 实测最终一圈均匀缩进 10~20px（红色带）。
+        margin = 14
+        inner_d = _cv.dilate(m_prev.astype(np.uint8), np.ones((2 * margin + 1, 2 * margin + 1), np.uint8)).astype(bool)
+        far_d = _cv.dilate(m_prev.astype(np.uint8), np.ones((6 * margin + 1, 6 * margin + 1), np.uint8)).astype(bool)
+        outer = far_d & ~inner_d
         if int(core.sum()) < 50 or int(outer.sum()) < 50:
             break
         ys, xs = np.nonzero(core); step = max(1, int(np.sqrt(len(xs) / 300.0)))
         pos = [(float(x), float(y)) for x, y in zip(xs[::step][:300], ys[::step][:300])]
         ys2, xs2 = np.nonzero(outer); step2 = max(1, int(np.sqrt(len(xs2) / 300.0)))
         neg = [(float(x), float(y)) for x, y in zip(xs2[::step2][:300], ys2[::step2][:300])]
-        m_new = prompted_mask(image, pos, neg, ring=ring, radius=6, model=model)
+        # 模型报过的格子永远保留在提示里：闭环只允许细化，不许把"模型明确说属于它"的地方丢掉
+        anchors = [p for p in tile_points(str(image), windows)[0]]
+        m_new = prompted_mask(image, pos + anchors, neg, ring=ring, radius=6, model=model)
+        lost = [p for p in anchors if not m_new[min(H - 1, int(p[1])), min(W - 1, int(p[0]))]]
+        if lost:
+            raise ValueError("第 %d 轮把 %d 个已报正样本丢掉了：%s（掩膜比提示小，说明判别器吃掉了该区域）"
+                             % (it, len(lost), [(round(x, 1), round(y, 1)) for x, y in lost[:3]]))
         inter = float((m_new & m_prev).sum()); union = float((m_new | m_prev).sum())
         iou = inter / max(1.0, union)
         v = verify(m_new, allow_border=True)
@@ -325,7 +377,7 @@ def mask_implausible(bits, windows, grow=8.0, fill_max=0.95):
     return None
 
 
-def prompted_from_tiles(image, windows, **kw):
+def prompted_from_tiles(image, windows, strict=True, **kw):
     """模型给格子编号（可多级 zoom）→ 点 → prompted_mask。坐标换算全在代码里。"""
     if isinstance(windows, dict):
         windows = [windows]
@@ -340,13 +392,13 @@ def prompted_from_tiles(image, windows, **kw):
     hit_neg = [(round(x, 1), round(y, 1)) for x, y in neg
                if 0 <= int(y) < H_ and 0 <= int(x) < W_ and bits[int(y), int(x)]]
     # 少量正点落在边界/缝隙属于正常报告误差 -> 警告并继续；大面积未覆盖或负点落进前景 -> 报错。
-    tol_miss = max(2, int(round(0.2 * len(pos))))
+    tol_miss = 0 if strict else max(2, int(round(0.2 * len(pos))))
     if len(miss_pos) > tol_miss or hit_neg:
         raise ValueError("tiles 提示自相矛盾：%d/%d 个正点未被覆盖（容差 %d）%s；%d 个负点落在前景内 %s"
                          "（负点不再抠洞，但落在叶片上的负点说明格子报错了）"
                          % (len(miss_pos), len(pos), tol_miss, miss_pos[:3], len(hit_neg), hit_neg[:3]))
     if miss_pos:
-        warnings.warn("有 %d/%d 个正点未被覆盖，已忽略：%s" % (len(miss_pos), len(pos), miss_pos[:3]))
+        warnings.warn("有 %d/%d 个正点未被覆盖，已忽略：%s" % (len(miss_pos), len(pos), miss_pos[:3]), stacklevel=2)
     return bits, {"pos": pos, "neg": neg, "windows": used}
 
 
@@ -392,7 +444,21 @@ def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, mode
             out = (cc == (1 + int(np.argmax(st[1:, _cv.CC_STAT_AREA])))).astype(np.uint8)
         ff = out.copy(); mm2 = np.zeros((H + 2, W + 2), np.uint8)
         _cv.floodFill(ff, mm2, (0, 0), 1)
-        return refine_mask(image, out.astype(bool) | (ff == 0), corridor=ring, iters=iters)
+        base = out.astype(bool) | (ff == 0)
+        res = refine_mask(image, base, corridor=ring, iters=iters)
+        # 保块：refine 的走廊 GrabCut 会把"与主体只靠细颈相连的小凸起"（叶尖、叶柄）整块吃掉。
+        # 凡是包含正样本的连通块，一律并回结果——正样本是模型明确说"这里属于它"的地方。
+        n2, cc2 = _cv.connectedComponents(out, 8)
+        keep_ids = {int(cc2[int(y), int(x)]) for x, y in positives
+                    if 0 <= int(y) < H and 0 <= int(x) < W} - {0}
+        if keep_ids:
+            backup = np.isin(cc2, list(keep_ids))
+            lost = [p for p in positives if not res[min(H - 1, int(p[1])), min(W - 1, int(p[0]))]]
+            if lost:
+                res = res | (backup & (ff == 0))
+            res = res | (backup & np.asarray(base))
+        res, _n = enforce_anchors(image, res, positives)
+        return res
     if model == "knn":
         # kNN 判别：对每个像素找最近的"正样本像素"和"负样本像素"，谁近算谁。
         # 比高斯/直方图稳——后者对协方差宽度极敏感，负样本一少就整图坍缩。
