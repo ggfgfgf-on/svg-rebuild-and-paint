@@ -120,32 +120,116 @@ def _tile_name(c, r):
     return "%s%d" % (lab, r + 1)
 
 
-def tile_grid(image, roi, cols=None, rows=None, tile_px=None, out=None, scale=None, pad=0):
-    """带编号格子的放大图：格子大小可以按像素指定（`tile_px`），细到单像素也能标。
+def _parse_tile(name):
+    """'AA17' -> (col=26, row=16)；列号 0-based，行号 0-based。"""
+    i = 0
+    while i < len(name) and name[i].isalpha():
+        i += 1
+    if i == 0 or i == len(name) or not name[i:].isdigit():
+        raise ValueError("非法格子编号: %r" % name)
+    col, acc = 0, name[:i].upper()
+    for ch in acc:
+        col = col * 26 + (ord(ch) - ord("A") + 1)
+    return col - 1, int(name[i:]) - 1
 
-    命名：列用字母（A..Z, AA..），行用数字；`tile_px=1` 时一个格子就是一个像素，
-    等价于"逐像素点选"，但不需要模型去口算坐标。
+
+def cell_geometry(roi, cols, rows):
+    x0, y0, x1, y1 = [float(v) for v in roi]
+    return (x1 - x0) / float(cols), (y1 - y0) / float(rows)
+
+
+def cell_box(roi, cols, rows, label):
+    """格子编号 -> 像素框 (x0,y0,x1,y1)，浮点、已按 roi 截断。"""
+    cw, ch = cell_geometry(roi, cols, rows)
+    c, r = _parse_tile(label)
+    if not (0 <= c < cols and 0 <= r < rows):
+        raise ValueError("格子 %s 超出 %dx%d" % (label, cols, rows))
+    x0, y0, x1, y1 = [float(v) for v in roi]
+    return (x0 + c * cw, y0 + r * ch, min(x1, x0 + (c + 1) * cw), min(y1, y0 + (r + 1) * ch))
+
+
+def cell_center(roi, cols, rows, label):
+    bx = cell_box(roi, cols, rows, label)
+    return ((bx[0] + bx[2]) / 2.0, (bx[1] + bx[3]) / 2.0)
+
+
+def px_to_cell(roi, cols, rows, x, y):
+    """像素坐标 -> 格子编号（cell_center 的逆运算，用于复核）。"""
+    cw, ch = cell_geometry(roi, cols, rows)
+    x0, y0, x1, y1 = [float(v) for v in roi]
+    xe, ye = min(max(float(x), x0), x1 - 1e-6), min(max(float(y), y0), y1 - 1e-6)
+    return _tile_name(min(cols - 1, int((xe - x0) / cw)), min(rows - 1, int((ye - y0) / ch)))
+
+
+def cells_for_box(roi, cols, rows, box):
+    """一个像素框覆盖到哪些格子（用于"把这些格子 zoom 出来"）。"""
+    cw, ch = cell_geometry(roi, cols, rows)
+    x0, y0, x1, y1 = [float(v) for v in roi]
+    bx0, by0, bx1, by1 = [float(v) for v in box]
+    c0 = max(0, int(np.floor((bx0 - x0) / cw))); c1 = min(cols - 1, int(np.ceil((bx1 - x0) / cw)) - 1)
+    r0 = max(0, int(np.floor((by0 - y0) / ch))); r1 = min(rows - 1, int(np.ceil((by1 - y0) / ch)) - 1)
+    return [_tile_name(c, r) for r in range(r0, r1 + 1) for c in range(c0, c1 + 1)]
+
+
+def tile_points(image, windows):
+    """多级/多次 zoom：每级窗口自己的 roi + 细度，正负编号分别换算成照片坐标点。
+
+    编号可带窗口前缀（"tip.A2"）：多级时避免同名格子互相混淆。
+    """
+    by_id = {w.get("id"): w for w in windows if w.get("id")}
+    pos, neg, used = [], [], []
+    for w in windows:
+        g = tile_grid(image, w["roi"], cols=w.get("cols"), rows=w.get("rows"),
+                      tile_px=w.get("tile_px"), wid=w.get("id"))
+        wins_cells = {w.get("id"): g["cells"]}
+        for key, bucket in (("pos", pos), ("neg", neg)):
+            for raw in w.get(key) or []:
+                src, lab = (by_id[raw.split(".", 1)[0]], raw.split(".", 1)[1]) if ("." in raw and
+                     raw.split(".", 1)[0] in by_id) else (w, raw)
+                wid = src.get("id")
+                if wid not in wins_cells:
+                    wins_cells[wid] = tile_grid(image, src["roi"], cols=src.get("cols"),
+                                                rows=src.get("rows"), tile_px=src.get("tile_px"))["cells"]
+                cells = wins_cells[wid]
+                if lab not in cells:
+                    raise ValueError("window %s 没有格子 %s（示例：%s）" % (
+                        wid or "root", lab, ", ".join(list(cells)[:4])))
+                bucket.append(cells[lab])
+        used.append({"id": w.get("id"), "roi": g["roi"], "cols": g["cols"], "rows": g["rows"],
+                     "tile_px": g["tile_px"], "pos": w.get("pos") or [], "neg": w.get("neg") or []})
+    return pos, neg, used
+
+
+def tile_grid(image, roi, cols=None, rows=None, tile_px=None, out=None, scale=None, wid=None):
+    """带编号格子的放大图。`tile_px` 按像素给格子边长（1=单像素）。
+
+    roi 用**浮点**保存：上一次按 int 截断，导致"由格子算出的子窗口"整体偏 1px，
+    子格中心也跟着漂——这是报格子能对、掩膜却错位的真 bug。
     """
     arr = np.asarray(Image.open(image).convert("RGB"))
     H, W = arr.shape[:2]
-    x0, y0, x1, y1 = [int(v) for v in roi]
-    x0 = max(0, x0); y0 = max(0, y0); x1 = min(W, x1); y1 = min(H, y1)
+    fx0, fy0, fx1, fy1 = [float(v) for v in roi]
+    fx0 = max(0.0, fx0); fy0 = max(0.0, fy0); fx1 = min(float(W), fx1); fy1 = min(float(H), fy1)
     if tile_px:
         tp = float(tile_px)
-        cols, rows = max(1, int(np.ceil((x1 - x0) / tp))), max(1, int(np.ceil((y1 - y0) / tp)))
+        cols, rows = max(1, int(np.ceil((fx1 - fx0) / tp))), max(1, int(np.ceil((fy1 - fy0) / tp)))
     cols = int(cols or 8); rows = int(rows or 6)
-    cw, ch = (x1 - x0) / float(cols), (y1 - y0) / float(rows)
-    scale = int(scale or max(1, round(1400.0 / max(1, (x1 - x0), (y1 - y0)))))
-    cells = {}
-    im = Image.fromarray(arr[y0:y1, x0:x1]).resize(((x1 - x0) * scale, (y1 - y0) * scale), Image.LANCZOS)
+    cw, ch = (fx1 - fx0) / float(cols), (fy1 - fy0) / float(rows)
+    scale = int(scale or max(1, round(1400.0 / max(1.0, fx1 - fx0, fy1 - fy0))))
+    x0, y0 = int(np.floor(fx0)), int(np.floor(fy0))
+    x1, y1 = int(np.ceil(fx1)), int(np.ceil(fy1))
+    span_w, span_h = (fx1 - fx0) * scale, (fy1 - fy0) * scale
+    im = Image.fromarray(arr[y0:y1, x0:x1]).resize((int(np.ceil(span_w)), int(np.ceil(span_h))), Image.LANCZOS)
     dr = ImageDraw.Draw(im)
+    cells = {}
     show_labels = (cw * scale) >= 14 and (ch * scale) >= 10
+    ox, oy = (fx0 - x0) * scale, (fy0 - y0) * scale      # 浮点 roi 相对裁剪图的偏移
     for r in range(rows):
         for c in range(cols):
             name = _tile_name(c, r)
-            cells[name] = (x0 + (c + 0.5) * cw, y0 + (r + 0.5) * ch)
-            px, py = int(c * cw * scale), int(r * ch * scale)
-            if (cw * scale) >= 4:
+            cells[name] = (fx0 + (c + 0.5) * cw, fy0 + (r + 0.5) * ch)
+            px, py = ox + c * cw * scale, oy + r * ch * scale
+            if cw * scale >= 4:
                 dr.rectangle([px, py, px + cw * scale, py + ch * scale], outline=(0, 200, 230), width=1)
             if show_labels:
                 dr.text((px + 1, py + 1), name, fill=(255, 255, 0))
@@ -154,43 +238,44 @@ def tile_grid(image, roi, cols=None, rows=None, tile_px=None, out=None, scale=No
         fmt = "PNG" if str(out).lower().endswith(".png") else "JPEG"
         im.save(out, fmt, **({"quality": 92} if fmt == "JPEG" else {}))
     return {"cells": cells, "out": str(out) if out else None, "cols": cols, "rows": rows,
-            "tile_px": [round(cw, 3), round(ch, 3)], "roi": [x0, y0, x1, y1], "scale": scale}
+            "tile_px": [round(cw, 3), round(ch, 3)], "roi": [fx0, fy0, fx1, fy1],
+            "scale": scale, "id": wid}
 
 
-def tile_points(image, windows):
-    """多级/多次 zoom：每个 window 自己的 roi + 格子密度，各自的正负编号合成一组点。
+def child_window(image, parent, cells, sub=3, tile_px=None, wid=None, out=None, scale=None):
+    """对指定格子做下一层 zoom：父窗口 + 若干格子 -> 子窗口（自带 roi/网格/编号）。
 
-    windows 形如 [{"roi":[x0,y0,x1,y1], "tile_px":55, "pos":["D2"], "neg":["A1"]},
-                  {"roi":[440,700,520,790], "tile_px":4, "pos":["C3","D3"], "neg":["A1"]}]
+    `sub` = 每个父格子再切几份（细度）；也可直接给 `tile_px`（像素）覆盖。
     """
-    pos, neg, used = [], [], []
-    for w in windows:
-        g = tile_grid(image, w["roi"], cols=w.get("cols"), rows=w.get("rows"),
-                      tile_px=w.get("tile_px"))
-        cells = g["cells"]
-        for tag, key, bucket in (("pos", "pos", pos), ("neg", "neg", neg)):
-            for t in w.get(key) or []:
-                if t not in cells:
-                    raise ValueError("window roi=%s 没有格子 %s（可用示例：%s）" % (
-                        w["roi"], t, ", ".join(list(cells)[:4])))
-                bucket.append(cells[t])
-        used.append({"roi": g["roi"], "cols": g["cols"], "rows": g["rows"], "tile_px": g["tile_px"],
-                     "pos": w.get("pos") or [], "neg": w.get("neg") or []})
-    return pos, neg, used
+    roi = [float(v) for v in parent["roi"]]
+    cols, rows = int(parent["cols"]), int(parent["rows"])
+    cw, ch = cell_geometry(roi, cols, rows)
+    xs, ys = [], []
+    for t in cells:
+        bx = cell_box(roi, cols, rows, t)
+        xs += [bx[0], bx[2]]; ys += [bx[1], bx[3]]
+    sub_roi = [min(xs), min(ys), max(xs), max(ys)]
+    if tile_px is None:
+        tile_px = max(cw, ch) / float(sub)
+    g = tile_grid(image, sub_roi, tile_px=float(tile_px), out=out, scale=scale, wid=wid)
+    g["parent"] = parent.get("id")
+    g["parent_cells"] = list(cells)
+    g["sub"] = float(sub)
+    return g
 
 
 def mask_implausible(bits, windows, grow=8.0, fill_max=0.95):
     """提示与图像不符的早期警报：整片叶子不会占满全图，也不会面积暴涨。
 
-    实测教训：我把 11 个背景格子当成"叶尖正样本"报上去，GMM 学歪，输出 area 0.9968（整图）。
-    这种"报错输出"必须当场拦下，而不是等看图才发现。
+    实测教训：把背景格子当正样本，GMM 学歪，输出 area 0.9968（整图）。这种输出必须当场拦下。
     """
     tot = 0.0
     for w in windows:
         x0, y0, x1, y1 = [float(v) for v in w["roi"]]
         tot += max(1.0, (x1 - x0) * (y1 - y0))
-    area = float(np.asarray(bits, bool).sum())
-    fill = area / max(1.0, float(np.asarray(bits, bool).size))
+    arr = np.asarray(bits, bool)
+    area = float(arr.sum())
+    fill = area / max(1.0, float(arr.size))
     if area > grow * tot:
         return "面积 %.0f px 超过窗口总面积的 %.0f 倍（提示可能把背景当正样本）" % (area, grow)
     if fill > fill_max:
@@ -822,6 +907,16 @@ def main():
     s5.add_argument("--out", required=True, help="吸附后多边形 JSON")
     s5.add_argument("--search", type=float, default=18)
     s5.add_argument("--smooth", type=int, default=2)
+    sz = sub.add_parser("zoom")
+    sz.add_argument("--image", required=True)
+    sz.add_argument("--parent", required=True, help="父窗口 JSON（roi/cols/rows/id）")
+    sz.add_argument("--cells", required=True, help="要 zoom 的父格子，如 A3 或 A3,B4")
+    sz.add_argument("--sub", type=float, default=3, help="每个父格子再切几份（细度）")
+    sz.add_argument("--tile-px", type=float, dest="tile_px", default=None)
+    sz.add_argument("--scale", type=int, default=None)
+    sz.add_argument("--id", default=None, help="子窗口 id（用于 parent.child 引用）")
+    sz.add_argument("--out", required=True, help="子窗口网格图")
+    sz.add_argument("--json-out", dest="json_out", default=None, help="把子窗口定义写到 JSON")
     s9 = sub.add_parser("tiles")
     s9.add_argument("--image", required=True)
     s9.add_argument("--roi", required=True, help="x0,y0,x1,y1")
@@ -888,7 +983,18 @@ def main():
     s3.add_argument("--max", type=int, default=6)
     s3.add_argument("--sheet", help="候选叠图输出路径")
     a = ap.parse_args()
-    if a.cmd == "tiles":
+    if a.cmd == "zoom":
+        parent = json.loads(Path(a.parent).read_text(encoding="utf-8"))
+        g = child_window(a.image, parent, a.cells.split(","), sub=a.sub, tile_px=a.tile_px,
+                         wid=a.id, out=a.out, scale=a.scale)
+        if a.json_out:
+            Path(a.json_out).write_text(json.dumps({k: g[k] for k in
+                ("roi", "cols", "rows", "tile_px", "scale", "id", "parent", "parent_cells", "sub")},
+                ensure_ascii=False, indent=1), encoding="utf-8")
+        print(json.dumps({"out": g["out"], "roi": [round(v, 2) for v in g["roi"]],
+                          "cols": g["cols"], "rows": g["rows"], "tile_px": g["tile_px"],
+                          "scale": g["scale"], "parent_cells": g["parent_cells"]}, ensure_ascii=False))
+    elif a.cmd == "tiles":
         g = tile_grid(a.image, [float(t) for t in a.roi.split(",")], cols=a.cols, rows=a.rows,
                       tile_px=a.tile_px, out=a.out, scale=a.scale)
         print(json.dumps({"out": g["out"], "cells": sorted(g["cells"].keys())[:6] + ["..."],

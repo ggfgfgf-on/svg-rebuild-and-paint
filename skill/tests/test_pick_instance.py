@@ -120,6 +120,37 @@ def test_implausible_guard():
     return True
 
 
+def test_cell_geometry():
+    """像素位置辅助函数：格子框/中心/逆映射/覆盖格子，必须自洽且不因 int 截断漂移。"""
+    roi = [80.0, 500.0, 520.0, 790.0]
+    cols, rows = 8, 6
+    bad = 0
+    for r in range(rows):
+        for c in range(cols):
+            lab = PI._tile_name(c, r)
+            b = PI.cell_box(roi, cols, rows, lab)
+            ctr = PI.cell_center(roi, cols, rows, lab)
+            if not (b[0] <= ctr[0] <= b[2] and b[1] <= ctr[1] <= b[3]):
+                bad += 1
+            if PI.px_to_cell(roi, cols, rows, *ctr) != lab:
+                bad += 1
+    assert bad == 0, "格子几何不自洽 %d 处" % bad
+    # 子窗口 roi 必须等于父格子的并集（浮点，不截断）
+    g = PI.child_window(r"D:\DSHwork\flower\rose5-full.png",
+                        {"id": "root", "roi": roi, "cols": cols, "rows": rows}, ["B3"], sub=5)
+    b = PI.cell_box(roi, cols, rows, "B3")
+    assert all(abs(a - c) < 1e-6 for a, c in zip(g["roi"], b)), (g["roi"], b)
+    assert (g["cols"], g["rows"]) == (5, 5), (g["cols"], g["rows"])
+    # 前缀引用：tip.A2 走子窗口
+    pos, neg, used = PI.tile_points(r"D:\DSHwork\flower\rose5-full.png",
+                                   [{"id": "root", "roi": roi, "cols": cols, "rows": rows, "pos": ["D3"], "neg": ["A1"]},
+                                    {"id": "tip", "roi": g["roi"], "cols": 5, "rows": 5, "pos": ["A2"], "neg": ["A1"]}])
+    assert len(pos) == 2 and len(neg) == 2, (pos, neg)
+    print("PASS 像素位置辅助函数自洽（%dx%d 全格）与子窗口 roi/前缀引用" % (cols, rows))
+    return True
+
+
+ok = test_cell_geometry() and ok
 ok = test_implausible_guard() and ok
 print("RESULT", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)
