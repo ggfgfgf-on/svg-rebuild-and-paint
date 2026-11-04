@@ -490,7 +490,39 @@ def set_light(doc, scale=1.0, tint=None, layer=None, guidance=1.0, selection=Non
     return doc
 
 
+def replan_region(doc, ref, regions=None, layers=("band", "highlight"), mode="cover", thr=0.9,
+                  ring="auto", highlight_mode="keep", shadow_mode="drop", style_file=None,
+                  gpu=False, mask_obj=None, **_):
+    """区域重规划算子：用参考图把区域内的笔触重画一遍（区域外原样保留）。
+
+    掩膜走 selection 语义（mask / mask_file / polygon / instance / all），
+    所以"把这片区域照参考图重画"可以写成一条 op，而不是跑一个旁路脚本。
+    """
+    if mask_obj is None:
+        raise ValueError("replan_region 需要区域掩膜（mask / mask_file / polygon / instance / all）")
+    import json as _json
+    import tempfile
+    from pathlib import Path as _Path
+
+    import plan_io
+    import planner_region as PR
+
+    with tempfile.TemporaryDirectory() as td:
+        td = _Path(td)
+        plan_in = td / "in.plan.json"
+        plan_in.write_text(_json.dumps(doc), encoding="utf-8")
+        mask_p = td / "mask.json"
+        mask_p.write_text(_json.dumps(mask_obj, ensure_ascii=False), encoding="utf-8")
+        out_p = td / "out.plan.json"
+        PR.run(str(plan_in), str(out_p), str(mask_p), list(layers), ref=ref, regions=regions,
+               style_file=style_file, highlight_mode=highlight_mode, shadow_mode=shadow_mode,
+               mode=mode, thr=thr, ring=ring, gpu=gpu, threads=8)
+        new_doc, _w, _h = plan_io.load_plan(out_p)
+    return new_doc
+
+
 OPS = {
+    "replan_region": replan_region,
     "split_shading": split_shading,
     "set_light": set_light,
     "set_layer_hue": set_layer_hue,
@@ -521,11 +553,14 @@ REQUIRED = {
     "tone_map": [],
     "split_shading": [],
     "set_light": [],
+    "replan_region": ["ref"],
 }
 
 
 # 允许的键（编译器给的 JSON 里出现别的键一律拒绝——模型最容易在这里瞎编）
 ALLOWED = {
+    "replan_region": {"ref", "regions", "layers", "mode", "thr", "ring", "highlight_mode",
+                      "shadow_mode", "style_file", "gpu"},
     "set_layer_hue": {"layer", "hue", "guidance"},
     "set_layer_saturation": {"layer", "sat", "guidance"},
     "set_layer_brightness": {"layer", "factor", "guidance"},
@@ -540,7 +575,7 @@ ALLOWED = {
     "split_shading": {"layer", "guidance"},
     "set_light": {"scale", "tint", "layer", "guidance"},
 }
-INTERNAL = {"seed", "selection", "weights"}
+INTERNAL = {"seed", "selection", "weights", "mask", "mask_file", "all", "polygon", "instance", "mask_obj"}
 
 
 def validate(spec):
@@ -568,16 +603,96 @@ def _copy_doc(doc):
     return out
 
 
+def _canvas(doc):
+    w, h = [int(v) for v in (doc.get("canvas") or [0, 0])]
+    return w, h
+
+
+def resolve_mask(doc, spec):
+    """掩膜来源统一到 ops 语义里：文件 / 内联 raster / 多边形 / 实例（模型给的种子点）。
+
+    spec 形如 {"mask": {...}} / {"mask_file": p} / {"all": true} / {"polygon": [[x,y],...]}
+    或 {"instance": {"image": p, "seeds": [...], "negatives": [...], "box": [...], ...}}。
+    instance 会先长掩膜再**客观验证**，验证不过就报错——不允许"选了但其实没选中"悄悄过去。
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    import masks as M
+
+    if isinstance(spec, (str, _Path)):
+        return M.from_json(_json.loads(_Path(spec).read_text(encoding="utf-8")))
+    if not isinstance(spec, dict):
+        raise ValueError("selection spec 必须是 dict/路径，得到 %r" % type(spec))
+    if "mask" in spec:
+        m = spec["mask"]
+        return M.from_json(_json.loads(_Path(m).read_text(encoding="utf-8"))) if isinstance(m, (str, _Path)) else m
+    if "mask_file" in spec:
+        return M.from_json(_json.loads(_Path(spec["mask_file"]).read_text(encoding="utf-8")))
+    if spec.get("all"):
+        return M.all_()
+    if "polygon" in spec:
+        return M.polygon([tuple(map(float, p)) for p in spec["polygon"]])
+    if "instance" in spec:
+        import numpy as _np
+        import visual_mask as VM
+        from PIL import Image as _Image
+        inst = dict(spec["instance"])
+        img = inst.get("image")
+        if not img:
+            raise ValueError("instance 需要 image：没有原图就无法长掩膜")
+        arr = _np.asarray(_Image.open(img).convert("RGB"))
+        seeds = [tuple(map(int, p)) for p in inst.get("seeds") or []]
+        if not seeds:
+            raise ValueError("instance 缺少 seeds")
+        close = VM.seeds_mask(arr, seeds, inst.get("tolerance", 60), inst.get("hue_tol", 14.0),
+                              [tuple(map(int, p)) for p in inst.get("negatives") or []],
+                              inst.get("min_value", 0.0))
+        bits, _ = VM.grow_mask(seeds, close, inst.get("grow", 6))
+        box = inst.get("box")
+        if box:
+            x0, y0, x1, y1 = [int(v) for v in box]
+            clip = _np.zeros(bits.shape, bool)
+            clip[max(0, y0):y1, max(0, x0):x1] = True
+            bits = bits & clip
+        if inst.get("verify", True):
+            import pick_instance as PI
+            v = PI.verify(bits, inst.get("min_area", 0.002), inst.get("max_area", 0.35),
+                          inst.get("max_components", 1), inst.get("border_tol", 0.10),
+                          inst.get("allow_border", False), box)
+            if not v["ok"]:
+                raise ValueError("instance 验证不通过：%s（area=%.4f comps=%d fill=%.2f）"
+                                 % ("; ".join(v["reasons"]), v["area_frac"], v["components"], v["fill"]))
+        return M.from_bool(bits)
+    raise ValueError("selection spec 里没有可用的掩膜来源（mask/mask_file/all/polygon/instance）")
+
+
+_SEL_KEYS = ("mask", "mask_file", "all", "polygon", "instance")
+
+
 def apply(doc, specs, selection=None, weights=None, seed=0):
     """按顺序执行算子列表；返回新 doc（入参不受影响）。"""
     out = _copy_doc(doc)
     for spec in specs:
-        spec = validate(dict(spec))
-        name = spec.pop("op")
-        spec.setdefault("selection", selection)
-        spec.setdefault("weights", weights)
-        spec.setdefault("seed", seed)
-        out = OPS[name](out, **spec)
+        raw = dict(spec)
+        name = raw.get("op")
+        if name not in OPS:
+            raise ValueError("unknown op %r; known: %s" % (name, ", ".join(sorted(OPS))))
+        sel, wts = selection, weights
+        if any(k in raw for k in _SEL_KEYS):
+            import masks as M
+            m = resolve_mask(raw, {k: raw[k] for k in _SEL_KEYS if k in raw})
+            sel = M.select(out, m)
+            wts = M.weights(out, m)[1]
+        clean = validate(dict(raw))
+        clean.pop("op")
+        if any(k in raw for k in _SEL_KEYS):
+            clean["mask_obj"] = m
+        for k in _SEL_KEYS:
+            clean.pop(k, None)
+        clean.setdefault("selection", sel)
+        clean.setdefault("weights", wts)
+        clean.setdefault("seed", seed)
+        out = OPS[name](out, **clean)
     out["count"] = len(out["strokes"])
     return out
 

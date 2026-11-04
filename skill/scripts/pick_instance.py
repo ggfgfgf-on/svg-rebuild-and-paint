@@ -77,6 +77,32 @@ def verify(bits, min_area=0.002, max_area=0.35, max_components=1, border_tol=0.1
             "bbox": [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]}
 
 
+def rasterize(mask, W, H):
+    """把任意类型掩膜（raster/polygon/rect/point/all）铺成整图布尔图，便于统一验证。"""
+    t = mask.get("type")
+    if t == "raster":
+        bits = masks._decode_bits(mask)
+        full = np.zeros((H, W), bool)
+        full[mask["y"]:mask["y"] + bits.shape[0], mask["x"]:mask["x"] + bits.shape[1]] = bits
+        return full
+    if t == "all":
+        return np.ones((H, W), bool)
+    ys, xs = np.mgrid[0:H, 0:W]
+    pts = np.stack([xs.ravel(), ys.ravel()], 1).astype(np.float64)
+    if t == "polygon":
+        return masks.poly_weight(mask, pts).reshape(H, W) > 0.5
+    if t == "rect":
+        return masks.rect_weight(mask, pts).reshape(H, W) > 0.5
+    if t == "point":
+        return masks.point_weight(mask, pts).reshape(H, W) > 0.5
+    raise ValueError("未知掩膜类型 %r" % t)
+
+
+def verify_mask(mask, W, H, **kw):
+    """直接验证模型画的掩膜（多边形也算）：面积/连通块/贴边/填充率。"""
+    return verify(rasterize(mask, W, H), **kw)
+
+
 def _crop(arr, box, scale=3, pad=12):
     H, W = arr.shape[:2]
     x0, y0, x1, y1 = box
