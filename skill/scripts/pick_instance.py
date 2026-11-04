@@ -41,7 +41,8 @@ def survey(image, out, cols=4, rows=4):
     return {"image": str(image), "size": [W, H], "out": str(out), "tiles": tiles}
 
 
-def verify(bits, min_area=0.002, max_area=0.35, max_components=1, border_tol=0.10, allow_border=False, box=None):
+def verify(bits, min_area=0.002, max_area=0.35, max_components=1, border_tol=0.10, allow_border=False,
+           box=None, box_fill_max=0.90):
     """客观验证：一个"实例"应该面积适中、只有一个连通块（<2% 的碎片已忽略）、不贴边。"""
     bits = np.asarray(bits, bool)
     H, W = bits.shape
@@ -65,8 +66,14 @@ def verify(bits, min_area=0.002, max_area=0.35, max_components=1, border_tol=0.1
         reasons.append("面积过大 %.4f > %.4f（色相门控泄漏到背景）" % (area_frac, max_area))
     if len(big) > max_components:
         reasons.append("连通块 %d > %d（选到了多个物体）" % (len(big), max_components))
-    if box is not None and fill > 0.97:
-        reasons.append("掩膜几乎等于矩形框 fill=%.2f（色相门控没起作用，等于手画框）" % fill)
+    if box is not None:
+        x0, y0, x1, y1 = [int(v) for v in box]
+        box_area = max(1, (min(W, x1) - max(0, x0)) * (min(H, y1) - max(0, y0)))
+        box_fill = total / float(box_area)
+        if box_fill > box_fill_max:
+            reasons.append("掩膜占矩形框 %.2f > %.2f（色相门控没起作用，等于手画框）" % (box_fill, box_fill_max))
+    else:
+        box_fill = None
     touches = (xs.min() <= 2 or ys.min() <= 2 or xs.max() >= W - 3 or ys.max() >= H - 3)
     if touches and not allow_border:
         reasons.append("包围盒贴画面边缘（分母/背景被当成物体了）")
@@ -74,6 +81,7 @@ def verify(bits, min_area=0.002, max_area=0.35, max_components=1, border_tol=0.1
         reasons.append("贴边率 %.2f > %.2f（掩膜跑到画面边缘）" % (border_frac, border_tol))
     return {"ok": not reasons, "reasons": reasons, "area_frac": round(area_frac, 4),
             "components": len(big), "border_frac": round(border_frac, 3), "fill": round(fill, 3),
+            "box_fill": None if box_fill is None else round(box_fill, 3),
             "bbox": [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]}
 
 
@@ -112,7 +120,30 @@ def _crop(arr, box, scale=3, pad=12):
     return im.resize((im.width * scale, im.height * scale), Image.LANCZOS)
 
 
-def pick(image, specs, out_dir):
+def hints(v, spec):
+    """把验证结论翻译成"下一轮改什么"，让模型能自己纠错而不是反复瞎试。"""
+    out = []
+    for r in v.get("reasons", []):
+        if "空掩膜" in r:
+            out.append("种子点没落在物体上：重挑坐标，或先跑 survey 放大看清")
+        elif "面积过小" in r:
+            out.append("种子点偏了/物体太小：换到物体中心，或降低 min_area")
+        elif "面积过大" in r:
+            out.append("色相门控泄漏：收紧 tolerance 与 hue_tol，提高 min_value，加 negatives 或加 box")
+        elif "连通块" in r:
+            out.append("选到多个物体：加 negatives 排除邻接实例，或用 box 卡住一个")
+        elif "贴边" in r:
+            out.append("选中了背景：加 box 限制范围，或提高 min_value 压掉暗背景")
+        elif "矩形框" in r:
+            out.append("色相分不开前景/背景：改用 polygon（模型自己描边），别再靠颜色生长")
+        else:
+            out.append(r)
+    if v.get("ok"):
+        out.append("通过，可直接用于 ops 的 selection")
+    return out
+
+
+def pick(image, specs, out_dir, attempt_log=None, attempt=1):
     """按模型给的种子点逐个长掩膜并验证；返回报告（含局部放大图路径供模型复核）。"""
     arr = np.asarray(Image.open(image).convert("RGB"))
     H, W = arr.shape[:2]
@@ -136,7 +167,7 @@ def pick(image, specs, out_dir):
             full &= clip
         v = verify(full, sp.get("min_area", 0.002), sp.get("max_area", 0.35),
                    sp.get("max_components", 1), sp.get("border_tol", 0.10), sp.get("allow_border", False),
-                   box)
+                   box, sp.get("box_fill_max", 0.90))
         mask_path = out_dir / ("%s.mask.json" % name)
         mask_path.write_text(json.dumps(masks.to_json(masks.from_bool(full)), ensure_ascii=False), encoding="utf-8")
         overlay = arr.copy()
@@ -150,7 +181,15 @@ def pick(image, specs, out_dir):
                                     "mask": str(mask_path), "overlay": str(out_dir / ("%s.overlay.png" % name)),
                                     "crop": str(crop) if v.get("bbox") else None,
                                     "verify": v})
+    for i in report["instances"]:
+        i["hints"] = hints(i["verify"], i.get("seeds"))
     report["all_ok"] = all(i["verify"]["ok"] for i in report["instances"])
+    if attempt_log:
+        with Path(attempt_log).open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"attempt": attempt, "image": str(image), "specs": specs,
+                                "results": [{"name": i["name"], "verify": i["verify"],
+                                             "hints": i["hints"]} for i in report["instances"]]},
+                               ensure_ascii=False) + "\n")
     (out_dir / "pick_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     return report
 
@@ -171,6 +210,8 @@ def main():
     s2 = sub.add_parser("pick")
     s2.add_argument("--image", required=True); s2.add_argument("--spec", required=True)
     s2.add_argument("--out-dir", required=True)
+    s2.add_argument("--attempt-log", help="把每轮尝试记进 JSONL（自我纠错的可追溯记录）")
+    s2.add_argument("--attempt", type=int, default=1)
     a = ap.parse_args()
     if a.cmd == "survey":
         print(json.dumps(survey(a.image, a.out, a.cols, a.rows), ensure_ascii=False))
@@ -178,12 +219,14 @@ def main():
         specs = json.loads(Path(a.spec).read_text(encoding="utf-8"))
         if isinstance(specs, dict):
             specs = specs.get("instances", [])
-        rep = pick(a.image, specs, a.out_dir)
+        rep = pick(a.image, specs, a.out_dir, a.attempt_log, a.attempt)
         for i in rep["instances"]:
             v = i["verify"]
             print("%-14s %-4s area=%.4f comp=%d fill=%.2f bbox=%s %s" % (
                 i["name"], "OK" if v["ok"] else "BAD", v["area_frac"], v["components"], v["fill"],
                 v["bbox"], "; ".join(v["reasons"])))
+            for h in i["hints"]:
+                print("    -> %s" % h)
         print("all_ok =", rep["all_ok"], "| report:", (Path(a.out_dir) / "pick_report.json"))
 
 
