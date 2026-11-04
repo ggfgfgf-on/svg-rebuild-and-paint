@@ -345,7 +345,25 @@ def raster_weight(mask, pts, r=0.0, feather=0.0):
     return out
 
 
-def from_image(image, color, tol=40, keep_largest=True, pad=0):
+def _calibrated_local(name, default):
+    """工程标定（SVP_CALIBRATED）优先，其次技能默认；读不到就用传入默认值。"""
+    import json as _j, os as _os
+    from pathlib import Path as _P
+    p = _os.environ.get("SVP_CALIBRATED") or ""
+    for cand in ([_P(p)] if p and _P(p).is_file() else []) + [_P(__file__).resolve().parent / "calibrated.json"]:
+        try:
+            v = _j.loads(cand.read_text(encoding="utf-8")).get(name)
+        except Exception:
+            v = None
+        if isinstance(v, dict) and "value" in v:
+            return v["value"]
+        if isinstance(v, (int, float)):
+            return v
+    return default
+
+
+def from_image(image, color, tol=None, keep_largest=True, pad=0):
+    tol = float(_calibrated_local("tol", 40.0)) if tol is None else float(tol)
     """像素级颜色连通域 -> 计划空间矩形掩膜（取最大连通块的包围盒）。
 
     这是「掩膜由模型/图像给出」的那条来源：先按颜色+容差找像素，再做连通域，

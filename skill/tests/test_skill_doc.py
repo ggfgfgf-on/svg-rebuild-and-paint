@@ -27,6 +27,9 @@ def main():
     for name in IMPLEMENTED:
         assert name in SK, "新实现的能力没写进手册: %s" % name
     assert "0.857" in SK and "0.703" in SK, "auto_zoom 的实测收益没写进手册"
+    assert "inert" in SK and "LAST_ATTACH" in SK, "手册缺「未触发判据暴露」说明"
+    assert "SVP_CALIBRATED" in SK, "手册缺 tol 的工程覆盖机制（SVP_CALIBRATED）"
+    assert "tol" in SK, "手册缺 tol 的工程级标定说明"
     assert "attach_px" in SK and "near" in SK, "手册缺 attach_px 依赖 near 的提醒"
     assert "不重新分割" in SK or "不重分" in SK, "手册缺 refine 不能重分割的提醒"
     print("PASS 手册覆盖 %d 个已标定参数、%d 类证据、%d 个未标定项" % (len(CAL), len(EVIDENCE), len(UNSET)))

@@ -488,6 +488,35 @@ def sweep_attach(image, trace, cells, values, base_mask=None, which="gap_px"):
     return rows, _sheet(panels)
 
 
+
+def sweep_tol(image, trace, cells, values, base_mask=None):
+    """tol：颜色容差。掩膜主体色取自描边区域中位色，扫不同容差看颜色分割与描边的重合。
+
+    这个参数天生跟素材走（同一张图的叶子色和背景色差多少，决定了容差该多大），
+    所以它是"工程级"标定项：脚本给表，值写进工程的 calibrated.json。
+    """
+    import numpy as np
+    import cv2 as cv
+    import masks as M
+    from PIL import Image
+    w, h = Image.open(image).size
+    gt = PI = None
+    import pick_instance as _PI
+    gt = _PI.rasterize(M.from_json(_load_json(trace)), w, h)
+    img = cv.imread(image, cv.IMREAD_COLOR)
+    rgb = img[..., ::-1][gt].reshape(-1, 3)
+    med = [float(v) for v in np.median(rgb, 0)]
+    rows, panels = {}, []
+    for v in values:
+        m = M.from_image(image, med, tol=float(v))
+        bits = _PI.rasterize(m, w, h)
+        rows[str(v)] = {"iou": round(_iou(bits, gt), 3), "area": round(float(bits.mean()), 4),
+                        "color": [round(x, 1) for x in med]}
+        panels.append(_panel(image, bits, _crop_of(gt, pad=30),
+                             note="tol=%s iou=%.3f" % (v, rows[str(v)]["iou"])))
+    return rows, _sheet(panels)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--param", default="", )
@@ -588,7 +617,8 @@ def main():
             print("%-22s %s" % (name, json.dumps(rows, ensure_ascii=False)))
         print("samples=%d  intersection=%s" % (out["samples"], out["intersection"]))
         return 0
-    sweeps = {"ring": sweep_ring,
+    sweeps = {"tol": sweep_tol,
+              "ring": sweep_ring,
               "attach_gap": lambda i, t, c_, v, b: sweep_attach(i, t, c_, v, b, "gap_px"),
               "attach_width": lambda i, t, c_, v, b: sweep_attach(i, t, c_, v, b, "max_width_px"),
               "attach_len": lambda i, t, c_, v, b: sweep_attach(i, t, c_, v, b, "max_len_px"),
@@ -612,7 +642,7 @@ def main():
             print("  未配对（需手填 trace）: %s" % u)
         print("提示：再加 --json <工程目录>/calibrated.json，标定值与样本就都留在工程里")
         return 0
-    need_cells = a.param not in ("edge_hist", "edge_min_contrast")
+    need_cells = a.param not in ("edge_hist", "edge_min_contrast", "tol")
     if not (a.image and a.trace and (a.cells or not need_cells)):
         print("需要 --image --trace --cells", file=sys.stderr); return 2
     vals = [float(x) for x in a.values.split(",") if x.strip()]

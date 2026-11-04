@@ -123,14 +123,22 @@ python scripts\calibrate.py --param edge_min_contrast --choose 0.40 --evidence p
 复验：`tests/test_calibrated.py`（字段、证据合法、接触表/交集/分布图存在、默认值确实来自文件）、
 `tests/test_calibrate_multi.py`（多图交集收窄）、`tests/test_skill_doc.py`（本文表格不许缺项）。
 
-### 未标定 / 已知缺口（别假设它们被调过）
+### 未标定 / 工程级标定项
 
 | 参数或能力 | 状态 | 说明 |
 | --- | --- | --- |
-| `tol`（颜色容差） | 未标定 | 与素材强相关，建议每个工程自测 |
+| `tol`（颜色容差） | **工程级**，不随技能发布 | 容差取决于该图主体与背景的颜色距离，必须每工程自测：`--param tol --image … --trace …`，值写进工程 `calibrated.json`，运行时用 `SVP_CALIBRATED` 指过去 |
 
-`ring` / `attach_gap` / `attach_width` / `attach_len` / `neg_k` 本轮已扫档并写入 `calibrated.json`；
-`max_spill` 溢出闸门与 `auto_zoom`（`pick_instance.zoom_plan`）本轮已实现。
+实测反例（值得记住）：这张叶子的描边中位色是 `[23,41,4]`（很暗），tolerance 15 时 IoU 0.717、面积 0.0829；
+**30 起直接把整幅吃掉（area 1.0）**——因为暗绿与暗背景距离太近。
+结论：低对比主体别指望颜色掩膜一档搞定，要么换色相/Lab 判据，要么直接给人工描边。
+
+### 未触发的判据要暴露（不是只在文档里说一句）
+
+`attach_thin` 返回的 `info` 里有 `inert`：哪些判据**一个块都没筛掉**（说明该阈值在这张图上没被验证过）；
+同时挂到模块级 `pick_instance.LAST_ATTACH`，管线可读。叶子样本上得到 `["attach_len", "attach_width", "attach_hue"]`。
+对应 `calibrated.json` 条目带 `inert_on_sample: true` + `inert_reason`，所以"没验证"是**数据里的一等公民**，不是脚注。
+`tests/test_inert_exposure.py` 会检查这两处同步。
 
 ### 溢出闸门 `max_spill`
 
@@ -138,7 +146,7 @@ python scripts\calibrate.py --param edge_min_contrast --choose 0.40 --evidence p
 超过 `max_spill` 只**发通知**（`ops.LAST_NOTICES` 里 `kind=spill`），不抛错。
 口径是面积预估，不是像素渲染差——要精确值就重渲染后比对。
 
-### 自动选窗口 `zoom_plan`
+### 自动选窗口 `zoom_plan`（auto_zoom）
 
 ```python
 import pick_instance as PI

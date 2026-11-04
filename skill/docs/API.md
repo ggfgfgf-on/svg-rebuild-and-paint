@@ -295,9 +295,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 像素级布尔图 -> raster 掩膜（任意形状，不再退化成包围盒）。
 
-### `from_image`(image, color, tol=40, keep_largest=True, pad=0)
-
-像素级颜色连通域 -> 计划空间矩形掩膜（取最大连通块的包围盒）。
+### `from_image`(image, color, tol=None, keep_largest=True, pad=0)
 
 ### `from_json`(obj)
 

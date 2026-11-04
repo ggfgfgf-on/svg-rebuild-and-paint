@@ -73,6 +73,8 @@
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\attach_len.png",
   "evidence": "contact_sheet",
+  "inert_on_sample": true,
+  "inert_reason": "扫档全程筛掉 0 个块：该判据在样本上未触发，阈值未验证",
   "reason": "扫 40~260 完全一致（0.948/968px）：细条长度同样未触及阈值，保留默认 90",
   "spec": {
    "base_mask": "mask_leaf_tip3.json",
@@ -143,6 +145,8 @@
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\attach_width.png",
   "evidence": "contact_sheet",
+  "inert_on_sample": true,
+  "inert_reason": "扫档全程筛掉 0 个块：该判据在样本上未触发，阈值未验证",
   "reason": "扫 3~16 结果完全一致（0.948/0.059/968px）：这张图的细条宽度都低于所有档位，判据没被触发；保留默认 6，等有触发样本再扫",
   "spec": {
    "base_mask": "mask_leaf_tip3.json",

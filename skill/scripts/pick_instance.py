@@ -341,8 +341,17 @@ def attach_thin(image, mask, gap_px=None, max_width_px=None, max_len_px=None, hu
         added.append({"area": area, "thickness": round(thick, 2), "len": int(max(w, h)),
                       "d_edge": round(float(np.median(d_edge[comp])), 2),
                       "d_bg": round(float(np.median(d_bg[comp])), 2), "why": "closer_to_edge"})
-    return out, {"added": added, "gap_px": gap_px, "max_width_px": max_width_px,
-                 "components": int(n - 1), "rejected": rejected}
+    inert = []
+    if rejected["len"] == 0:
+        inert.append("attach_len")
+    if rejected["thick"] == 0:
+        inert.append("attach_width")
+    if rejected["colour"] == 0:
+        inert.append("attach_hue")
+    info = {"added": added, "gap_px": gap_px, "max_width_px": max_width_px,
+            "components": int(n - 1), "rejected": rejected, "inert": inert}
+    globals()["LAST_ATTACH"] = info
+    return out, info
 
 
 def calibrated(name, default=None):
@@ -351,8 +360,10 @@ def calibrated(name, default=None):
     分工：脚本枚举 + 渲染接触表，模型看图拍板，值落盘；这里只读，不猜。
     """
     import json as _j
+    import os as _os
     from pathlib import Path as _P
-    p = _P(__file__).resolve().parent / "calibrated.json"
+    proj = _os.environ.get("SVP_CALIBRATED") or ""
+    p = _P(proj) if proj and _P(proj).is_file() else _P(__file__).resolve().parent / "calibrated.json"
     try:
         d = _j.loads(p.read_text(encoding="utf-8"))
     except Exception:
