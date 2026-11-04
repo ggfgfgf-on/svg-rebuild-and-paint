@@ -171,7 +171,24 @@ def test_refine_loop():
     return True
 
 
+def test_attach_thin():
+    """细长低饱和结构自动并回：贴着主体的暗色细条必须进来，孤立亮块不能进来。"""
+    import numpy as np, cv2 as cv
+    img = np.zeros((200, 200, 3), np.uint8); img[:] = (30, 40, 25)
+    cv.rectangle(img, (40, 60), (120, 120), (60, 80, 45), -1)      # 主体
+    cv.rectangle(img, (122, 88), (150, 92), (50, 68, 40), -1)      # 贴着主体的细条（比背景更接近主体色）
+    cv.rectangle(img, (160, 10), (190, 40), (200, 210, 200), -1)   # 远处亮块（不应并入）
+    m = np.zeros((200, 200), bool); m[60:121, 40:121] = True
+    out, info = PI.attach_thin(img, m, gap_px=6, max_width_px=6, max_len_px=40)
+    added = out & ~m
+    assert added.any(), "细条没并进来"
+    assert not out[10:40, 160:190].any(), "孤立亮块不该被并入"
+    print("PASS attach_thin 并回 %d px（%d 块）" % (int(added.sum()), len(info["added"])))
+    return True
+
+
 ok = test_cell_geometry() and ok
+ok = test_attach_thin() and ok
 ok = test_refine_loop() and ok
 ok = test_implausible_guard() and ok
 print("RESULT", "OK" if ok else "FAILED")

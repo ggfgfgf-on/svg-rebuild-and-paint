@@ -282,7 +282,7 @@ def _encode_bits(b):
 
 
 def _decode_bits(mask):
-    key = id(mask)
+    key = (mask.get("w"), mask.get("h"), mask.get("x"), mask.get("y"), hash(mask.get("bits")))  # 内容键：id() 会被复用，导致读到上一个掩膜的位图
     hit = _RASTER_CACHE.get(key)
     if hit is not None:
         return hit

@@ -552,8 +552,61 @@ def _preserve_mean_luma(targets, target_luma, iters=24):
     return targets
 
 
+def _target_mask(doc, targets, pad=6):
+    """选区覆盖掩膜（按笔触点 + size 画圆），用于只在"改动的区域"上量亮度。"""
+    import numpy as _np
+    import cv2 as _cv
+    w, h = _canvas(doc)
+    m = _np.zeros((max(1, h), max(1, w)), _np.uint8)
+    for _, s0, _st in targets:
+        for p in s0["points"]:
+            r = int(max(2, float(s0.get("size", 4)) * 0.5 + pad))
+            _cv.circle(m, (int(p[0]), int(p[1])), r, 1, -1)
+    return m > 0
+
+
+def _render_luma(doc, mask=None):
+    """真实渲染后的平均亮度（走 render_plan，含 blend 模式），用于渲染级能量守恒。"""
+    import numpy as _np
+    import render_plan as _RP
+    arr, _ = _RP.render_doc_with_ops(doc, [], gpu=False)
+    a = _np.asarray(arr, _np.float64)[..., :3]
+    lum = 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
+    if mask is not None and mask.shape == lum.shape and mask.any():
+        return float(lum[mask].mean())
+    return float(lum.mean())
+
+
+def _preserve_rendered_luma(doc, targets, target_luma, iters=10, tol=0.005, mask=None):
+    """二分一个全局 shade 系数，让**渲染后**平均亮度回到改动前（blend 模式导致的偏差也补回来）。"""
+    import numpy as _np
+    base = [(s0, float(s0["shade"]), s0["color"]) for _, s0, _st in targets]
+    def _apply(k):
+        for s0, sh, _col in base:
+            s0["shade"] = sh * k
+            s0["color"] = _set_rgb(_np.clip(_np.asarray(s0["albedo"], _np.float64) * s0["shade"], 0.0, 255.0))
+    lo, hi = 0.6, 1.6
+    best = None
+    for _ in range(int(iters)):
+        mid = 0.5 * (lo + hi)
+        _apply(mid)
+        cur = _render_luma(doc, mask)
+        best = (abs(cur - target_luma), mid)
+        if abs(cur - target_luma) / max(1e-6, target_luma) <= float(tol):
+            break
+        if cur < target_luma:
+            lo = mid
+        else:
+            hi = mid
+    _apply(0.5 * (lo + hi))
+    _end = _render_luma(doc, mask)
+    return {"rendered_luma": round(_end, 3), "target": round(float(target_luma), 3),
+            "rel_err": round(abs(_end - target_luma) / max(1e-6, target_luma), 4)}
+
+
 def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="dome", layer=None,
-                guidance=1.0, selection=None, weights=None, seed=0, **_):
+                guidance=1.0, selection=None, weights=None, seed=0, target="strokes",
+                render_iters=8, render_tol=0.01, **_):
     """方向光：模型看图说"光从左上/右后来"，这个算子把方位角变成确定性的 shade 重算。
 
     法线是"图像平面伪法线"，由 shade 场的梯度推出来（n ∝ (-∂shade/∂x, -∂shade/∂y, 1)）：
@@ -569,6 +622,8 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
     for _, s0, _st in targets:
         if "albedo" not in s0 or "shade" not in s0:
             raise ValueError("relight_dir 需要先 split_shading（笔触缺少 albedo/shade）")
+    _sel_mask = _target_mask(doc, targets) if str(target) == "rendered" else None
+    pre_render = _render_luma(doc, _sel_mask) if _sel_mask is not None else None
 
     xs = [p[0] for _, s0, _ in targets for p in s0["points"]]
     ys = [p[1] for _, s0, _ in targets for p in s0["points"]]
@@ -604,12 +659,13 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
             s0["color"] = _set_rgb(_np.clip(_np.asarray(s0["albedo"], _np.float64) * new_shade, 0.0, 255.0))
             s0["shade"] = new_shade
             n += 1
-        # 亮笔触会在 255 处截断，导致"平均亮度守恒"失效（实测叶区 -7%）；
-        # 这里按前后 shade 均值再补一次，保证换方向只改分布、不改总亮度。
-        _preserve_mean_luma(targets, pre_luma)
+        # 亮笔触会在 255 处截断，导致"平均亮度守恒"失效（实测叶区 -7%）：
+        # target="strokes" 用笔画级守恒；target="rendered" 用真实渲染亮度守恒（blend 非线性也能补）
+        if pre_render is not None:
+            _preserve_rendered_luma(doc, targets, pre_render, iters=render_iters, tol=render_tol, mask=_sel_mask)
+        else:
+            _preserve_mean_luma(targets, pre_luma)
         return doc
-    if mode != "gradient":
-        raise ValueError("relight_dir: mode must be dome or gradient")
     if mode != "gradient":
         raise ValueError("relight_dir: mode must be dome or gradient")
     acc = _np.zeros((h, w), _np.float64)
@@ -651,6 +707,9 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
         s0["color"] = _set_rgb(col)
         s0["shade"] = new_shade
         n += 1
+    pre_luma_g = _rendered_luma(targets, 1.0)
+    if pre_render is not None:
+        _preserve_rendered_luma(doc, targets, pre_render, iters=render_iters, tol=render_tol)
     return doc
 
 
@@ -694,7 +753,8 @@ REQUIRED = {
 
 # 允许的键（编译器给的 JSON 里出现别的键一律拒绝——模型最容易在这里瞎编）
 ALLOWED = {
-    "relight_dir": {"azimuth", "elevation", "strength", "blur", "mode", "layer", "guidance"},
+    "relight_dir": {"azimuth", "elevation", "strength", "blur", "mode", "layer", "guidance",
+                    "target", "render_iters", "render_tol"},
     "replan_region": {"ref", "regions", "layers", "mode", "thr", "ring", "highlight_mode",
                       "shadow_mode", "style_file", "gpu"},
     "set_layer_hue": {"layer", "hue", "guidance"},
@@ -712,7 +772,8 @@ ALLOWED = {
     "set_light": {"scale", "tint", "layer", "guidance"},
 }
 INTERNAL = {"seed", "selection", "weights", "mask", "mask_file", "all", "polygon", "instance", "mask_obj",
-            "select_tag", "sel_box", "sel_hue", "sel_sat_min", "sel_val_min"}
+            "select_tag", "sel_box", "sel_hue", "sel_sat_min", "sel_val_min",
+            "cells", "tiles", "prompt", "segment", "include", "exclude", "grow_px", "loop", "steps"}
 
 
 def validate(spec):
@@ -760,6 +821,39 @@ def resolve_mask(doc, spec):
         return M.from_json(_json.loads(_Path(spec).read_text(encoding="utf-8")))
     if not isinstance(spec, dict):
         raise ValueError("selection spec 必须是 dict/路径，得到 %r" % type(spec))
+    if "include" in spec or "exclude" in spec:
+        # 排除语义一等公民：{"include": <任意来源>, "exclude": <任意来源>} → include & ~exclude
+        import numpy as _np
+        import pick_instance as _PIi
+        w0, h0 = _canvas(doc)
+        if not (w0 and h0):
+            from PIL import Image as _Imz
+            for _k in ("cells", "tiles"):
+                _s = spec.get(_k) or {}
+                if _s.get("image"):
+                    w0, h0 = _Imz.open(_s["image"]).size
+                    break
+            else:
+                for _k in ("cells", "tiles"):
+                    _s = (spec.get("include") or {}).get(_k) or {}
+                    if _s.get("image"):
+                        w0, h0 = _Imz.open(_s["image"]).size
+                        break
+        if not (w0 and h0):
+            raise ValueError("include/exclude 无法确定画布尺寸：给 doc.width/height 或各来源的 image")
+        if spec.get("include") is None:
+            raise ValueError("include/exclude 组合至少需要 include")
+        bits = _PIi.rasterize(resolve_mask(doc, spec["include"]), w0, h0)
+        if spec.get("exclude") is not None:
+            eb = _PIi.rasterize(resolve_mask(doc, spec["exclude"]), w0, h0)
+            bits = bits & ~eb
+        if spec.get("grow_px"):
+            import cv2 as _cvg
+            r = int(spec["grow_px"])
+            bits = _cvg.dilate(bits.astype(_np.uint8), _np.ones((2 * r + 1, 2 * r + 1), _np.uint8)) > 0
+        if not bits.any():
+            raise ValueError("include/exclude 结果为空（exclude 把 include 全吃掉了）")
+        return M.from_bool(bits)
     if "mask" in spec:
         m = spec["mask"]
         return M.from_json(_json.loads(_Path(m).read_text(encoding="utf-8"))) if isinstance(m, (str, _Path)) else m
@@ -842,8 +936,17 @@ def resolve_mask(doc, spec):
         doc_w, doc_h = int(doc.get("width", doc_w)), int(doc.get("height", doc_h))
         base = _PI.rasterize(resolve_mask(doc, cs["base"]), doc_w, doc_h) if cs.get("base") else None
         bits = _PI.cells_mask(cs["image"], wins, int(cs.get("dilate_px", 0)),
-                              near=base, near_px=int(cs.get("attach_px", 4)))
-        # 每个窗口可在自己的 windows[i].attach_px 里覆盖附着距离（cells_mask 逐窗口处理）
+                              near=base, near_px=int(cs.get("attach_px", 4)),
+                              use_neg=bool(cs.get("use_neg", True)),
+                              neg_attach_px=int(cs.get("neg_attach_px", 0)))
+        at = cs.get("attach_thin")
+        if at is True:
+            at = {}
+        if at:
+            bits, _at_info = _PI.attach_thin(
+                cs["image"], bits,
+                **{k: at[k] for k in ("gap_px", "max_width_px", "max_len_px", "hue_tol", "s_min",
+                                      "v_min", "max_area_px") if k in at})
         if bits.shape[:2] != (doc_h, doc_w):
             bits = _np.asarray(_Image.fromarray(bits.astype(_np.uint8) * 255).resize(
                 (doc_w, doc_h), _Image.NEAREST)) > 0

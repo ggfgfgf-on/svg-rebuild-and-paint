@@ -203,7 +203,7 @@ def cells_anchors(image, windows):
     return pts
 
 
-def cells_mask(image, windows, dilate_px=0, near=None, near_px=0):
+def cells_mask(image, windows, dilate_px=0, near=None, near_px=0, use_neg=True, neg_attach_px=0):
     """把模型报的格子**直接**栅格化成掩膜：模型说属于就属于，不经过任何颜色判别器。
 
     这是"语义由模型决定"的那条通道：判别器（GrabCut/knn）只是辅助，报格子才是权威。
@@ -214,6 +214,7 @@ def cells_mask(image, windows, dilate_px=0, near=None, near_px=0):
     by_id = {w.get("id"): w for w in windows if w.get("id")}
     bits = np.zeros((H, W), bool)
     hit = 0
+    neg_bits = np.zeros((H, W), bool)
     attached_px = 0
     for w in windows:
         src = w
@@ -243,11 +244,102 @@ def cells_mask(image, windows, dilate_px=0, near=None, near_px=0):
             w_bits = w_bits & nd
             attached_px += int(w_bits.sum())
         bits |= w_bits
+        if use_neg:
+            n_att = int(w.get("neg_attach_px", neg_attach_px))
+            for raw in w.get("neg") or []:
+                nsrc, nlab = w, raw
+                if "." in raw:
+                    wid2 = raw.split(".", 1)[0]
+                    nsrc = by_id.get(wid2, w)
+                    nlab = raw.split(".", 1)[1]
+                ncols, nrows = _cells_shape(nsrc)
+                nb = cell_box(nsrc["roi"], ncols, nrows, nlab)
+                ny0, ny1 = max(0, int(np.floor(nb[1]))), min(H, int(np.ceil(nb[3])))
+                nx0, nx1 = max(0, int(np.floor(nb[0]))), min(W, int(np.ceil(nb[2])))
+                neg_bits[ny0:ny1, nx0:nx1] = True
+                if n_att > 0:
+                    import cv2 as _cvn
+                    slot = np.zeros((H, W), np.uint8)
+                    slot[ny0:ny1, nx0:nx1] = 1
+                    neg_bits |= _cvn.dilate(slot, np.ones((2 * n_att + 1, 2 * n_att + 1), np.uint8)) > 0
+                hit += 1
     if dilate_px:
         import cv2 as _cv
         r = int(dilate_px)
         bits = _cv.dilate(bits.astype(np.uint8), np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
+    if use_neg and neg_bits.any():
+        bits = bits & ~neg_bits
     return bits
+
+
+def attach_thin(image, mask, gap_px=6, max_width_px=6, max_len_px=90, hue_tol=16.0,
+               s_min=0.06, v_min=0.02, max_area_px=5000):
+    """把"细长、低饱和、贴着主体"的暗结构并回掩膜（叶尖/叶柄/细颈）。
+
+    判定全部参数化、无硬编码阈值：
+      gap_px        与现有掩膜的最大间隙（像素）
+      max_width_px  该结构的最大厚度（距离变换 ×2 的 95 分位）
+      max_len_px    最大长度（连通块对角线）
+      hue_tol/s_min 颜色可信度：与掩膜边界色相接近，或足够低饱和（叶尖属于后者）
+    返回 (mask, info)；info 里记录每个被并入块的面积/厚度/长度，便于复核。
+    """
+    import cv2 as _cv
+    if isinstance(image, np.ndarray):
+        img = np.asarray(image)
+    else:
+        img = _cv.imread(str(image))
+    if img is None:
+        raise ValueError("attach_thin 读不到图像：%r" % (image,))
+    H, W = img.shape[:2]
+    m = np.asarray(mask, bool)
+    if m.sum() == 0:
+        return m, {"added": []}
+    near = _cv.dilate(m.astype(np.uint8), np.ones((2 * gap_px + 1, 2 * gap_px + 1), np.uint8)) > 0
+    # 颜色判别：像素更像"掩膜边界色"才要，更像"外圈背景色"就不要。
+    # 这个比值规则同时解决两件事：叶尖这种贴着主体的异色细条能进来，
+    # 而沿边界的同色晕边（旧版 attach_px 一直在补的东西）不会被吃。
+    lab = _cv.cvtColor(_cv.GaussianBlur(img, (3, 3), 0), _cv.COLOR_BGR2LAB).astype(np.float32)
+    edge_in = (_cv.dilate(m.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0) & m
+    ring_out = (_cv.dilate(m.astype(np.uint8), np.ones((2 * gap_px + 1,) * 2, np.uint8)) > 0) & ~m
+    if not edge_in.any() or not ring_out.any():
+        return m, {"added": [], "components": 0, "rejected": {"len": 0, "thick": 0, "colour": 0}}
+    e_col = np.median(lab[edge_in], 0)
+    b_col = np.median(lab[ring_out], 0)
+    d_edge = np.sqrt(((lab - e_col) ** 2).sum(-1))
+    d_bg = np.sqrt(((lab - b_col) ** 2).sum(-1))
+    near = ring_out
+    like = d_edge < d_bg * 0.95          # 更像边界色（留 5% 余量，避免临界噪声）
+    cand = (near & like).astype(np.uint8)
+    n, cc, st, _ = _cv.connectedComponentsWithStats(cand, 8)
+    if n <= 1:
+        return m, {"added": [], "components": 0, "rejected": {"len": 0, "thick": 0, "colour": 0}}
+    out = m.copy()
+    added = []
+    rejected = {"len": 0, "thick": 0, "colour": 0}
+    for i in range(1, n):
+        area = int(st[i, _cv.CC_STAT_AREA])
+        x, y, w, h = st[i, :4]
+        if area > max_area_px:
+            rejected["len"] += 1
+            continue
+        if max(w, h) > max_len_px:
+            rejected["len"] += 1
+            continue
+        comp = (cc == i)
+        dt = _cv.distanceTransform(comp.astype(np.uint8), _cv.DIST_L2, 3)
+        thick = float(np.percentile(dt, 95)) * 2.0
+        if thick > max_width_px:
+            rejected["thick"] += 1
+            continue
+        if not comp.any():
+            rejected["colour"] += 1
+            continue
+        out |= comp
+        added.append({"area": area, "thickness": round(thick, 2), "len": int(max(w, h)),
+                      "d_edge": round(float(np.median(d_edge[comp])), 2),
+                      "d_bg": round(float(np.median(d_bg[comp])), 2), "why": "closer_to_edge"})
+    return out, {"added": added, "gap_px": gap_px, "max_width_px": max_width_px,
+                 "components": int(n - 1), "rejected": rejected}
 
 
 def tile_points(image, windows):
@@ -385,7 +477,7 @@ def enforce_anchors(image, mask, anchors, radius=40, cap=12000, k=3.0):
 
 
 def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, verbose=True,
-                init_mask=None, anchors=None):
+                init_mask=None, anchors=None, neg_px=3, neg_k=2.5, neg_max=400, max_grow_px=2, max_total_grow_px=None):
     """自动闭环：靠栅格提示起手，然后把已得掩膜的"确信内部/外圈"当作新提示反复精修。
 
     这就是"玫瑰掩膜多轮迭代"的机械化版本：
@@ -414,23 +506,58 @@ def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, ve
         core = _cv.erode(m_prev.astype(np.uint8), np.ones((15, 15), np.uint8)).astype(bool)
         # 负样本必须取自"离开边缘至少 margin 像素"的外圈：直接取 dilate(M) 减 M 会把真实叶缘的
         # 像素当成背景教给判别器，每轮再缩几像素 —— 实测最终一圈均匀缩进 10~20px（红色带）。
-        margin = 14
+        margin = int(neg_px)
         inner_d = _cv.dilate(m_prev.astype(np.uint8), np.ones((2 * margin + 1, 2 * margin + 1), np.uint8)).astype(bool)
-        far_d = _cv.dilate(m_prev.astype(np.uint8), np.ones((6 * margin + 1, 6 * margin + 1), np.uint8)).astype(bool)
-        outer = far_d & ~inner_d
+        far_d = _cv.dilate(m_prev.astype(np.uint8), np.ones((2 * margin + 5, 2 * margin + 5), np.uint8)).astype(bool)
+        ring_px = far_d & ~inner_d
+        # 贴边采样 + 颜色筛选：只把"确实和叶缘颜色不同"的那几个像素当背景，
+        # 这样 GrabCut 没有 14px 的自由区可外扩（旧做法扩出 2578px 的软阴影响应）。
+        lab = None
+        if int(ring_px.sum()) > 0:
+            import cv2 as _cvl
+            img_cv = _cvl.imread(str(image))
+            lab = _cvl.cvtColor(img_cv, _cvl.COLOR_BGR2LAB).astype(np.float32)
+            edge = (_cvl.dilate(m_prev.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0) & m_prev
+            ref = np.median(lab[edge], 0) if edge.any() else np.median(lab[m_prev], 0)
+            mad = float(np.median(np.abs(lab[m_prev] - ref))) * 1.4826 + 1e-6
+            d = np.sqrt(((lab - ref) ** 2).sum(-1))
+            outer = ring_px & (d > float(neg_k) * mad)
+            if int(outer.sum()) < 40:
+                outer = ring_px
+        else:
+            outer = ring_px
         if int(core.sum()) < 50 or int(outer.sum()) < 50:
             break
         ys, xs = np.nonzero(core); step = max(1, int(np.sqrt(len(xs) / 300.0)))
         pos = [(float(x), float(y)) for x, y in zip(xs[::step][:300], ys[::step][:300])]
-        ys2, xs2 = np.nonzero(outer); step2 = max(1, int(np.sqrt(len(xs2) / 300.0)))
-        neg = [(float(x), float(y)) for x, y in zip(xs2[::step2][:300], ys2[::step2][:300])]
+        ys2, xs2 = np.nonzero(outer)
+        step2 = max(1, int(np.sqrt(len(xs2) / float(neg_max))))
+        neg = [(float(x), float(y)) for x, y in zip(xs2[::step2][:neg_max], ys2[::step2][:neg_max])]
         # 模型报过的格子永远保留在提示里：闭环只允许细化，不许把"模型明确说属于它"的地方丢掉
         anchors = list(anchors) if anchors else [p for p in tile_points(str(image), windows)[0]]
+        if init_ref is not None:
+            # init 是模型拍板的区域：只锚定它真的覆盖到的那些点，避免又把整格重新长一遍
+            anchors = [p for p in anchors if init_ref[min(H - 1, int(p[1])), min(W - 1, int(p[0]))]]
         m_new = prompted_mask(image, pos + anchors, neg, ring=ring, radius=6, model=model)
+        # 每轮生长上限：判别器只能把边界推进 max_grow_px 像素，避免往叶缘软阴影里爬
+        if max_total_grow_px is not None and int(max_total_grow_px) >= 0:
+            import cv2 as _cvgt
+            ref0 = init_ref if init_ref is not None else bits
+            cap = _cvgt.dilate(ref0.astype(np.uint8),
+                               np.ones((2 * int(max_total_grow_px) + 1,) * 2, np.uint8)) > 0
+            m_new = m_new & cap
+        if int(max_grow_px) >= 0:
+            import cv2 as _cvg
+            gg = _cvg.dilate(m_prev.astype(np.uint8), np.ones((2 * int(max_grow_px) + 1,) * 2, np.uint8)) > 0
+            m_new = m_new & gg
         if init_ref is not None:
             # loop 只允许"往里补"，不许把模型报过的区域再判掉：init（cells 直通）每轮并回
             m_new = m_new | init_ref
         lost = [p for p in anchors if not m_new[min(H - 1, int(p[1])), min(W - 1, int(p[0]))]]
+        if lost:
+            # 先按锚点铁律补一次（局部自适应生长），补不回来才算判别器真的吃掉了
+            m_new, _nfix = enforce_anchors(image, m_new, lost)
+            lost = [p for p in lost if not m_new[min(H - 1, int(p[1])), min(W - 1, int(p[0]))]]
         if lost:
             raise ValueError("第 %d 轮把 %d 个已报正样本丢掉了：%s（掩膜比提示小，说明判别器吃掉了该区域）"
                              % (it, len(lost), [(round(x, 1), round(y, 1)) for x, y in lost[:3]]))
