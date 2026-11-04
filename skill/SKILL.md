@@ -1329,9 +1329,15 @@ edge_fit 0.9→1.94、平均位移 5.6px，3× 放大后绿线贴着叶缘。`--
 `mode=union` 时用 `attach_px` 限制"只在已有掩膜旁边补上缺的那块"，避免整块方块贴上去。
 每个窗口可带自己的 `attach_px`（逐窗口）：叶尖离主掩膜十几像素就要放大，叶身 4px 即可。
 
-**ops 内 loop（可选，默认关）**：`{"cells"|"tiles": {..., "loop": {"iters":6,"tol":0.995,"model":"grabcut"}}}`。
-`cells` + loop 时每轮把 init 并回（单调，不许丢模型决定的区域）。**实测本例 cells+loop 反而更差**
-（0.947→0.923，多出 2537px）：loop 用判别器重建，会把模型拍板的形状重新判一遍。
+**模型在环的 ops 链 `cells.steps`（推荐）**：`{"cells": {"image", "base", "steps": [ {windows, base?, mode?, attach_px}, ... ]}}`。
+每一步都是模型看了上一轮栅格图后报的格子，逐步追加，**每步可回放**（trace 里记录 step/attach_px/mode/area/cells）。
+实测 2 步 → IoU 0.949（与最优一致），且每步只增不减。
+
+**ops 内 loop（无人值守自训练，默认关，慎用）**：`{"cells"|"tiles": {..., "loop": {"iters":6,"tol":0.995,"model":"grabcut"}}}`。
+`cells` + loop 时每轮把 init 并回（单调，不许丢模型决定的区域）。**实测本例 cells+loop 更差**（0.947→0.924，area 0.0590→0.0616）：
+不是"推翻模型决定"（init 每轮并回，从未丢过），而是 loop 的负样本取自离边缘 14~84px 的外环，
+GrabCut 有 14px 自由区可以外扩，把叶缘的软阴影/晕边一起吃进来（+2578px）。
+结论：需要模型逐轮判断时用 `steps`；不要用无人值守 loop 去"自动收敛"边界。
 所以 loop 只在"判别器主导（tiles 无 cells）"时用；cells 直通 + 逐窗口 attach 才是最优路径。
 
 实测：attach 4 / 16 / 28 → IoU 0.947 / 0.948 / 0.949（叶），默认 4；`--sub` 与 `tile_px` 都可作细度。

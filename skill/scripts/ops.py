@@ -778,6 +778,33 @@ def resolve_mask(doc, spec):
         cs = dict(spec["cells"])
         if not cs.get("image"):
             raise ValueError("cells 需要 image")
+        steps = cs.get("steps")
+        if steps:
+            # 模型在环的 ops 链：每一步都是模型看上一轮结果后报的格子，逐步追加、可回放。
+            # 每步可选 windows / base（默认上一步结果为 base）/ mode / attach_px。
+            import numpy as _np2
+            import pick_instance as _PI2
+            from PIL import Image as _Im2
+            doc_w2, doc_h2 = _Im2.open(cs["image"]).size
+            prev = None
+            if cs.get("base"):
+                prev = _PI2.rasterize(resolve_mask(doc, cs["base"]), doc_w2, doc_h2)
+            trace = []
+            for si, st in enumerate(steps, 1):
+                if not isinstance(st, dict):
+                    raise ValueError("cells.steps[%d] 必须是对象" % (si - 1))
+                wins_i = st.get("windows") or [st]
+                base_i = _PI2.rasterize(resolve_mask(doc, st["base"]), doc_w2, doc_h2) if st.get("base") else prev
+                b_i = _PI2.cells_mask(cs["image"], wins_i, int(st.get("dilate_px", 0)),
+                                      near=base_i, near_px=int(st.get("attach_px", 4)))
+                mode_i = str(st.get("mode", "union"))
+                prev = b_i if base_i is None else ((b_i | base_i) if mode_i == "union" else (b_i & base_i))
+                trace.append({"step": si, "attach_px": int(st.get("attach_px", 4)), "mode": mode_i,
+                              "area": round(float(prev.mean()), 4),
+                              "cells": [c for w in wins_i for c in (w.get("pos") or [])]})
+            if prev is None or not prev.any():
+                raise ValueError("cells.steps 没有产生任何像素")
+            return M.from_bool(prev)
         wins = cs.get("windows") or [cs]
         from PIL import Image as _Image
         doc_w, doc_h = _Image.open(cs["image"]).size
