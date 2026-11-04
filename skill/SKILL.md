@@ -105,10 +105,25 @@ python scripts/calibrate.py --param model_grow_px --choose 20 --reason "20 时�
 消费方：`refine_loop(neg_px/max_grow_px)`、`filter_added(min_ratio/model_grow_px)`、`edge_report(min_contrast)`、`ops` 的循环接受门（`accept_max_area_change`）。
 复验：`tests/test_calibrated.py`（字段、`chosen_by`、值在 sweep 内、接触表存在、默认值确实来自文件）。
 
-**多图样本（阈值要 N 张图撑，不是 1 张）**：`python scripts/calibrate.py --param edge_min_contrast --samples samples.json`，
-样本格式 `{"samples":[{"image":..., "trace":..., "cells":..., "base_mask":..., "runaway_delta":0.0463}]}`；
-辅助函数 `calibrate.load_samples()` / `calibrate.sweep_multi()` 返回每样本区间与**交集**，交集空说明样本互相矛盾，先查哪个判据错了。
-目前仓库里只有 1 个真实样本（叶子那张），所以区间还宽；加图后重跑即可收窄。
+**标定是每个工程各自的事（不随技能走固定样本）**
+
+样本与被选值都属于**当前工程**，技能只提供工具：
+
+```powershell
+# 1) 在工程目录生成样本表（配对规则：图 X.png ↔ 同目录含 mask/trace 且名字含 X 的 JSON；配不上的会列出来，不猜）
+python scripts/calibrate.py --make-samples D:\工程 --make-samples-out D:\工程\calib.samples.json
+
+# 2) 跑判据，写回本工程的 calibrated.json（--json 隔离，不碰技能默认值）
+python scripts/calibrate.py --param edge_min_contrast --samples D:\工程\calib.samples.json --json D:\工程\calibrated.json
+python scripts/calibrate.py --param accept_max_area_change --samples D:\工程\calib.samples.json --json D:\工程\calibrated.json
+
+# 3) 我看图/看分布后记录，必须给 --evidence
+python scripts/calibrate.py --param edge_min_contrast --choose 0.40 --evidence per_pixel_hist --reason "..." --json D:\工程\calibrated.json
+```
+
+- **证据三选一**（`evidence` 字段，测试强制）：`contact_sheet`（扫档接触表）、`multi_sample`（多图交集非空）、`per_pixel_hist`（逐边界像素分布图 `docs/calib/edge_hist.png`）。
+- 单图也能判阈值：`--param edge_hist` 渲染逐像素分布，一张图的边界有上千个像素样本，比"1 个聚合数"强，但仍只是**警告门**——两分布重叠时它不能当分类器用。
+- 样本数、交集、每样本区间都会写进 `calibrated.json`；交集为空表示样本互相矛盾，要先查哪个判据错了，不要硬选。
 
 **口径要点**：参数只在“已有较好种子 + 新增细结构落在模型报的格子里”时才起作用；
 用格子并集当种子扫 5 档会**完全一样**（实测），所以 `--base-mask` 值得给。

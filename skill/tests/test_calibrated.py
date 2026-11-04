@@ -24,11 +24,15 @@ def main():
         if e['chosen_by'] == 'model':
             for k in ('sweep', 'contact_sheet'):
                 assert k in e, '%s 缺 %s' % (name, k)
-            sheet = str(e.get('contact_sheet') or '')
-            has_sheet = bool(sheet) and (ROOT / sheet).is_file()
-            has_interval = bool(e.get('intersection'))
-            # 证据要么是接触表（单样本扫档），要么是多图交集（per-sample 区间）
-            assert has_sheet or has_interval, '%s 既没有接触表也没有多图交集，等于没证据' % name
+            ev = str(e.get('evidence') or '')
+            assert ev in ('contact_sheet', 'multi_sample', 'per_pixel_hist'), \
+                '%s 的 evidence 不合法: %r（必须是接触表/多图交集/逐像素分布之一）' % (name, ev)
+            if ev == 'contact_sheet':
+                assert (ROOT / str(e.get('contact_sheet'))).is_file(), '%s 接触表不存在' % name
+            elif ev == 'multi_sample':
+                assert e.get('intersection'), '%s 标了多图但没有交集' % name
+            elif ev == 'per_pixel_hist':
+                assert (ROOT / 'docs' / 'calib' / 'edge_hist.png').is_file(), '%s 缺逐像素分布图' % name
             if name in NUMERIC:
                 keys = [float(k) for k in e['sweep']]
                 assert float(e['value']) in keys, '%s 的值 %r 不在 sweep 里 (%s)' % (name, e['value'], keys)

@@ -21,6 +21,12 @@ sys.path.insert(0, str(HERE))
 JSON_PATH = HERE / "calibrated.json"
 
 
+def _json_path(a):
+    """工程级隔离：给了 --json 就只读写那个文件，不动技能自带的默认值。"""
+    p = getattr(a, "json", "") or ""
+    return Path(p) if p else JSON_PATH
+
+
 def _load_json(p):
     return json.loads(Path(p).read_text(encoding="utf-8"))
 
@@ -333,14 +339,120 @@ def sweep_multi(param, samples, values):
             "samples": len(samples), "values": [float(v) for v in values]}
 
 
+
+def boundary_contrast(image, mask, patch=9):
+    """逐边界像素的"峰值显著度"——一张图也能给出几千个样本，不是 1 个聚合数。
+
+    每个边界像素取 patch x patch 邻域，先算 Lab 梯度幅值，再算
+        contrast = (本像素梯度 - 邻域均值) / 邻域均值
+    即"这一点比周围更像个边"的程度。掩膜边界压在真边上时这个分布重心高；
+    边界糊出去时分布整体下移——阈值就该取在两个分布之间，而不是某个聚合数的中点。
+    """
+    import numpy as np
+    import cv2 as cv
+    img = cv.imread(image, cv.IMREAD_COLOR)
+    lab = cv.cvtColor(img, cv.COLOR_BGR2LAB).astype(np.float32)
+    grad = np.zeros(lab.shape[:2], np.float32)
+    for ch in range(3):
+        c0 = lab[..., ch]
+        gx = np.zeros_like(c0); gy = np.zeros_like(c0)
+        cv.Sobel(c0, cv.CV_32F, 1, 0, gx, ksize=3)
+        cv.Sobel(c0, cv.CV_32F, 0, 1, gy, ksize=3)
+        grad += np.sqrt(gx * gx + gy * gy)
+    grad /= 3.0
+    m = mask.astype(np.uint8)
+    er = cv.erode(m, np.ones((3, 3), np.uint8)) > 0
+    bd = m.astype(bool) & ~er
+    ys, xs = np.nonzero(bd)
+    h, w = grad.shape
+    r = max(2, patch // 2)
+    vals = []
+    for y, x in zip(ys, xs):
+        y0, y1 = max(0, y - r), min(h, y + r + 1)
+        x0, x1 = max(0, x - r), min(w, x + r + 1)
+        win = grad[y0:y1, x0:x1]
+        mu = float(win.mean()) + 1e-6
+        vals.append((float(grad[y, x]) - mu) / mu)
+    return np.asarray(vals, np.float32)
+
+
+def sweep_edge_hist(image, trace, cells, values, base_mask=None):
+    """一图也可判：把 accurate / fat_3px / refined 的逐像素分布画在一张图上，模型看分界。"""
+    import numpy as np
+    import cv2 as cv
+    import pick_instance as PI
+    import masks as M
+    from PIL import Image
+    w, h = Image.open(image).size
+    gt = PI.rasterize(M.from_json(_load_json(trace)), w, h)
+    accurate = PI.rasterize(M.from_json(_load_json(base_mask)), w, h) if base_mask else gt
+    fat = cv.dilate(accurate.astype(np.uint8), np.ones((7, 7), np.uint8)) > 0
+    dists = {"accurate": boundary_contrast(image, accurate),
+             "fat_3px": boundary_contrast(image, fat)}
+    rows = {k: {"n": int(v.size), "p10": round(float(np.percentile(v, 10)), 3),
+                "median": round(float(np.median(v)), 3), "p90": round(float(np.percentile(v, 90)), 3),
+                "mean": round(float(v.mean()), 3)} for k, v in dists.items()}
+    lo = float(min(v.min() for v in dists.values())); hi = float(max(v.max() for v in dists.values()))
+    lo = max(lo, -1.0); hi = min(hi, 3.0)
+    bins = 26
+    edges = np.linspace(lo, hi, bins + 1)
+    canvas = np.full((280, 900, 3), 255, np.uint8)
+    hist_all = {}
+    for name, col in (("accurate", (60, 140, 60)), ("fat_3px", (180, 80, 60))):
+        hh, _ = np.histogram(dists[name], bins=edges)
+        hist_all[name] = hh
+        mx = max(1, int(hh.max()))
+        for i in range(bins):
+            x0 = int(40 + i * 800 / bins) + 2
+            x1 = int(40 + (i + 1) * 800 / bins) - 2
+            y0 = 250 - int(hh[i] / mx * 220)
+            cv.rectangle(canvas, (x0, y0), (x1, 250), col, -1 if name == "accurate" else 1)
+    cv.putText(canvas, "green=accurate (fill)  red=fat_3px (outline)", (40, 20), cv.FONT_HERSHEY_SIMPLEX, 0.55, (30, 30, 30), 1)
+    for k in values:
+        x = int(40 + (float(k) - lo) / max(1e-6, hi - lo) * 800)
+        if 40 <= x <= 840:
+            cv.line(canvas, (x, 28), (x, 250), (30, 30, 200), 1)
+            cv.putText(canvas, ("%.2f" % float(k)), (x - 12, 270), cv.FONT_HERSHEY_SIMPLEX, 0.42, (30, 30, 200), 1)
+    for name, v in dists.items():
+        rows[name]["share_above_040"] = round(float((v > 0.40).mean()), 3)
+    return rows, canvas
+
+
+
+def make_samples(folder, out=None):
+    """按目录约定给"当前工程"生成样本表——样本是工程数据，不是随技能发布的固定文件。
+
+    配对规则：图片 X.png 与同目录下文件名同时包含 X 主干与 "mask"/"trace" 的 JSON 视为一对；
+    配对失败的图片会列出来（不猜），由人补 trace 路径再用 --samples 指过去。
+    输出默认写到该目录下的 calib.samples.json，同时建议配上 --json 让 calibrated.json 也落在本工程。
+    """
+    folder = Path(folder)
+    imgs = sorted([p for p in folder.iterdir() if p.suffix.lower() in (".png", ".jpg", ".jpeg")])
+    jsons = sorted([p for p in folder.iterdir() if p.suffix.lower() == ".json"])
+    samples, unmatched = [], []
+    for img in imgs:
+        stem = img.stem.lower()
+        cands = [j for j in jsons if ("mask" in j.name.lower() or "trace" in j.name.lower())
+                 and (stem in j.name.lower() or j.stem.lower().replace("mask_", "") in stem)]
+        if not cands:
+            unmatched.append(img.name); continue
+        samples.append({"image": str(img), "trace": str(cands[0])})
+    out = Path(out) if out else folder / "calib.samples.json"
+    out.write_bytes(json.dumps({"samples": samples}, ensure_ascii=False, indent=1).encode("utf-8"))
+    return samples, unmatched, out
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--param", required=True)
+    ap.add_argument("--param", default="", )
     ap.add_argument("--image")
     ap.add_argument("--trace")
     ap.add_argument("--cells")
     ap.add_argument("--base-mask", default="")
+    ap.add_argument("--make-samples", default="", help="按目录约定生成 <目录>/calib.samples.json（工程样本，不随技能走）")
     ap.add_argument("--samples", default="", help="多图样本 JSON（每项 image/trace[/cells/base_mask]）")
+    ap.add_argument("--make-samples-out", default="", help="--make-samples 的输出路径")
+    ap.add_argument("--evidence", default="", help="判据来源：multi_sample / per_pixel_hist / contact_sheet；单图阈值不许空着")
     ap.add_argument("--values", default="")
     ap.add_argument("--choose", default="")
     ap.add_argument("--reason", default="")
@@ -355,9 +467,14 @@ def main():
             print("先跑枚举（不带 --choose）", file=sys.stderr); return 2
         if not a.reason.strip():
             print("--choose 必须给 --reason", file=sys.stderr); return 2
+        ev = (a.evidence or data[a.param].get("evidence") or "").strip()
+        if not ev:
+            print("%r 标 model 必须给 --evidence（contact_sheet / multi_sample / per_pixel_hist）" % a.param, file=sys.stderr)
+            return 2
         data[a.param]["value"] = float(a.choose)
         data[a.param]["chosen_by"] = "model"
         data[a.param]["reason"] = a.reason
+        data[a.param]["evidence"] = ev
         Path(a.json).write_bytes((json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True) + "\n").encode("utf-8"))
         print("recorded %s = %s (model)" % (a.param, a.choose))
         return 0
@@ -425,7 +542,8 @@ def main():
             print("%-22s %s" % (name, json.dumps(rows, ensure_ascii=False)))
         print("samples=%d  intersection=%s" % (out["samples"], out["intersection"]))
         return 0
-    sweeps = {"attach_px": sweep_attach_px, "min_ratio": sweep_min_ratio,
+    sweeps = {"edge_hist": sweep_edge_hist,
+              "attach_px": sweep_attach_px, "min_ratio": sweep_min_ratio,
               "edge_min_contrast": sweep_edge_min_contrast,
               "accept_max_area_change": sweep_accept_max_area_change}
     if a.param in ("neg_px", "neg_k", "max_grow_px"):
@@ -437,7 +555,15 @@ def main():
     if not sweeper:
         print("未实现的参数 %r；已实现：attach_px / min_ratio / neg_px / neg_k / max_grow_px" % a.param, file=sys.stderr)
         return 2
-    if not (a.image and a.trace and a.cells):
+    if a.make_samples:
+        sm, unmatched, out = make_samples(a.make_samples, a.make_samples_out or None)
+        print("samples=%d -> %s" % (len(sm), out))
+        for u in unmatched:
+            print("  未配对（需手填 trace）: %s" % u)
+        print("提示：再加 --json <工程目录>/calibrated.json，标定值与样本就都留在工程里")
+        return 0
+    need_cells = a.param not in ("edge_hist", "edge_min_contrast")
+    if not (a.image and a.trace and (a.cells or not need_cells)):
         print("需要 --image --trace --cells", file=sys.stderr); return 2
     vals = [float(x) for x in a.values.split(",") if x.strip()]
     rows, sheet = sweeper(a.image, a.trace, a.cells, vals, a.base_mask or None)
@@ -451,7 +577,7 @@ def main():
                      "chosen_by": (data.get(a.param) or {}).get("chosen_by", "unset"),
                      "reason": (data.get(a.param) or {}).get("reason", ""),
                      "spec": {"image": Path(a.image).name, "trace": Path(a.trace).name,
-                              "cells": Path(a.cells).name,
+                              "cells": Path(a.cells).name if a.cells else "",
                               "base_mask": Path(a.base_mask).name if a.base_mask else "cells"}}
     Path(a.json).write_bytes((json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True) + "\n").encode("utf-8"))
     print("wrote %s and %s" % (a.json, sheet_path))

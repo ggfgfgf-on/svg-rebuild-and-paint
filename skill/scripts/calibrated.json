@@ -2,6 +2,7 @@
  "accept_max_area_change": {
   "chosen_by": "model",
   "contact_sheet": "",
+  "evidence": "multi_sample",
   "intersection": [
    0.042,
    0.045
@@ -16,7 +17,7 @@
     "runaway_delta": 0.0463
    }
   },
-  "reason": "更正上一轮：把历史失控 +4.63% 作为样本 runaway_delta 后区间是 [0.042, 0.045]，正常精修 4.13% 与失控 4.63% 可分离；取中点 0.044，之前的 0.08 落在区间外作废",
+  "reason": "多图接口区间 [0.042,0.045]，正常精修 4.13% 放行、历史失控 4.63% 拦住；取中点",
   "samples": 1,
   "spec": {
    "samples_file": "_samples_abs.json"
@@ -36,6 +37,7 @@
  "attach_px": {
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\attach_px.png",
+  "evidence": "contact_sheet",
   "reason": "扫 0~28 IoU 0.703~0.706 无可辨差异；attach_px 只在有 near 时生效，取 4 避免方块外扩",
   "spec": {
    "base_mask": "cells",
@@ -70,6 +72,7 @@
  "edge_min_contrast": {
   "chosen_by": "model",
   "contact_sheet": "",
+  "evidence": "per_pixel_hist",
   "intersection": [
    0.304,
    0.505
@@ -106,7 +109,7 @@
     }
    }
   },
-  "reason": "多图接口跑出的区间 [0.304, 0.505]（目前 1 个样本），0.40 在区间内且两端留余量；样本多了区间会收窄",
+  "reason": "逐边界像素分布：accurate 中位数 0.432、fat_3px 中位数 -0.138，0.40 落在两分布之间（>0.40 时 accurate 保留 52.7%、fat 仅 21.4%）。两分布重叠明显，所以它是警告门不是分类器；比之前的单样本聚合区间更站得住",
   "samples": 1,
   "spec": {
    "samples_file": "_samples_abs.json"
@@ -148,6 +151,7 @@
  "max_grow_px": {
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\max_grow_px.png",
+  "evidence": "contact_sheet",
   "reason": "从块状种子精修时 4 的面积 0.0637 已超过人工描边 0.0614(+3.7%)且面板更胖，1 欠长(0.765)，取 2(0.801)",
   "spec": {
    "base_mask": "cells",
@@ -183,6 +187,7 @@
  "min_ratio": {
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\min_ratio.png",
+  "evidence": "contact_sheet",
   "reason": "0.8 与 0.9 结果一致(keep 1991)，1.1 开始把叶缘真实结构当晕边丢掉(右下出现红带)，0.6 多收 180px 边缘薄雾",
   "spec": {
    "base_mask": "mask_leaf_tip3.json",
@@ -225,6 +230,7 @@
  "model_grow_px": {
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\model_grow_px.png",
+  "evidence": "contact_sheet",
   "reason": "看图选 20：左叉叶柄完整并入、右邻叶边缘未被带入；14 时叶柄缺一半，30 时右邻叶边沿开始变绿（越界）。描边 IoU 20=0.945 略低于 14=0.947，差在人工描边没画叶柄，属口径差异",
   "spec": {
    "base_mask": "mask_leaf_tip3.json",
@@ -279,6 +285,7 @@
  "neg_px": {
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\neg_px.png",
+  "evidence": "contact_sheet",
   "reason": "扫 1/3/6/10 结果 0.801~0.804 无差异，保留默认 3（贴边负样本量小，靠颜色筛选而非数量）",
   "spec": {
    "base_mask": "cells",
