@@ -1277,6 +1277,19 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 **两个真 bug（修完）**：① `masks._decode_bits` 的缓存键是 `id(mask)`，对象回收后 id 复用会解出**别的掩膜**；
 ② `edit_loop` 度量用 uint8 相减，下溢回绕把 Δ10 报成 Δ155（现在先转 float，并有回归断言）。
 
+**六个缺口组件（本轮补齐，全部性质断言，不锁像素值）**
+
+| 缺口 | 组件 | 实测 |
+|---|---|---|
+| 区域重规划 | `scripts/planner_region.py`：只在掩膜内按参考图重画笔触，按层合并 | 玫瑰区替换 2,128 笔，区内 Δ7.81、区外 Δ1.71（跨边界笔触所致） |
+| 软权重着色 | `ops._targets` 的强度 = guidance×掩膜权重，本来就走插值；raster feather 修好后边界是连续权重 | `set_layer_hue guidance=0.5` 色相落在中间值，不跳变 |
+| 实例级选择 | `visual_mask` 加负样本点 + 掩膜加减（`--negative`/`--add-mask`/`--sub-mask`） | 同色干扰物被色相门控+负样本挡住 |
+| 光影分解 | `ops.split_shading` / `ops.set_light`：笔画级 albedo+shade，改光只动 shade | scale=0.5 时 luma 恰好减半、色相不变；未拆分就报错 |
+| 验收门 | `scripts/accept.py`：schema/确定性/区外不变/方向/主体 | 白玫瑰一例：确定性通过、区外 Δ0.003、区向 +83.44 |
+| 编辑谱系 | `scripts/lineage.py`（append-only JSONL + 快照 checkout）、`scripts/mask_registry.py`（掩膜 id + 来源） | 父子链、tree、checkout 恢复快照均有断言 |
+
+另有 `edit_loop --zoom x0,y0,x1,y1` 输出局部放大图（`zoom.jpg`）供模型看细节。
+
 **改夜色要动光影，不是全局套一层暖色**：全局 hue+压暗会把整幅压成单色棕
 （实测玫瑰 41.8→66.5 反而更亮、色彩尽失）。正确姿势是**按亮度分离**：从渲染图取 luma 分位做掩膜，
 暗部（≤35 分位，约 40% 画布）加暖压深、高光（≥97 分位，约 5%）提亮、中间调轻降曝光。

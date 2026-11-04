@@ -21,7 +21,7 @@ from PIL import Image
 import masks
 
 
-def seeds_mask(arr, seeds, tolerance, hue_tol=14.0):
+def seeds_mask(arr, seeds, tolerance, hue_tol=14.0, negatives=()):
     """与任意种子"同色系"的像素：先比色相（避免暗红和暗绿混淆），再比明度。
 
     纯 RGB 阈值会在暗部失效：深红 (67,0,1) 与深绿 (8,18,16) 的逐通道差只有 45~59，
@@ -36,6 +36,12 @@ def seeds_mask(arr, seeds, tolerance, hue_tol=14.0):
         dh = np.minimum(dh, 180.0 - dh)                 # 色相环绕
         near = (dh <= hue_tol) & (np.abs(val - vs) <= tolerance) & (sat >= ss * 0.35)
         close |= near
+    # 负样本：把"看起来像但其实不是"的实例排除（同色相邻物体最典型的串扰来源）
+    for x, y in negatives:
+        hs, vs, ss = h[y, x], val[y, x], sat[y, x]
+        dh = np.abs(h - hs)
+        dh = np.minimum(dh, 180.0 - dh)
+        close &= ~((dh <= hue_tol) & (np.abs(val - vs) <= tolerance))
     return close
 
 
@@ -61,15 +67,29 @@ def overlay(arr, m, path):
     Image.fromarray(out.clip(0, 255).astype(np.uint8)).save(path)
 
 
-def run(image, seeds, tolerance=60, grow=6, out=None, overlay_path=None, box=None, hue_tol=14.0):
+def run(image, seeds, tolerance=60, grow=6, out=None, overlay_path=None, box=None, hue_tol=14.0,
+        negatives=(), add_masks=(), sub_masks=()):
     arr = np.asarray(Image.open(image).convert("RGB"))
-    close = seeds_mask(arr, seeds, tolerance, hue_tol)
+    close = seeds_mask(arr, seeds, tolerance, hue_tol, negatives)
     if box:
         x0, y0, x1, y1 = box
         clip = np.zeros_like(close)
         clip[y0:y1, x0:x1] = True
         close &= clip           # 模型给的框是硬约束：框外一律不要
     m, _ = grow_mask(seeds, close, grow)
+    # 掩膜编辑：并上/减去已有掩膜（模型可以"这块要、那块不要"地逐步修正）
+    for p in add_masks:
+        other = masks.from_json(json.loads(Path(p).read_text(encoding="utf-8")))
+        ob = masks._decode_bits(other)
+        mm = np.zeros_like(m)
+        mm[other["y"]:other["y"] + ob.shape[0], other["x"]:other["x"] + ob.shape[1]] = ob
+        m = m | mm
+    for p in sub_masks:
+        other = masks.from_json(json.loads(Path(p).read_text(encoding="utf-8")))
+        ob = masks._decode_bits(other)
+        mm = np.zeros_like(m)
+        mm[other["y"]:other["y"] + ob.shape[0], other["x"]:other["x"] + ob.shape[1]] = ob
+        m = m & ~mm
     if out:
         Path(out).write_text(json.dumps(masks.to_json(masks.from_bool(m)), ensure_ascii=False),
                              encoding="utf-8")
@@ -93,11 +113,15 @@ def main():
     ap.add_argument("--out", help="掩膜 JSON（masks.from_bool）")
     ap.add_argument("--overlay", help="检查用 overlay PNG")
     ap.add_argument("--box", help="x0,y0,x1,y1 硬裁剪：框外一律不要（模型给框，防连通泄漏）")
+    ap.add_argument("--negative", action="append", default=[], help="负样本点 x,y（排除同色干扰）")
+    ap.add_argument("--add-mask", action="append", default=[], help="并上已有掩膜 JSON")
+    ap.add_argument("--sub-mask", action="append", default=[], help="减去已有掩膜 JSON")
     a = ap.parse_args()
     seeds = [tuple(int(v) for v in s.split(",")) for s in a.seed]
     box = tuple(int(v) for v in a.box.split(",")) if a.box else None
-    print(json.dumps(run(a.image, seeds, a.tolerance, a.grow, a.out, a.overlay, box, a.hue_tol),
-                     ensure_ascii=False))
+    negs = [tuple(int(v) for v in s.split(",")) for s in a.negative]
+    print(json.dumps(run(a.image, seeds, a.tolerance, a.grow, a.out, a.overlay, box, a.hue_tol,
+                         negs, a.add_mask, a.sub_mask), ensure_ascii=False))
 
 
 if __name__ == "__main__":

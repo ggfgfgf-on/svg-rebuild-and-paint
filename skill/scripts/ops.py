@@ -426,7 +426,73 @@ def recolor_palette(doc, palette, guidance=1.0, selection=None, weights=None, se
     return doc
 
 
+def split_shading(doc, layer=None, guidance=1.0, selection=None, weights=None, seed=0, **_):
+    """把笔触颜色拆成 albedo（材质反照率）+ shade（受光量），存在笔触字段里。
+
+    intrinsic 的笔画级近似：同层内按 luma 归一化——shade = luma / 层内 luma 均值，
+    albedo = color / shade。拆完之后改光照用 set_light 只动 shade，
+    颜色的色相/材质（albedo）保持不变，这是"改光照而不是重新上色"的最小实现。
+
+    可重复执行：已拆过的笔触会重新按当前颜色计算（幂等）。
+    """
+    import numpy as _np
+
+    def _luma(c):
+        r, g, b = _to_rgb(c)
+        return float(0.2126 * r + 0.7152 * g + 0.0722 * b)
+
+    per_layer = {}
+    for s in doc["strokes"]:
+        if layer is not None and s["layer"] != layer:
+            continue
+        per_layer.setdefault(s["layer"], []).append(_luma(s["color"]))
+    mean = {k: (sum(v) / max(1, len(v))) for k, v in per_layer.items()}
+    n = 0
+    for i, s, st in _targets(doc, layer, selection, weights, guidance):
+        lum = _luma(s["color"])
+        m = max(mean.get(s["layer"], lum), 1e-6)
+        shade = lum / m
+        albedo = _np.clip(_np.asarray(_to_rgb(s["color"])) / max(shade, 0.05), 0.0, 255.0)
+        if "albedo" not in s:
+            s["albedo"] = [float(x) for x in albedo]
+        s["shade"] = float(shade)
+        n += 1
+    return doc
+
+
+def set_light(doc, scale=1.0, tint=None, layer=None, guidance=1.0, selection=None,
+              weights=None, seed=0, **_):
+    """只改光照：color = albedo × shade × scale × tint（需要先 split_shading）。
+
+    scale=1 且 tint=None 时逐字节不变。tint 是 [r,g,b] 乘子（暖光用 [1.1,1.0,0.85] 之类）。
+    """
+    import numpy as _np
+
+    scale = float(scale)
+    if scale < 0:
+        raise ValueError("set_light: scale must be >= 0")
+    t = _np.ones(3) if tint is None else _np.asarray(tint, _np.float64)[:3]
+    if t.shape != (3,) or (t <= 0).any():
+        raise ValueError("set_light: tint must be 3 positive numbers")
+    if abs(scale - 1.0) < 1e-12 and bool((t == 1.0).all()):
+        return doc
+    n = 0
+    for _, s, st in _targets(doc, layer, selection, weights, guidance):
+        if "albedo" not in s or "shade" not in s:
+            raise ValueError("set_light 需要先 split_shading（笔触缺少 albedo/shade）")
+        base = _np.asarray(s["albedo"], _np.float64) * float(s["shade"])
+        shade = float(s["shade"]) * (1.0 + (scale - 1.0) * st)
+        tt = 1.0 + (t - 1.0) * st
+        col = _np.clip(_np.asarray(s["albedo"], _np.float64) * shade * tt, 0.0, 255.0)
+        s["color"] = _set_rgb(col)
+        s["shade"] = shade
+        n += 1
+    return doc
+
+
 OPS = {
+    "split_shading": split_shading,
+    "set_light": set_light,
     "set_layer_hue": set_layer_hue,
     "tone_map": tone_map,
     "set_layer_saturation": set_layer_saturation,
@@ -453,6 +519,8 @@ REQUIRED = {
     "recolor_palette": ["palette"],
     "draw_path": ["layer", "d"],
     "tone_map": [],
+    "split_shading": [],
+    "set_light": [],
 }
 
 
@@ -469,6 +537,8 @@ ALLOWED = {
     "recolor_palette": {"palette", "guidance"},
     "draw_path": {"layer", "d", "color", "size", "opacity", "preset", "guidance"},
     "tone_map": {"gain", "lift", "gamma", "layer", "guidance"},
+    "split_shading": {"layer", "guidance"},
+    "set_light": {"scale", "tint", "layer", "guidance"},
 }
 INTERNAL = {"seed", "selection", "weights"}
 

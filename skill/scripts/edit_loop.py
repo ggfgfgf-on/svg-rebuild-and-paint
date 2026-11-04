@@ -132,8 +132,17 @@ def _full_mask(mask, h, w, base=None):
     raise SystemExit("暂不支持用 %r 掩膜做度量" % t)
 
 
+def _zoom_sheet(arr, box, path, scale=3):
+    """局部放大评审：模型判断细节时看这个，而不是整图缩略。"""
+    x0, y0, x1, y1 = box
+    im = Image.fromarray(arr.astype(np.uint8)).crop((x0, y0, x1, y1))
+    im = im.resize((im.width * scale, im.height * scale), Image.LANCZOS)
+    im.save(path, "JPEG", quality=94)
+    return str(path)
+
+
 def run_steps(plan, steps, out_dir, tag="it", ref=None, gpu=False, threads=8, crop_pad=24,
-              instruction=None):
+              instruction=None, zoom=None, zoom_scale=3):
     doc, w, h = plan_io.load_plan(plan)
     for st in steps:
         compile_ops.validate_ops(doc, st["ops"])
@@ -196,6 +205,8 @@ def run_steps(plan, steps, out_dir, tag="it", ref=None, gpu=False, threads=8, cr
         before = np.asarray(Image.open(root / "before.png").convert("RGB"), dtype=np.float64)
         summary["vs_ref"] = {"before": round(float(np.abs(before - rarr).mean()), 2),
                              "after": round(float(np.abs(base_arr - rarr).mean()), 2)}
+    if zoom:
+        summary["artifacts"]["zoom"] = _zoom_sheet(base_arr, zoom, root / "zoom.jpg", zoom_scale)
     (root / "metrics.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     return summary
 
@@ -213,6 +224,10 @@ def run(plan, specs, out_dir, tag="it", seeds=None, box=None, tolerance=80, hue_
         step["box"] = list(box)
     return run_steps(plan, [step], out_dir, tag=tag, ref=ref, gpu=gpu, threads=threads,
                      instruction=instruction)
+
+
+def _box(s):
+    return tuple(int(v) for v in s.split(",")) if s else None
 
 
 def main():
@@ -233,12 +248,15 @@ def main():
     ap.add_argument("--mask-mode", default="any", choices=["any", "all"])
     ap.add_argument("--feather", type=float, default=0.0)
     ap.add_argument("--ref", help="参考图：额外报告 before/after 与它的平均差")
+    ap.add_argument("--zoom", help="局部放大评审：x0,y0,x1,y1（输出 zoom.jpg）")
+    ap.add_argument("--zoom-scale", type=int, default=3)
     CU.add_common_args(ap, quiet=False)
     a = ap.parse_args()
     if a.recipe:
         rec = CU.load_json(a.recipe)
         res = run_steps(a.plan, rec["steps"], a.out_dir, tag=a.tag, ref=a.ref, gpu=a.gpu,
-                        threads=a.threads, instruction=rec.get("instruction") or a.instruction)
+                        threads=a.threads, instruction=rec.get("instruction") or a.instruction,
+                        zoom=_box(a.zoom), zoom_scale=a.zoom_scale)
     else:
         if not (a.ops or a.ops_json):
             raise SystemExit("需要 --ops / --ops-json / --recipe 之一")
@@ -253,7 +271,7 @@ def main():
         res = run(a.plan, specs, a.out_dir, tag=a.tag, seeds=seeds, box=box, tolerance=a.tolerance,
                   hue_tol=a.hue_tol, grow=a.grow, mask_file=a.mask_file, mask_mode=a.mask_mode,
                   feather=a.feather, ref=a.ref, gpu=a.gpu, threads=a.threads,
-                  instruction=a.instruction)
+                  instruction=a.instruction, zoom=_box(a.zoom), zoom_scale=a.zoom_scale)
     print(json.dumps(res, ensure_ascii=False))
 
 
