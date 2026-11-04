@@ -1262,6 +1262,13 @@ python scripts/render_plan.py plan/painting_clean.plan.json --ops tone_calibrate
 # -> luma 22.32（与标定报告 achieved_luma 22.323 一致）
 ```
 
+**highlight 层默认去掉（`--highlight-mode drop`）**：1,838 个 `splat_dots` 是接近白色的
+screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9），玫瑰只 +1.4（34.5 vs 33.1），
+而 11-03 02:44 的旧 raster 出图根本没有这层。默认 drop 后叶子亮度 40.9 对齐视频的 39.1；
+若要"绿色高光"可 `--highlight-mode keep` 再叠
+`set_layer_hue highlight 100 + set_layer_saturation 0.9 + tone_map(layer=highlight) gain 0.55`
+（实测叶子裁剪区 32.1，色相对、仍偏粉笔感）。
+
 **亮度不硬编码**：用 `scripts/calibrate_tone.py` 从参考图现场反解 gain：
 
 ```

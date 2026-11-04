@@ -478,6 +478,11 @@ def main():
     spec = [(l["name"], l.get("blend", "normal")) for l in S("layers", default=[])]
     _t0 = time.time()
     layers = build(21, p)
+    _hi_mode = _arg("--highlight-mode", "drop")
+    if _hi_mode == "drop":
+        # highlight 层 1,838 个 splat 点几乎全落在叶子上（screen 后叶子 +17 luma），
+        # 玫瑰只 +1.4；旧 raster 出图没有这层，所以默认去掉，--highlight-mode keep 可恢复。
+        layers["highlight"] = []
     _sh_mode = _arg("--shadow-mode", "drop")
     if _sh_mode != "keep":
         try:
