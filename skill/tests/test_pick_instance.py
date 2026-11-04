@@ -40,6 +40,22 @@ full_box[40:160, 40:160] = True
 check("掩膜≈矩形框被识别", not PI.verify(full_box, max_area=1.0, box=[40, 40, 160, 160],
                                             allow_border=True)["ok"])
 
+# polygon 走同一条通道：模型画的掩膜也要被验证
+import tempfile as _tf
+from PIL import Image as _Im
+arr = np.full((H, W, 3), 60, np.uint8)
+arr[60:140, 60:140] = (220, 40, 40)
+with _tf.TemporaryDirectory() as td:
+    img = Path(td, "p.png"); _Im.fromarray(arr).save(img)
+    rep = PI.pick(img, [{"name": "poly_ok", "polygon": [[60, 60], [140, 60], [140, 140], [60, 140]]}], Path(td, "o"))
+    check("polygon 实例通过", rep["all_ok"], rep["instances"][0]["verify"])
+    check("polygon 记录来源", rep["instances"][0]["source"] == "polygon")
+    rep2 = PI.pick(img, [{"name": "poly_bad", "polygon": [[0, 0], [W, 0], [W, H], [0, H]]}], Path(td, "o2"))
+    check("整图 polygon 被拦下", not rep2["all_ok"], rep2["instances"][0]["verify"]["reasons"])
+    rep3 = PI.pick(img, [{"name": "poly_box", "polygon": [[50, 50], [150, 50], [150, 150], [50, 150]],
+                          "box": [50, 50, 150, 150]}], Path(td, "o3"))
+    check("polygon 占满框被拦下", not rep3["all_ok"], rep3["instances"][0]["verify"].get("box_fill"))
+
 # survey 分块坐标自洽
 res = PI.survey  # 只验证不落盘的辅助逻辑：tiles 覆盖整图
 import io, tempfile

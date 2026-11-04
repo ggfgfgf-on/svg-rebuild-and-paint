@@ -56,7 +56,8 @@ def check_subject(before, after, mask_bool, tol=3.0):
 
 
 def run(plan, recipe_path=None, steps=None, expect="up", min_delta=0.5, outside_tol=0.5,
-        subject_tol=3.0, report=None, out_dir=None, gpu=False, threads=8):
+        subject_tol=None, report=None, out_dir=None, gpu=False, threads=8):
+    """subject_tol 给定时，额外检查"掩膜内变化幅度"上限（防止一改就把主体抹平）。"""
     """跑一次编辑并给出验收结论（不写死像素数值，只看性质）。"""
     import plan_io
     import render_util as RU
@@ -86,6 +87,8 @@ def run(plan, recipe_path=None, steps=None, expect="up", min_delta=0.5, outside_
         lambda: RU.render_arr(plan_io.load_plan(plan)[0], gpu=gpu, nthreads=threads))
     results["outside"] = check_outside(before, after, mask_bool, outside_tol)
     results["direction"] = check_direction(before, after, mask_bool, expect, min_delta)
+    if subject_tol is not None:
+        results["subject"] = check_subject(before, after, mask_bool, subject_tol)
     results["overall_ok"] = all(v["ok"] for k, v in results.items() if isinstance(v, dict) and "ok" in v)
     if report:
         Path(report).write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -99,7 +102,7 @@ def main():
     ap.add_argument("--expect", default="up", choices=["up", "down"])
     ap.add_argument("--min-delta", type=float, default=0.5)
     ap.add_argument("--outside-tol", type=float, default=0.5)
-    ap.add_argument("--subject-tol", type=float, default=3.0)
+    ap.add_argument("--subject-tol", type=float, default=None)
     ap.add_argument("--out-dir", default="accept_out")
     ap.add_argument("--report")
     import cli_util as CU

@@ -1444,3 +1444,17 @@ psd 写出 `8BIMmul `、softlight/overlay/未知模式映射，全 PASS。
    `test_gpu_blends` 里也留了这张探针的历史与真因。
 
 
+
+
+## 辅助函数索引（改哪一层，先看这里）
+
+| 脚本 | 职责 | 关键契约 |
+|---|---|---|
+| `planner_region.py` | 只在掩膜内按参考图重画笔触，按层合并 | 默认 `cover/0.9/auto-ring`；原位替换保绘制顺序；直接写回 JSON，不经 dump_plan |
+| `pick_instance.py` | 模型自选实例（种子点或 polygon）→ 长掩膜 → 客观验证 → 失败给 hints | `verify` 拦空/过小/过大/多块/贴边/占满框；`--attempt-log` 记每轮 |
+| `accept.py` | 编辑验收门（性质断言） | schema/确定性/区外不变/方向；`--subject-tol` 给定时才查主体幅度，默认不查 |
+| `lineage.py` | 编辑谱系账本（append-only JSONL + 快照） | `record/tree/checkout`；无快照不可 checkout |
+| `mask_registry.py` | 掩膜 id + 来源 | `add/list/get`；掩膜按 id 拷进注册表目录 |
+| `visual_mask.py` | 种子点 → 掩膜（色相门控 + 连通生长） | 支持 `--negative/--add-mask/--sub-mask` |
+| `edit_loop.py` | 一步编辑 + 产物 + 度量 | `--ops-json -` 从 stdin；`--recipe` 多步；`--zoom` 局部放大 |
+| `ops.py` | 语义算子层 | selection 可内联 `mask/mask_file/polygon/instance/all`；`replan_region` 是算子 |

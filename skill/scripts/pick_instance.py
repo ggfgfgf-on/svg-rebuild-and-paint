@@ -154,17 +154,25 @@ def pick(image, specs, out_dir, attempt_log=None, attempt=1):
         name = sp.get("name") or ("inst%d" % len(report["instances"]))
         seeds = [tuple(map(int, p)) for p in sp.get("seeds") or []]
         negs = [tuple(map(int, p)) for p in sp.get("negatives") or []]
-        if not seeds:
-            raise SystemExit("实例 %s 缺少 seeds" % name)
+        if not seeds and not sp.get("polygon"):
+            raise SystemExit("实例 %s 需要 seeds 或 polygon" % name)
         box = tuple(int(v) for v in sp["box"]) if sp.get("box") else None
-        close = VM.seeds_mask(arr, seeds, sp.get("tolerance", 60), sp.get("hue_tol", 14.0), negs,
-                              sp.get("min_value", 0.0))
-        full, _ = VM.grow_mask(seeds, close, sp.get("grow", 6))
-        if box:
-            clip = np.zeros((H, W), bool)
-            x0, y0, x1, y1 = box
-            clip[max(0, y0):min(H, y1), max(0, x0):min(W, x1)] = True
-            full &= clip
+        if sp.get("polygon"):
+            full = rasterize(masks.polygon([tuple(map(float, p)) for p in sp["polygon"]]), W, H)
+            if box:
+                x0, y0, x1, y1 = box
+                clip = np.zeros((H, W), bool)
+                clip[max(0, y0):min(H, y1), max(0, x0):min(W, x1)] = True
+                full &= clip
+        else:
+            close = VM.seeds_mask(arr, seeds, sp.get("tolerance", 60), sp.get("hue_tol", 14.0), negs,
+                                  sp.get("min_value", 0.0))
+            full, _ = VM.grow_mask(seeds, close, sp.get("grow", 6))
+            if box:
+                clip = np.zeros((H, W), bool)
+                x0, y0, x1, y1 = box
+                clip[max(0, y0):min(H, y1), max(0, x0):min(W, x1)] = True
+                full &= clip
         v = verify(full, sp.get("min_area", 0.002), sp.get("max_area", 0.35),
                    sp.get("max_components", 1), sp.get("border_tol", 0.10), sp.get("allow_border", False),
                    box, sp.get("box_fill_max", 0.90))
@@ -172,12 +180,13 @@ def pick(image, specs, out_dir, attempt_log=None, attempt=1):
         mask_path.write_text(json.dumps(masks.to_json(masks.from_bool(full)), ensure_ascii=False), encoding="utf-8")
         overlay = arr.copy()
         overlay[full] = (overlay[full] * 0.35 + np.array([255, 0, 255]) * 0.65).astype("uint8")
-        Path(out_dir, "%s.overlay.png" % name).write_bytes(
-            __import__("io").BytesIO(_to_png(overlay)).getvalue())
+        Image.fromarray(overlay.astype("uint8")).save(out_dir / ("%s.overlay.png" % name), "PNG")
         crop = out_dir / ("%s.crop.jpg" % name)
         if v.get("bbox"):
             _crop(arr, v["bbox"]).save(crop, "JPEG", quality=94)
         report["instances"].append({"name": name, "seeds": seeds, "negatives": negs,
+                                    "source": "polygon" if sp.get("polygon") else "color-grow",
+                                    "box": list(box) if box else None,
                                     "mask": str(mask_path), "overlay": str(out_dir / ("%s.overlay.png" % name)),
                                     "crop": str(crop) if v.get("bbox") else None,
                                     "verify": v})
@@ -192,13 +201,6 @@ def pick(image, specs, out_dir, attempt_log=None, attempt=1):
                                ensure_ascii=False) + "\n")
     (out_dir / "pick_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     return report
-
-
-def _to_png(arr):
-    import io
-    buf = io.BytesIO()
-    Image.fromarray(arr.astype("uint8")).save(buf, "PNG")
-    return buf.getvalue()
 
 
 def main():

@@ -38,7 +38,7 @@ new = {"layers": [{"name": "band"}, {"name": "ink"}],
        "strokes": [stroke("band", "#999999", [(6, 16)]),      # 区域内 -> 合入
                    stroke("band", "#888888", [(6, 2)]),       # 区域外 -> 丢弃
                    stroke("ink", "#777777", [(6, 16)])]}      # 非目标层 -> 丢弃
-merged, stats = PR.merge(base, new, mask, ["band"], mode="center")
+merged, stats = PR.merge(base, new, mask, ["band"], mode="center", thr=0.5, ring=0)
 colors = sorted(s["color"] for s in merged["strokes"])
 check("outside stroke kept", "#111111" in colors)
 check("inside stroke replaced", "#222222" not in colors and "#999999" in colors)
@@ -46,6 +46,13 @@ check("new stroke outside region dropped", "#888888" not in colors)
 check("non-target layer untouched", any(s["layer"] == "ink" and s["color"] == "#333333" for s in merged["strokes"]))
 check("count equals len(strokes)", merged["count"] == len(merged["strokes"]))
 check("stats dropped/added", stats["dropped"] == 1 and stats["added"] == 1, stats)
+
+# 外扩环的行为是"故意吸收边界笔触"：ring=auto 时靠边的笔触也算区内
+merged_r, stats_r = PR.merge(base, new, mask, ["band"], mode="center", thr=0.5, ring="auto")
+check("auto ring 吸收边界笔触", stats_r["dropped"] >= stats["dropped"], stats_r)
+check("笔数守恒：base - dropped + added",
+      len(merged_r["strokes"]) == len(base["strokes"]) - stats_r["dropped"] + stats_r["added"],
+      (len(merged_r["strokes"]), stats_r))
 
 # ---- 验收门 ----
 before = np.zeros((10, 10, 3), np.float64); before[..., 0] = 100
