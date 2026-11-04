@@ -773,7 +773,8 @@ ALLOWED = {
 }
 INTERNAL = {"seed", "selection", "weights", "mask", "mask_file", "all", "polygon", "instance", "mask_obj",
             "select_tag", "sel_box", "sel_hue", "sel_sat_min", "sel_val_min",
-            "cells", "tiles", "prompt", "segment", "include", "exclude", "grow_px", "loop", "steps"}
+            "cells", "tiles", "prompt", "segment", "include", "exclude", "grow_px", "loop", "steps",
+            "fit_boundary", "attach_thin"}
 
 
 def validate(spec):
@@ -939,6 +940,11 @@ def resolve_mask(doc, spec):
                               near=base, near_px=int(cs.get("attach_px", 4)),
                               use_neg=bool(cs.get("use_neg", True)),
                               neg_attach_px=int(cs.get("neg_attach_px", 0)))
+        fb = cs.get("fit_boundary")
+        if fb:
+            fb = {} if fb is True else dict(fb)
+            bits, _fb_info = _PI.fit_boundary(cs["image"], bits, search_px=int(fb.get("search_px", 6)),
+                                              blur=int(fb.get("blur", 3)))
         at = cs.get("attach_thin")
         if at is True:
             at = {}

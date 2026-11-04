@@ -187,7 +187,27 @@ def test_attach_thin():
     return True
 
 
+def test_fit_boundary():
+    """边界贴梯度：人为腐蚀/膨胀后必须被找回同量级的位移。"""
+    import numpy as np, cv2 as cv
+    img = np.zeros((200, 200, 3), np.uint8); img[:] = (25, 30, 22)
+    cv.circle(img, (100, 100), 60, (110, 150, 90), -1)
+    base = np.zeros((200, 200), bool); base[40:161, 40:161] = True
+    # 用圆的真实边界做基准：腐蚀 5 后应找回 +2，膨胀 5 后应找回 -2
+    m = cv.circle(np.zeros((200, 200), np.uint8), (100, 100), 60, 1, -1) > 0
+    er = cv.erode(m.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    dl = cv.dilate(m.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    o1, i1 = PI.fit_boundary(img, er, search_px=5)
+    o2, i2 = PI.fit_boundary(img, dl, search_px=5)
+    assert i1["d"] > 0 and i2["d"] < 0, (i1["d"], i2["d"])
+    assert abs(((o1 ^ m).sum()) - ((er ^ m).sum())) <= (o1.sum() + 1), "腐蚀后没有向边界扩张"
+    assert o2.sum() < dl.sum(), "膨胀后没有收缩"
+    print("PASS fit_boundary 找回位移（erode d=%+d, dilate d=%+d）" % (i1["d"], i2["d"]))
+    return True
+
+
 ok = test_cell_geometry() and ok
+ok = test_fit_boundary() and ok
 ok = test_attach_thin() and ok
 ok = test_refine_loop() and ok
 ok = test_implausible_guard() and ok

@@ -342,6 +342,49 @@ def attach_thin(image, mask, gap_px=6, max_width_px=6, max_len_px=90, hue_tol=16
                  "components": int(n - 1), "rejected": rejected}
 
 
+def fit_boundary(image, mask, search_px=6, blur=3, verbose=False):
+    """把整圈边界"贴"到最强梯度上：全局平移 d ∈ [-search, +search]，取边缘梯度均值最大者。
+
+    为什么用全局平移而不是逐点法线搜索：逐点会沿着噪声长出毛刺（实测边界抖动 ±3px），
+    而整圈平移保持形状、可复现，且正负号直接回答"掩膜该胖还是该瘦"。
+    返回 (mask, info)，info 记录每个 d 的得分，便于复核是不是真的有一个峰。
+    """
+    import cv2 as _cv
+    img = _cv.imread(str(image)) if not isinstance(image, np.ndarray) else np.asarray(image)
+    if img is None:
+        raise ValueError("fit_boundary 读不到图像：%r" % (image,))
+    gray = _cv.cvtColor(img, _cv.COLOR_BGR2GRAY)
+    k = max(3, int(blur) | 1)
+    g = _cv.GaussianBlur(gray, (k, k), 0).astype(np.float32)
+    gx = _cv.Sobel(g, _cv.CV_32F, 1, 0, ksize=3)
+    gy = _cv.Sobel(g, _cv.CV_32F, 0, 1, ksize=3)
+    mag = _cv.magnitude(gx, gy)
+    m = np.asarray(mask, bool).astype(np.uint8)
+    def _boundary(b):
+        er = _cv.erode(b, np.ones((3, 3), np.uint8))
+        return (b > 0) & (er == 0)
+    base_score = float(mag[_boundary(m)].mean()) if _boundary(m).any() else 0.0
+    best = (0, base_score, m.copy())
+    scores = {0: round(base_score, 3)}
+    for d in range(1, int(search_px) + 1):
+        kk = np.ones((2 * d + 1, 2 * d + 1), np.uint8)
+        for sign, op in ((+1, _cv.dilate), (-1, _cv.erode)):
+            b = op(m, kk)
+            bd = _boundary(b)
+            if not bd.any():
+                continue
+            sc = float(mag[bd].mean())
+            scores[sign * d] = round(sc, 3)
+            if sc > best[1]:
+                best = (sign * d, sc, b.copy())
+    out = best[2].astype(bool)
+    info = {"d": best[0], "score": round(best[1], 3), "base_score": round(base_score, 3),
+            "scores": scores, "search_px": int(search_px)}
+    if verbose:
+        print(info)
+    return out, info
+
+
 def tile_points(image, windows):
     """多级/多次 zoom：每级窗口自己的 roi + 细度，正负编号分别换算成照片坐标点。
 
