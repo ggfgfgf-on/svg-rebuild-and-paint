@@ -38,6 +38,12 @@ python scripts/render_plan.py plan.json --ops ops.json --out edited.png --gpu
 
 实测（本会话模型，未用任何 API key）：luma 25.69 → 23.71，花心出现柔和高光、背景转墨绿。
 
+**背景/局部改色必须用 raster 掩膜 + `--mask-mode all`**：`masks.from_image` 只给颜色连通块的
+外接矩形，背景这种"包住主体"的形状会退化成整张画布（于是"只改背景"其实改全部）。
+`masks.from_bool(bool_array)` 保存逐像素形状（raster 掩膜），选笔触时按点采样；
+`--mask-mode all` 只选"整笔都在掩膜内"的笔触，跨边界的笔触被排除，主体才不会被整笔染色。
+实测：背景 (13,25,16) → (3,18,13)、玫瑰 (153,1,11) → (150,1,11)（Δ<2/255），增量与整份重画 diff_px=0。
+
 **可选路径：第三方端点**（给无人值守/批量/其它程序调用）
 
 `compile_ops.py compile <plan> "<指令>" --thumb --provider deepseek|ark|openai [--image path]`：

@@ -38,6 +38,8 @@ def main():
     ap.add_argument("--mask", default=None, help="完整掩膜 JSON，优先于 --rect")
     ap.add_argument("--mask-file", default=None, help="掩膜 JSON 文件（多模态框选的产物）")
     ap.add_argument("--feather", type=float, default=32.0)
+    ap.add_argument("--mask-mode", choices=("any", "all"), default="any",
+                    help="any=笔触碰到掩膜即选中（默认）；all=整笔在掩膜内才选中")
     ap.add_argument("--no-check", action="store_true", help="跳过与整份重画的逐位对比")
     CU.add_common_args(ap, quiet=False)       # --gpu / --threads 与其他脚本同形（本脚本只输出报告，无需 --quiet）
     ap.add_argument("--out", default=str(Path.home() / ".cache" / "ops_demo" / "instruction.png"))
@@ -75,7 +77,7 @@ def main():
     t0 = time.perf_counter()
     sel, wt, sel_by_layer = [], [], {}
     for name in sorted(touched):                    # 按层取掩膜：只扫受影响的层
-        s1, w1 = masks.weights(doc, mask, a.feather, layer=name)
+        s1, w1 = masks.weights(doc, mask, a.feather, layer=name, mode=a.mask_mode)
         if getattr(a, "hard_mask", False):
             w1 = [1.0] * len(s1)
         sel += s1

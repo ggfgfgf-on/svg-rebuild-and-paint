@@ -133,8 +133,13 @@ def poly_weight(mask, pts, feather=0.0):
     return np.where(inside, _clip01(d / feather), 0.0)
 
 
-def stroke_weight(mask, stroke, feather=0.0):
-    """单笔相对掩膜的权重 = 该笔所有采样点的最大值（笔刷半径参与 rect/point 判定）。"""
+def stroke_weight(mask, stroke, feather=0.0, mode="any"):
+    """单笔相对掩膜的权重。
+
+    mode="any"（默认）：采样点最大值 —— 只要有一个点落进掩膜就算选中（会整笔改色）。
+    mode="all"：采样点最小值 —— 整笔都在掩膜内才等于 1；跨边界的笔触会被排除，
+    适合"只改背景、别碰花"这类要求（笔触级算子改的是整笔，光靠 any 会染到主体）。
+    """
     t = mask.get("type")
     if t == "all":
         return 1.0
@@ -155,9 +160,13 @@ def stroke_weight(mask, stroke, feather=0.0):
         w = rect_weight(mask, pts, r, feather)
     elif t == "polygon":
         w = poly_weight(mask, pts, feather)
+    elif t == "raster":
+        w = raster_weight(mask, pts, r)
     else:
         raise ValueError("unknown mask type %r" % (t,))
-    return float(w.max()) if len(w) else 0.0
+    if not len(w):
+        return 0.0
+    return float(w.min()) if mode == "all" else float(w.max())
 
 
 def _mask_bbox(mask):
@@ -182,8 +191,8 @@ def _mask_bbox(mask):
     return None
 
 
-def weights(doc, mask, feather=0.0, layer=None):
-    """返回 (selection, weights)：全局笔触下标 + 对应 0..1 权重。"""
+def weights(doc, mask, feather=0.0, layer=None, mode="any"):
+    """返回 (selection, weights)：全局笔触下标 + 对应 0..1 权重。mode 见 stroke_weight。"""
     sel, wt = [], []
     mb = _mask_bbox(mask)
     if mb is not None:
@@ -196,15 +205,15 @@ def weights(doc, mask, feather=0.0, layer=None):
             b = stroke_bbox(s)
             if b is None or b[2] < mb[0] or b[0] > mb[2] or b[3] < mb[1] or b[1] > mb[3]:
                 continue
-        w = stroke_weight(mask, s, feather)
+        w = stroke_weight(mask, s, feather, mode)
         if w > 0:
             sel.append(i)
             wt.append(w)
     return sel, wt
 
 
-def select(doc, mask, layer=None):
-    return weights(doc, mask, 0.0, layer)[0]
+def select(doc, mask, layer=None, mode="any"):
+    return weights(doc, mask, 0.0, layer, mode)[0]
 
 
 def bbox(doc, selection):
@@ -248,6 +257,51 @@ def _label(mask_bool):
     return labels, n
 
 
+_RASTER_CACHE = {}
+
+
+def _encode_bits(b):
+    import base64
+    import numpy as np_mod
+    return base64.b64encode(np_mod.packbits(np_mod.ascontiguousarray(b, dtype=bool)).tobytes()).decode("ascii")
+
+
+def _decode_bits(mask):
+    key = id(mask)
+    hit = _RASTER_CACHE.get(key)
+    if hit is not None:
+        return hit
+    import base64
+    import numpy as np_mod
+    raw = base64.b64decode(mask["bits"])
+    b = np_mod.unpackbits(np_mod.frombuffer(raw, dtype=np_mod.uint8)).astype(bool)
+    b = b[:mask["w"] * mask["h"]].reshape(mask["h"], mask["w"])
+    _RASTER_CACHE[key] = b
+    return b
+
+
+def from_bool(b, x0=0, y0=0):
+    """像素级布尔图 -> raster 掩膜（任意形状，不再退化成包围盒）。"""
+    import numpy as np_mod
+    b = np_mod.ascontiguousarray(b, dtype=bool)
+    h, w = b.shape
+    return {"type": "raster", "x": int(x0), "y": int(y0), "w": int(w), "h": int(h),
+            "bits": _encode_bits(b)}
+
+
+def raster_weight(mask, pts, r=0.0):
+    import numpy as np_mod
+    b = _decode_bits(mask)
+    h, w = b.shape
+    out = np_mod.zeros(len(pts), np_mod.float64)
+    for k, p in enumerate(pts):
+        x = int(np_mod.floor(p[0] - mask["x"]))
+        y = int(np_mod.floor(p[1] - mask["y"]))
+        if 0 <= x < w and 0 <= y < h and b[y, x]:
+            out[k] = 1.0
+    return out
+
+
 def from_image(image, color, tol=40, keep_largest=True, pad=0):
     """像素级颜色连通域 -> 计划空间矩形掩膜（取最大连通块的包围盒）。
 
@@ -284,6 +338,6 @@ def from_json(obj):
             raise ValueError("and 掩膜至少需要 2 个子掩膜")
         m["masks"] = [from_json(x) for x in parts]
         return m
-    if t not in ("rect", "point", "polygon", "color", "all"):
+    if t not in ("rect", "point", "polygon", "color", "all", "raster"):
         raise ValueError("unknown mask type %r" % (t,))
     return m
