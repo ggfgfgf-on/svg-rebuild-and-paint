@@ -1269,6 +1269,11 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 `set_layer_hue highlight 100 + set_layer_saturation 0.9 + tone_map(layer=highlight) gain 0.55`
 （实测叶子裁剪区 32.1，色相对、仍偏粉笔感）。
 
+**语义改图闭环脚本 `edit_loop.py`**：一次调用 = 一个迭代（掩膜→按层取权重→应用 ops→渲染→逐区域度量→
+对照图 + mask overlay + ops 全部落盘到 `--out-dir/<tag>/`）。实测"玫瑰换白"两轮迭代：
+it1 gain 1.45 → 玫瑰 luma 34.9→178.1，it2 gain 1.18 → 34.9→163.3，两轮 `outside mean_abs_change` 0.01 / 0.00
+（掩膜隔离干净）；模型看 `sheet.jpg` 判断该往哪调，没有任何查表。
+
 **语义改图闭环（模型视觉提示 + 辅助函数）**：模型看图给种子点和框 →
 `visual_mask.py` 用 **HSV 色相门控 + 连通性 + 框硬约束** 长出像素级 raster 掩膜（纯 RGB 阈值在暗部会失效：
 深红 (67,0,1) 与深绿 (8,18,16) 逐通道差仅 45~59，会把背景吃进主体）→ 叠洋红 overlay 让模型自己验收边界 →
