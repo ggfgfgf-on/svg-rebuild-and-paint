@@ -60,7 +60,8 @@ PATHS = brush_calib.load_paths(_arg("--paths-file"))
 
 _VALUE_FLAGS = {"--layer-parallel": 1, "--workers": 1, "--plan": 1, "--ink-tip": 1, "--profiles-file": 1, "--deposit": 1, "--dep-profile": 1,
                 "--dep-spread": 1, "--tex-op": 1, "--threads": 1, "--style-file": 1,
-                "--paths-file": 1, "--profile": 1, "--preset": 1, "--edge": 4}
+                "--paths-file": 1, "--profile": 1, "--preset": 1, "--edge": 4,
+                "--report": 1, "--calibrate": 1, "--shadow-mode": 1, "--highlight-mode": 1}
 
 
 def _positional():
