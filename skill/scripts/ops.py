@@ -1164,6 +1164,11 @@ def _measured_candidates():
 
 SOURCES_MEASURED_SOURCE = "documented"
 
+CELLS_MEASURED_DOC = (
+    "格子并集的天花板由格子尺寸决定（经验范围，非某工程实测）："
+    "≈55px → IoU 0.70，32px → 0.86~0.89，16px → 0.91~0.93，8px → 0.93~0.97；"
+    "要本工程数字就设 SVP_MEASURED 指向 sources_measured.json（measure_sources.py 生成）")
+
 
 def _load_measured():
     """实测精度属于工程：SVP_MEASURED -> cwd 向上找 -> 文档化的典型范围。
@@ -1182,15 +1187,13 @@ def _load_measured():
                 if iou:
                     SOURCES["cells"]["measured"] = {int(k): float(v) for k, v in iou.items()}
                     SOURCES["cells"]["measured_spec"] = data.get("spec")
+                    SOURCES["cells"]["measured_doc"] = CELLS_MEASURED_DOC
                     SOURCES_MEASURED_SOURCE = "project"
                     return
         except Exception:
             continue
     SOURCES["cells"]["measured"] = {}
-    SOURCES["cells"]["measured_doc"] = (
-        "格子并集的天花板由格子尺寸决定（经验范围，非本工程实测）："
-        "≈55px → IoU 0.70，32px → 0.86~0.89，16px → 0.91~0.93，8px → 0.93~0.97；"
-        "要本工程数字就设 SVP_MEASURED 指向 sources_measured.json（measure_sources.py 生成）")
+    SOURCES["cells"]["measured_doc"] = CELLS_MEASURED_DOC
     SOURCES_MEASURED_SOURCE = "documented"
 
 def spec_source(spec):
@@ -1253,17 +1256,13 @@ def check_source(spec, op_name=None):
 
 def describe_sources():
     """给文档生成器用：返回 (表头, 行列表)。"""
-    head = ["来源", "coarse", "像素级", "精度（tile_px→IoU，%s）" % SOURCES_MEASURED_SOURCE, "说明"]
+    head = ["来源", "coarse", "像素级", "精度（tile_px→IoU）", "说明"]
     rows = []
     for name in _SEL_KEYS:
         info = SOURCES.get(name) or {}
         meas = info.get("measured") or {}
-        if meas:
-            txt = "、".join("%dpx→%.3f" % (k, v) for k, v in sorted(meas.items()))
-            if SOURCES_MEASURED_SOURCE != "project":
-                txt += "（经验范围，非本工程实测）"
-        else:
-            txt = (info.get("measured_doc") or "-")
+        # 文档里只写区间/范围：工程实测属于工程报告，写进 docs/API.md 会让生成结果依赖 cwd
+        txt = info.get("measured_doc") or "-"
         if info.get("refined_from_cells"):
             txt += "；refine(从格子)→%.3f" % info["refined_from_cells"]
         rows.append([name, "是" if info.get("coarse") else "否",

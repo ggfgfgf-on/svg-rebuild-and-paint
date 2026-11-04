@@ -23,11 +23,11 @@ def main():
                       "paint_area": sp["paint_area"], "outside_area": sp["outside_area"]}
     out = {"per_mode": rows, "image": PLAN.name, "mask": MASK.name,
             "how": "M.spill：选中笔按 采样点数x笔宽 估面积，掩膜外占比"}
-    (ROOT / "scripts" / "spill_measured.json").write_bytes(
+    (Path.cwd() / "spill_measured.json").write_bytes(
         (json.dumps(out, ensure_ascii=False, indent=1) + "\n").encode("utf-8"))
     for k, v in rows.items():
         print("%-7s spill=%.4f selected=%d" % (k, v["spill"], v["selected"]))
-    print("wrote scripts/spill_measured.json")
+    print("wrote spill_measured.json (当前目录)")
 
 
 if __name__ == "__main__":

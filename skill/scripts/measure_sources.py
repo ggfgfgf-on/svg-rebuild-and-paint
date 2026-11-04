@@ -1,7 +1,7 @@
 """重测 SOURCES 里的 measured（格子分辨率 -> IoU），把数字从"我手填"变成"跑出来的"。
 
     python scripts/measure_sources.py --image rose5-full.png --trace mask_leaf_traced.json \
-        --roi 80,500,520,790 --tiles 55,48,32,24,16,11,8 --out scripts/sources_measured.json
+        --roi 80,500,520,790 --tiles 55,48,32,24,16,11,8 --out sources_measured.json
 
 口径（写死在这里，避免每次重测换口径）：
   * "格子模型"= 在给定 roi 上按 tile 切格，某格有 >=50% 像素落在人工描边内就报正格；

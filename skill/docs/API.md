@@ -4,7 +4,7 @@
 
 ## 选择源语义（由 ops.SOURCES 生成，与闸门同源）
 
-| 来源 | coarse | 像素级 | 精度（tile_px→IoU，documented） | 说明 |
+| 来源 | coarse | 像素级 | 精度（tile_px→IoU） | 说明 |
 |---|---|---|---|---|
 | mask | 否 | 是 | - | 内联掩膜；像素级 |
 | mask_file | 否 | 是 | - | 掩膜文件；像素级 |
@@ -12,7 +12,7 @@
 | polygon | 否 | 是 | - | 多边形；边界由顶点决定 |
 | instance | 否 | 否 | - | 实例分割；近似边界 |
 | tiles | 否 | 否 | - | 格子 + 颜色判别器（默认 grabcut）定边 |
-| cells | 是 | 否 | 格子并集的天花板由格子尺寸决定（经验范围，非本工程实测）：≈55px → IoU 0.70，32px → 0.86~0.89，16px → 0.91~0.93，8px → 0.93~0.97；要本工程数字就设 SVP_MEASURED 指向 sources_measured.json（measure_sources.py 生成） | 模型报的格子并集（块状）；只回答「哪一片」，必须 refine 或 zoom 才能上色 |
+| cells | 是 | 否 | 格子并集的天花板由格子尺寸决定（经验范围，非某工程实测）：≈55px → IoU 0.70，32px → 0.86~0.89，16px → 0.91~0.93，8px → 0.93~0.97；要本工程数字就设 SVP_MEASURED 指向 sources_measured.json（measure_sources.py 生成） | 模型报的格子并集（块状）；只回答「哪一片」，必须 refine 或 zoom 才能上色 |
 | prompt | 否 | 否 | - | 点/框 → grabcut；近似边界 |
 | segment | 否 | 否 | - | 文本提示分割；近似边界 |
 | include | 否 | 否 | - | 组合：include & ~exclude |

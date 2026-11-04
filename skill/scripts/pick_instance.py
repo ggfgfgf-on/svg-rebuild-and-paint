@@ -301,8 +301,10 @@ def attach_thin(image, mask, gap_px=None, max_width_px=None, max_len_px=None, hu
         raise ValueError("attach_thin 读不到图像：%r" % (image,))
     H, W = img.shape[:2]
     m = np.asarray(mask, bool)
+    globals()["LAST_ATTACH"] = {"added": [], "components": 0, "rejected": {"len": 0, "thick": 0, "colour": 0},
+                                "inert": ["attach_len", "attach_width", "attach_hue"], "why": "空掩膜"}
     if m.sum() == 0:
-        return m, {"added": []}
+        return m, dict(globals()["LAST_ATTACH"])
     near = _cv.dilate(m.astype(np.uint8), np.ones((2 * gap_px + 1, 2 * gap_px + 1), np.uint8)) > 0
     # 颜色判别：像素更像"掩膜边界色"才要，更像"外圈背景色"就不要。
     # 这个比值规则同时解决两件事：叶尖这种贴着主体的异色细条能进来，
@@ -311,7 +313,9 @@ def attach_thin(image, mask, gap_px=None, max_width_px=None, max_len_px=None, hu
     edge_in = (_cv.dilate(m.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0) & m
     ring_out = (_cv.dilate(m.astype(np.uint8), np.ones((2 * gap_px + 1,) * 2, np.uint8)) > 0) & ~m
     if not edge_in.any() or not ring_out.any():
-        return m, {"added": [], "components": 0, "rejected": {"len": 0, "thick": 0, "colour": 0}}
+        globals()["LAST_ATTACH"] = {"added": [], "components": 0, "rejected": {"len": 0, "thick": 0, "colour": 0},
+                                    "inert": ["attach_len", "attach_width", "attach_hue"], "why": "没有候选带"}
+        return m, dict(globals()["LAST_ATTACH"])
     e_col = np.median(lab[edge_in], 0)
     b_col = np.median(lab[ring_out], 0)
     d_edge = np.sqrt(((lab - e_col) ** 2).sum(-1))
@@ -321,7 +325,9 @@ def attach_thin(image, mask, gap_px=None, max_width_px=None, max_len_px=None, hu
     cand = (near & like).astype(np.uint8)
     n, cc, st, _ = _cv.connectedComponentsWithStats(cand, 8)
     if n <= 1:
-        return m, {"added": [], "components": 0, "rejected": {"len": 0, "thick": 0, "colour": 0}}
+        globals()["LAST_ATTACH"] = {"added": [], "components": 0, "rejected": {"len": 0, "thick": 0, "colour": 0},
+                                    "inert": ["attach_len", "attach_width", "attach_hue"], "why": "无连通块"}
+        return m, dict(globals()["LAST_ATTACH"])
     out = m.copy()
     added = []
     rejected = {"len": 0, "thick": 0, "colour": 0}
