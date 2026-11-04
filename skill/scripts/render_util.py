@@ -28,6 +28,14 @@ def target_luma_from_image(path):
     return luma_of(np.asarray(Image.open(path).convert("RGB"), dtype=np.float64))
 
 
+def draw_full(p, cat, doc, w, h, gpu=False, nthreads=8):
+    """把整份计划画进已创建好的 painter（之后还要做增量重建的调用方复用这条路径）。"""
+    plan, spec = D.doc_to_plan(doc, cat)
+    region = np.zeros((h, w), np.int32)
+    tile_inc.full(p, plan, spec, lambda nm: region, gpu=gpu, nthreads=nthreads)
+    return plan, spec, region
+
+
 def render_arr(doc, gpu=False, nthreads=8):
     """整份计划渲染一次，返回 RGBA 数组（composite 结果）。"""
     p, cat, w, h = D.new_painter(doc, gpu=gpu)

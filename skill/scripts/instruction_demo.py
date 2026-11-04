@@ -24,6 +24,7 @@ import masks
 import ops
 import ops_incremental_demo as D
 import plan_io
+import render_util as RU
 import tile_inc
 
 
@@ -59,9 +60,7 @@ def main():
 
     t0 = time.perf_counter()
     p, cat, w, h = D.new_painter(doc, gpu=a.gpu)
-    plan1, spec = D.doc_to_plan(doc, cat)
-    region = np.zeros((h, w), np.int32)
-    tile_inc.full(p, plan1, spec, lambda nm: region, gpu=a.gpu, nthreads=8)
+    plan1, spec, region = RU.draw_full(p, cat, doc, w, h, gpu=a.gpu)
     p.composite()                      # 基线画布（真实场景里是上一次的合成结果）
     base_s = time.perf_counter() - t0
 
@@ -111,7 +110,7 @@ def main():
 
     t0 = time.perf_counter()
     tile_inc.rebuild(p, plan2, spec2, dirty, lambda nm: region, gpu=a.gpu, nthreads=8)
-    arr = np.ascontiguousarray(p.composite())
+    arr = np.ascontiguousarray(p.composite())   # composite 结果就是 render_util.render_arr 的同一口径
     rebuild_s = time.perf_counter() - t0
 
     report = {"plan": Path(a.plan).name, "ops": specs, "selected": len(sel),
