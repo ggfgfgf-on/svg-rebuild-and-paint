@@ -76,5 +76,17 @@ check("auto_ring 有值且受限", 1 <= ring <= 24, ring)
 check("auto_ring 随尺寸变", PR.auto_ring({"strokes": [{"layer": "band", "size": 4}]}, ["band"]) < ring)
 check("无笔触时 ring=0", PR.auto_ring({"strokes": []}, ["band"]) == 0)
 
+# candidates：算法提候选，模型挑（k-means 版；叶子这种同色物体分不出来，属于已知边界）
+with tempfile.TemporaryDirectory() as td:
+    td = Path(td)
+    im2 = np.full((300, 300, 3), 30, np.uint8)
+    im2[120:180, 120:180] = (200, 60, 60)
+    path2 = td / "c2.png"; Image.fromarray(im2).save(path2)
+    res = PI.candidates(path2, roi=(60, 60, 240, 240), k=4, max_out=4)
+    check("candidates 有输出", len(res["candidates"]) > 0, len(res["candidates"]))
+    check("candidates 每个都能验证", all("verify" in c for c in res["candidates"]))
+    sheet_info = PI.candidate_sheet(path2, res, td / "sheet.jpg")
+    check("候选叠图落盘", sheet_info is not None and Path(sheet_info["sheet"]).exists())
+
 print("RESULT", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)

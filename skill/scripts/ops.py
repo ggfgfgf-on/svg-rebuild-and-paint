@@ -671,7 +671,7 @@ ALLOWED = {
     "set_light": {"scale", "tint", "layer", "guidance"},
 }
 INTERNAL = {"seed", "selection", "weights", "mask", "mask_file", "all", "polygon", "instance", "mask_obj",
-            "select_tag"}
+            "select_tag", "sel_box", "sel_hue", "sel_sat_min", "sel_val_min"}
 
 
 def validate(spec):
@@ -765,6 +765,44 @@ def resolve_mask(doc, spec):
 _SEL_KEYS = ("mask", "mask_file", "all", "polygon", "instance")
 
 
+def select_by_predicate(doc, spec):
+    """按笔触自身属性选（框 + 色相/饱和/亮度阈值），完全绕开"给照片做分割"。
+
+    注意尺度：hue 用 ops._hsv 的归一化值（0..1，绿≈0.33），不是角度；sat/val 也是 0..1。
+
+    编辑的是画出来的笔触，不是照片：所以"把左下这片叶子调亮"可以直接写成
+    {"sel_box": [x0,y0,x1,y1], "sel_hue": [h, tol], "sel_sat_min": s, "sel_val_min": v}。
+    用 sel_ 前缀是为了不和算子自己的参数（如 set_layer_hue 的 hue）撞名。
+    阈值由模型看图给，算子只做筛选，结果可复现。
+    """
+    import numpy as _np
+
+    box = spec.get("sel_box")
+    h0, ht = (spec.get("sel_hue") or (None, 0))[:2]
+    sat_min = float(spec.get("sel_sat_min", 0.0))
+    val_min = float(spec.get("sel_val_min", 0.0))
+    out = []
+    for i, st in enumerate(doc["strokes"]):
+        pts = _np.asarray(st["points"], _np.float64)
+        cx, cy = float(pts[:, 0].mean()), float(pts[:, 1].mean())
+        if box and not (box[0] <= cx <= box[2] and box[1] <= cy <= box[3]):
+            continue
+        r, g, b = _to_rgb(st["color"]) if not isinstance(st["color"], (list, tuple)) else st["color"][:3]
+        mx, mn = max(r, g, b), min(r, g, b)
+        v = mx / 255.0
+        s_ = 0.0 if mx <= 0 else (mx - mn) / mx
+        if s_ < sat_min or v < val_min:
+            continue
+        if h0 is not None:
+            hh = _hsv([r, g, b])[0]
+            d = abs(hh - float(h0))
+            d = min(d, 1.0 - d)
+            if d > float(ht):
+                continue
+        out.append(i)
+    return out
+
+
 def select_by_tag(doc, tag):
     """按 tag 精确选笔触下标（draw_path 加的笔可以真正被删掉，不用回放整条链）。"""
     return [i for i, s in enumerate(doc["strokes"]) if str(s.get("tag")) == str(tag)]
@@ -779,6 +817,9 @@ def apply(doc, specs, selection=None, weights=None, seed=0):
         if name not in OPS:
             raise ValueError("unknown op %r; known: %s" % (name, ", ".join(sorted(OPS))))
         sel, wts = selection, weights
+        if any(k in raw for k in ("sel_box", "sel_hue", "sel_sat_min", "sel_val_min")):
+            sel = select_by_predicate(out, {k: raw[k] for k in ("sel_box", "sel_hue", "sel_sat_min", "sel_val_min") if k in raw})
+            wts = np.ones(len(sel), np.float64)
         if "select_tag" in raw:
             sel = select_by_tag(out, raw["select_tag"])
             wts = np.ones(len(sel), np.float64)
@@ -794,6 +835,8 @@ def apply(doc, specs, selection=None, weights=None, seed=0):
         for k in _SEL_KEYS:
             clean.pop(k, None)
         clean.pop("select_tag", None)
+        for k in ("sel_box", "sel_hue", "sel_sat_min", "sel_val_min"):
+            clean.pop(k, None)
         clean.setdefault("selection", sel)
         clean.setdefault("weights", wts)
         clean.setdefault("seed", seed)

@@ -150,6 +150,85 @@ def refine_polygon(image, polygon, iters=6, seed_band=9, out_band=0):
     return out, stats
 
 
+def candidates(image, roi=None, k=8, min_area=0.004, max_area=0.35, max_out=6, __unused=None):
+    """算法提候选、模型来挑：颜色聚类 + 连通域，输出编号叠图。
+
+    Canny 轮廓在这里不可用——叶子边界不是闭合强边（实测只出两个 fill=0.08 的细圈），
+    所以改用"颜色聚类 + 连通域"，和色相生长互补：它按亮度/色度共同分出区域。
+    """
+    arr = np.asarray(Image.open(image).convert("RGB"))
+    H, W = arr.shape[:2]
+    x0, y0, x1, y1 = roi if roi else (0, 0, W, H)
+    roi_area = float(max(1, (x1 - x0) * (y1 - y0)))
+    crop = arr[y0:y1, x0:x1].reshape(-1, 3).astype(np.float32)
+    crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 12, 1.0)
+    _, labels, centers = cv2.kmeans(crop, int(k), None, crit, 3, cv2.KMEANS_PP_CENTERS)
+    lab = labels.reshape(y1 - y0, x1 - x0).astype(np.int32)
+    found = []
+    for ci in range(int(k)):
+        sub = (lab == ci).astype(np.uint8)
+        sub = cv2.morphologyEx(sub, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        sub = cv2.morphologyEx(sub, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+        n, cc, stats, _ = cv2.connectedComponentsWithStats(sub, connectivity=8)
+        for j in range(1, n):
+            a = float(stats[j, cv2.CC_STAT_AREA])
+            if a < min_area * roi_area or a > max_area * roi_area:
+                continue
+            bits = np.zeros((H, W), bool)
+            m = (cc == j)
+            bits[y0:y1, x0:x1] = m
+            ys, xs = np.nonzero(bits)
+            if len(xs) == 0:
+                continue
+            bw, bh = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+            if (bw * bh) < 0.25 * a:
+                continue
+            found.append({"bits": bits, "area": a,
+                          "box": [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1],
+                          "cluster": int(ci)})
+    uniq = []
+    for f in sorted(found, key=lambda d: -d["area"]):
+        if all((f["bits"] & u["bits"]).sum() / max(1, (f["bits"] | u["bits"]).sum()) < 0.85 for u in uniq):
+            uniq.append(f)
+    # 给"主体"再加两个并集候选：聚类区域与色相生长结果的差异常常就在这几块
+    uniq = uniq[:int(max_out)]
+    for i, f in enumerate(uniq, 1):
+        f["index"] = i
+        f["verify"] = verify(f["bits"], allow_border=True)
+    return {"image": str(image), "roi": [x0, y0, x1, y1], "candidates": uniq}
+
+
+def candidate_sheet(image, cand, out_sheet, roi=None, cols=3):
+    """把候选轮廓画在局部放大图上，模型一眼挑。"""
+    arr = np.asarray(Image.open(image).convert("RGB"))
+    cs = cand["candidates"]
+    if not cs:
+        return None
+    x0, y0, x1, y1 = roi or cand["roi"]
+    pw, ph = (x1 - x0), (y1 - y0)
+    rows = (len(cs) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * pw, rows * ph), (12, 12, 12))
+    dr = ImageDraw.Draw(sheet)
+    for k, f in enumerate(cs):
+        ov = arr.copy()
+        # 填充半透明洋红：只画轮廓会看错"里面到底包了什么"（我上次就是这么挑错的）
+        b = f["bits"]
+        ov[b] = (ov[b] * 0.45 + np.array([255, 0, 255]) * 0.55).astype(np.uint8)
+        edge = cv2.morphologyEx(b.astype(np.uint8), cv2.MORPH_GRADIENT,
+                                np.ones((3, 3), np.uint8)).astype(bool)
+        ov[edge] = (0, 255, 0)
+        tile = Image.fromarray(ov[y0:y1, x0:x1])
+        cx, cy = (k % cols) * pw, (k // cols) * ph
+        sheet.paste(tile, (cx, cy))
+        dr.rectangle([cx, cy, cx + pw - 1, cy + ph - 1], outline=(0, 200, 255), width=2)
+        label = "#%d area=%.4f" % (f["index"], f["verify"]["area_frac"])
+        dr.rectangle([cx + 2, cy + 2, cx + 12 + 7 * len(label), cy + 20], fill=(0, 0, 0))
+        dr.text((cx + 5, cy + 5), label, fill=(255, 255, 0))
+    Path(out_sheet).parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out_sheet, "JPEG", quality=92)
+    return {"sheet": str(out_sheet), "count": len(cs)}
+
+
 def _crop(arr, box, scale=3, pad=12):
     H, W = arr.shape[:2]
     x0, y0, x1, y1 = box
@@ -260,8 +339,31 @@ def main():
     s2.add_argument("--out-dir", required=True)
     s2.add_argument("--attempt-log", help="把每轮尝试记进 JSONL（自我纠错的可追溯记录）")
     s2.add_argument("--attempt", type=int, default=1)
+    s3 = sub.add_parser("candidates")
+    s3.add_argument("--image", required=True)
+    s3.add_argument("--out-dir", required=True)
+    s3.add_argument("--roi", help="x0,y0,x1,y1 只在 ROI 内找候选")
+    s3.add_argument("--max", type=int, default=6)
+    s3.add_argument("--sheet", help="候选叠图输出路径")
     a = ap.parse_args()
-    if a.cmd == "survey":
+    if a.cmd == "candidates":
+        roi = tuple(int(v) for v in a.roi.split(",")) if a.roi else None
+        res = candidates(a.image, roi, max_out=a.max)
+        Path(a.out_dir).mkdir(parents=True, exist_ok=True)
+        sheet = candidate_sheet(a.image, {"candidates": res["candidates"], "roi": res["roi"]},
+                                a.sheet or str(Path(a.out_dir) / "candidates.jpg"), roi)
+        for f in res["candidates"]:
+            p = Path(a.out_dir) / ("cand%d.mask.json" % f["index"])
+            p.write_text(json.dumps(masks.to_json(masks.from_bool(f["bits"])), ensure_ascii=False), encoding="utf-8")
+            f["mask"] = str(p)
+            f.pop("bits")
+        for f in res["candidates"]:
+            v = f["verify"]
+            print("#%d  area=%.4f comp=%d fill=%.2f bbox=%s %s" % (
+                f["index"], v["area_frac"], v["components"], v["fill"], v["bbox"],
+                "ok" if v["ok"] else ";".join(v["reasons"])[:40]))
+        print("sheet:", (sheet or {}).get("sheet"))
+    elif a.cmd == "survey":
         print(json.dumps(survey(a.image, a.out, a.cols, a.rows), ensure_ascii=False))
     else:
         specs = json.loads(Path(a.spec).read_text(encoding="utf-8"))

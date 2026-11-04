@@ -51,6 +51,25 @@ with tempfile.TemporaryDirectory() as td:
     except ValueError as e:
         check("实例验证不通过就报错", "验证不通过" in str(e), str(e)[:60])
 
+# 笔触级选择：框 + 色相阈值，绕开"给照片做分割"
+doc2 = {"canvas": [100, 100], "layers": [{"name": "band", "blend": "normal"}],
+        "strokes": [
+            {"layer": "band", "preset": "round", "size": 4.0, "opacity": 1.0,
+             "color": [30.0, 90.0, 30.0], "points": [[20.0, 20.0, 1.0]]},   # 绿
+            {"layer": "band", "preset": "round", "size": 4.0, "opacity": 1.0,
+             "color": [30.0, 90.0, 30.0], "points": [[80.0, 80.0, 1.0]]},   # 绿但框外
+            {"layer": "band", "preset": "round", "size": 4.0, "opacity": 1.0,
+             "color": [200.0, 40.0, 40.0], "points": [[25.0, 25.0, 1.0]]}],  # 红
+        "count": 3}
+sel = ops.select_by_predicate(doc2, {"sel_box": [0, 0, 50, 50], "sel_hue": [0.33, 0.05], "sel_sat_min": 0.2})
+check("框+色相只选到框内绿色笔触", sel == [0], sel)
+out2 = ops.apply(doc2, [{"op": "tone_map", "gain": 1.5, "sel_box": [0, 0, 50, 50],
+                        "sel_hue": [0.33, 0.05], "sel_sat_min": 0.2}])
+check("笔触级选择只改命中的笔触", out2["strokes"][0]["color"] != doc2["strokes"][0]["color"]
+      and out2["strokes"][1]["color"] == doc2["strokes"][1]["color"]
+      and out2["strokes"][2]["color"] == doc2["strokes"][2]["color"])
+check("笔触选择对图层无副作用", len(out2["strokes"]) == 3)
+
 # 未知键仍然拒绝（实例字段不能被当成任意透传）
 try:
     ops.validate({"op": "tone_map", "gain": 1.2, "bogus": 1})
