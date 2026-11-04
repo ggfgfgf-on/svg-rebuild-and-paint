@@ -206,7 +206,33 @@ def test_fit_boundary():
     return True
 
 
+def test_edge_report():
+    """梯度口径判"边界是否在边缘"：对齐=ok，人为变形=不ok；晕边丢弃、锚点保留。"""
+    import numpy as np, cv2 as cv
+    img = np.zeros((200, 200, 3), np.uint8); img[:] = (25, 30, 22)
+    cv.circle(img, (100, 100), 60, (110, 150, 90), -1)
+    m = cv.circle(np.zeros((200, 200), np.uint8), (100, 100), 60, 1, -1) > 0
+    r_ok = PI.edge_report(img, m, search_px=6)
+    assert r_ok["ok"] and r_ok["d"] == 0, r_ok
+    er = cv.erode(m.astype(np.uint8), np.ones((7, 7), np.uint8)) > 0
+    r_bad = PI.edge_report(img, er, search_px=6)
+    assert not r_bad["ok"] and r_bad["d"] > 0, r_bad
+    print("PASS edge_report 对齐 ok(contrast=%.2f) / 偏移 not ok(d=%+d)" % (r_ok["contrast"], r_bad["d"]))
+    # filter_added：亮块没有自己的边 → halo 丢弃；给它一个模型锚点 → model 保留
+    add = np.zeros((200, 200), bool); add[158:179, 52:73] = True      # 圆外、贴边、无自身边
+    assert not (add & m).any()
+    out1, rep1 = PI.filter_added(img, m, add, min_ratio=0.8)
+    assert (out1 & add).sum() == 0, "没有边的块应被判为晕边"
+    out2, rep2 = PI.filter_added(img, m, add, min_ratio=0.8, anchors=[(62, 168)], model_grow_px=40)
+    assert (out2 & add).any(), "模型锚点应能保住低对比块"
+    out3, rep3 = PI.filter_added(img, m, add, min_ratio=0.8, anchors=[(62, 168)], model_grow_px=2)
+    assert (out3 & add).sum() < (out2 & add).sum(), "model_grow_px 外扩上限没生效"
+    print("PASS filter_added 晕边丢弃 / 锚点保留 / 外扩上限生效")
+    return True
+
+
 ok = test_cell_geometry() and ok
+ok = test_edge_report() and ok
 ok = test_fit_boundary() and ok
 ok = test_attach_thin() and ok
 ok = test_refine_loop() and ok

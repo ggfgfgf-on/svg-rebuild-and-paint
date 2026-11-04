@@ -774,7 +774,8 @@ ALLOWED = {
 INTERNAL = {"seed", "selection", "weights", "mask", "mask_file", "all", "polygon", "instance", "mask_obj",
             "select_tag", "sel_box", "sel_hue", "sel_sat_min", "sel_val_min",
             "cells", "tiles", "prompt", "segment", "include", "exclude", "grow_px", "loop", "steps",
-            "fit_boundary", "attach_thin"}
+            "fit_boundary", "attach_thin", "filter_halo", "min_ratio", "model_grow_px",
+            "keep_model", "edge_ok", "edge_min_contrast", "search_px"}
 
 
 def validate(spec):

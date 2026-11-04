@@ -342,6 +342,32 @@ def attach_thin(image, mask, gap_px=6, max_width_px=6, max_len_px=90, hue_tol=16
                  "components": int(n - 1), "rejected": rejected}
 
 
+def filter_added(image, base_mask, added_mask, min_ratio=0.8, anchors=None, keep_model=True,
+                 model_grow_px=14):
+    """按梯度证据给"并进来的像素"分三类：edge（自带边）/ model（模型报过，梯度弱也算）/ halo（只有一圈糊边）。
+    默认丢掉 halo，保留 edge 与 model——这就是"模型参与 + 可验证证据"的分工。
+    """
+    import cv2 as _cvf
+    rep = added_edge_report(image, base_mask, added_mask, min_ratio=min_ratio, anchors=anchors)
+    keep = np.zeros_like(np.asarray(added_mask, bool))
+    base_b = np.asarray(base_mask, bool)
+    # 模型块（梯度弱但模型报过）只允许在主体外 model_grow_px 之内，防止顺着低对比一路长出去
+    if anchors and int(model_grow_px) >= 0:
+        gk = np.ones((2 * int(model_grow_px) + 1,) * 2, np.uint8)
+        model_zone = _cvf.dilate(base_b.astype(np.uint8), gk) > 0
+    keep_verdicts = ("edge",) + (("model",) if keep_model else ())
+    for row in rep["rows"]:
+        if row["verdict"] in keep_verdicts:
+            x, y, w, h = row["bbox"]
+            piece = np.asarray(added_mask, bool)[y:y + h, x:x + w]
+            if row["verdict"] == "model" and anchors and int(model_grow_px) >= 0:
+                piece = piece & model_zone[y:y + h, x:x + w]
+            keep[y:y + h, x:x + w] |= piece
+    out = base_b | keep
+    rep["kept_verdicts"] = list(keep_verdicts)
+    return out, rep
+
+
 def fit_boundary(image, mask, search_px=6, blur=3, verbose=False):
     """把整圈边界"贴"到最强梯度上：全局平移 d ∈ [-search, +search]，取边缘梯度均值最大者。
 
@@ -383,6 +409,79 @@ def fit_boundary(image, mask, search_px=6, blur=3, verbose=False):
     if verbose:
         print(info)
     return out, info
+
+
+def _edge_mag(image, blur=3):
+    import cv2 as _cv
+    img = _cv.imread(str(image)) if not isinstance(image, np.ndarray) else np.asarray(image)
+    if img is None:
+        raise ValueError("读不到图像：%r" % (image,))
+    gray = _cv.cvtColor(img, _cv.COLOR_BGR2GRAY)
+    k = max(3, int(blur) | 1)
+    g = _cv.GaussianBlur(gray, (k, k), 0).astype(np.float32)
+    gx = _cv.Sobel(g, _cv.CV_32F, 1, 0, ksize=3)
+    gy = _cv.Sobel(g, _cv.CV_32F, 0, 1, ksize=3)
+    return _cv.magnitude(gx, gy)
+
+
+def edge_report(image, mask, search_px=6, blur=3, min_contrast=0.05):
+    """自动判定"边界是否正好落在边缘上"（不依赖任何人工描边）。
+
+    判据两条，都可解释：
+      1) d == 0：整圈边界的最强梯度就在当前位置（fit_boundary 的峰在 0）；
+      2) contrast = (s0 - 邻域平均) / s0 ≥ min_contrast：这个峰真的比 ±search 内的位置高，
+         否则说明"往前挪和现在差不多"，边界是平的/模糊的，不可信。
+    """
+    import cv2 as _cv
+    out, info = fit_boundary(image, mask, search_px=search_px, blur=blur)
+    scores = dict(info["scores"])
+    s0 = float(scores.get(0, 0.0))
+    neigh = [float(v) for k, v in scores.items() if k != 0]
+    contrast = (s0 - (sum(neigh) / len(neigh))) / max(1e-6, s0) if neigh else 0.0
+    ok = bool(info["d"] == 0 and contrast >= float(min_contrast))
+    return {"ok": ok, "score": round(s0, 3), "contrast": round(contrast, 4),
+            "d": int(info["d"]), "min_contrast": float(min_contrast),
+            "scores": scores, "mask_area": int(np.asarray(mask).sum())}
+
+
+def added_edge_report(image, base_mask, added_mask, min_ratio=0.8, blur=3, anchors=None, anchor_px=6):
+    """复查 attach_thin 之类"并进来的像素"到底是真结构还是晕边。
+
+    对每一块新增像素，比较它与整圈基准边界的梯度强度：
+      ratio ≥ min_ratio → 真结构（它自己带边）
+      ratio <  min_ratio → 晕边（只是把主体边缘向外糊了一圈）
+    """
+    import cv2 as _cv
+    mag = _edge_mag(image, blur=blur)
+    base = np.asarray(base_mask, bool)
+    add = np.asarray(added_mask, bool) & ~base
+    b_er = _cv.erode(base.astype(np.uint8), np.ones((3, 3), np.uint8))
+    bd = (base.astype(np.uint8) > 0) & (b_er == 0)
+    base_score = float(mag[bd].mean()) if bd.any() else 0.0
+    n, cc, st, _ = _cv.connectedComponentsWithStats(add.astype(np.uint8), 8)
+    rows = []
+    for i in range(1, n):
+        comp = cc == i
+        er = _cv.erode(comp.astype(np.uint8), np.ones((3, 3), np.uint8))
+        cbd = (comp.astype(np.uint8) > 0) & (er == 0)
+        sc = float(mag[cbd].mean()) if cbd.any() else 0.0
+        ratio = sc / max(1e-6, base_score)
+        has_anchor = False
+        if anchors:
+            for ax, ay in anchors:
+                if comp[max(0, int(ay) - 2):int(ay) + 3, max(0, int(ax) - 2):int(ax) + 3].any():
+                    has_anchor = True
+                    break
+        verdict = "edge" if ratio >= float(min_ratio) else ("model" if has_anchor else "halo")
+        rows.append({"area": int(st[i, _cv.CC_STAT_AREA]),
+                     "bbox": [int(v) for v in st[i, :4]], "score": round(sc, 2),
+                     "ratio": round(ratio, 3), "anchor": has_anchor, "verdict": verdict})
+    edge_px = sum(r["area"] for r in rows if r["verdict"] == "edge")
+    model_px = sum(r["area"] for r in rows if r["verdict"] == "model")
+    halo_px = sum(r["area"] for r in rows if r["verdict"] == "halo")
+    return {"base_score": round(base_score, 2), "rows": rows,
+            "edge_px": edge_px, "model_px": model_px, "halo_px": halo_px,
+            "components": len(rows)}
 
 
 def tile_points(image, windows):
