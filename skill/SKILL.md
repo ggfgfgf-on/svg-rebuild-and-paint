@@ -1210,6 +1210,17 @@ calibrate_tone、rebuild_shadow_layer、planner_8layer、instruction_demo 都走
 `write_json` / `load_json`。calibrate_tone、rebuild_shadow_layer、instruction_demo 都改用它（instruction_demo 只输出报告，传 `quiet=False`），
 `--quiet` 会关掉逐轮标定日志（只留最终 JSON）。`tests/test_cli_util.py` 覆盖默认值、互斥与报错。
 
+**出图一条命令**：`scripts/render_plan.py plan.json --ops a.json --ops b.json --out final.png --gpu`
+把多个 ops 顺序作用后整份渲染（不需要掩膜/增量重建；`--ops` 可重复，后者作用于前者结果）。
+标定完的 ops 直接喂进来即可：
+
+```
+python scripts/calibrate_tone.py ... --out tone_calibrated.json
+python scripts/render_plan.py plan/painting_clean.plan.json --ops tone_calibrated.json \
+    --out _shots/final_calibrated.png --gpu
+# -> luma 22.32（与标定报告 achieved_luma 22.323 一致）
+```
+
 **亮度不硬编码**：用 `scripts/calibrate_tone.py` 从参考图现场反解 gain：
 
 ```
