@@ -1283,6 +1283,23 @@ def select_by_tag(doc, tag):
 LAST_SPILL = {}
 
 
+def check_calibration(extra=None):
+    """没有工程标定文件时明确通知：现在用的是未验证默认值，不是模型选过的值。"""
+    try:
+        import pick_instance as PI
+        src = getattr(PI, "CALIBRATED_SOURCE", "default")
+    except Exception:
+        src = "default"
+    if src == "default":
+        notice = {"kind": "uncalibrated", "message":
+                  "本工程没有 calibrated.json：参数走未验证默认值；先跑 calibrate.py 再信这些数"}
+        if isinstance(extra, dict):
+            notice.update(extra)
+        LAST_NOTICES.append(notice)
+        return notice
+    return None
+
+
 def check_spill(op_name, mask, mode, doc, max_spill=None):
     """溢出闸门：笔触级改色的"颜料有多少落在掩膜外"。超限只发通知，不抛错。"""
     import masks as M
@@ -1308,6 +1325,7 @@ def apply(doc, specs, selection=None, weights=None, seed=0):
     """按顺序执行算子列表；返回新 doc（入参不受影响）。"""
     LAST_NOTICES.clear()
     LAST_SPILL.clear()
+    check_calibration()
     out = _copy_doc(doc)
     for spec in specs:
         raw = dict(spec)

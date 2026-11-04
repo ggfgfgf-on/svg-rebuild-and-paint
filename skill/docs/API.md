@@ -153,7 +153,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 ### `calibrated`(name, default=None)
 
-读 scripts/calibrated.json 里的标定值（由 calibrate.py 生成、模型选定）。
+读工程 calibrated.json 里的标定值；没有工程文件就返回未验证默认值。
 
 ### `candidate_sheet`(image, cand, out_sheet, roi=None, cols=3)
 

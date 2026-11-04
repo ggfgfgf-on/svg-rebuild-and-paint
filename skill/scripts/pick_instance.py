@@ -354,28 +354,58 @@ def attach_thin(image, mask, gap_px=None, max_width_px=None, max_len_px=None, hu
     return out, info
 
 
-def calibrated(name, default=None):
-    """读 scripts/calibrated.json 里的标定值（由 calibrate.py 生成、模型选定）。
+CALIBRATED_SOURCE = "default"     # "project" | "default"
+CALIBRATED_PATH = None
 
-    分工：脚本枚举 + 渲染接触表，模型看图拍板，值落盘；这里只读，不猜。
-    """
-    import json as _j
+
+def _calibrated_candidates():
     import os as _os
     from pathlib import Path as _P
-    proj = _os.environ.get("SVP_CALIBRATED") or ""
-    p = _P(proj) if proj and _P(proj).is_file() else _P(__file__).resolve().parent / "calibrated.json"
-    try:
-        d = _j.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return default
-    v = (d.get(name) or {})
-    if "value" not in v:
-        return default
-    try:
-        return float(v["value"])
-    except Exception:
-        return default
+    out = []
+    env = _os.environ.get("SVP_CALIBRATED") or ""
+    if env:
+        out.append(_P(env))
+    here = _P.cwd().resolve()
+    for anc in [here, *here.parents]:
+        f = anc / "calibrated.json"
+        if f.is_file():
+            out.append(f)
+            break
+    out.append(_P(__file__).resolve().parent / "calibrated.json")   # 兼容旧位置（技能自己不发布这个文件）
+    return out
 
+
+def _load_calibrated():
+    """标定值属于工程：SVP_CALIBRATED → cwd 向上找 calibrated.json → 空。
+
+    技能不发布任何"选好的值"；找不到工程文件时调用方拿到的都是未验证默认值，
+    来源通过 CALIBRATED_SOURCE 暴露出去（default 就是没验证）。
+    """
+    global CALIBRATED_SOURCE, CALIBRATED_PATH
+    import json as _j
+    for p in _calibrated_candidates():
+        try:
+            if p and p.is_file():
+                data = _j.loads(p.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and data:
+                    CALIBRATED_SOURCE = "project"
+                    CALIBRATED_PATH = str(p)
+                    return data
+        except Exception:
+            continue
+    CALIBRATED_SOURCE = "default"
+    CALIBRATED_PATH = None
+    return {}
+
+
+def calibrated(name, default=None):
+    """读工程 calibrated.json 里的标定值；没有工程文件就返回未验证默认值。"""
+    v = _load_calibrated().get(name)
+    if isinstance(v, dict) and "value" in v:
+        return v["value"]
+    if isinstance(v, (int, float)):
+        return v
+    return default
 
 def filter_added(image, base_mask, added_mask, min_ratio=None, anchors=None, keep_model=True,
                  model_grow_px=None):

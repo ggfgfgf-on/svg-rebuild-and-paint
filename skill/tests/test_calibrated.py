@@ -1,5 +1,6 @@
 """标定闭环：calibrated.json 必须由脚本生成、模型选定、依据可查；默认值必须来自它。"""
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -9,8 +10,9 @@ import pick_instance as PI
 
 
 def main():
-    p = ROOT / 'scripts' / 'calibrated.json'
-    assert p.exists(), '缺 calibrated.json：先跑 scripts/calibrate.py'
+    p = ROOT / 'tests' / 'fixtures' / 'calibrated.project.json'   # 标定值属于工程，测试用夹具复验
+    assert p.exists(), '缺夹具 calibrated.project.json'
+    os.environ['SVP_CALIBRATED'] = str(p)
     d = json.loads(p.read_text(encoding='utf-8'))
     want = {'model_grow_px', 'min_ratio', 'max_grow_px', 'neg_px', 'attach_px',
             'edge_min_contrast', 'accept_max_area_change'}

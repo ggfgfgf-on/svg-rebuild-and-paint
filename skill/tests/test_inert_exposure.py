@@ -21,7 +21,7 @@ def main():
     assert "attach_len" in info["inert"], info["inert"]
     assert "attach_width" in info["inert"], info["inert"]
     assert PI.LAST_ATTACH["inert"] == info["inert"], "info 要同时挂到模块级，供管线读取"
-    cal = json.loads((ROOT / "scripts" / "calibrated.json").read_text(encoding="utf-8"))
+    cal = json.loads((ROOT / "tests" / "fixtures" / "calibrated.project.json").read_text(encoding="utf-8"))
     for name in ("attach_len", "attach_width"):
         assert cal[name].get("inert_on_sample") is True, "%s 缺 inert_on_sample 标记" % name
         assert cal[name].get("inert_reason"), "%s 缺 inert 原因" % name

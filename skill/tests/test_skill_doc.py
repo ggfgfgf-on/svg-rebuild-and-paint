@@ -8,7 +8,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import json
 
 SK = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-CAL = json.loads((ROOT / "scripts" / "calibrated.json").read_text(encoding="utf-8"))
+CAL = json.loads((ROOT / "tests" / "fixtures" / "calibrated.project.json").read_text(encoding="utf-8"))
 EVIDENCE = ("contact_sheet", "multi_sample", "per_pixel_hist", "measured")
 UNSET = ()  # 本轮全部扫完/实现；tol 属工程自测，见手册「未标定」表
 IMPLEMENTED = ("max_spill", "auto_zoom", "zoom_plan")

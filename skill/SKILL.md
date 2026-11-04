@@ -100,7 +100,11 @@ python scripts\calibrate.py --param edge_min_contrast --choose 0.40 --evidence p
 `--make-samples <工程目录>` 按命名约定生成（图 `X.png` ↔ 含 mask/trace 且名字含 `X` 的 JSON），配不上的会列出来而不是猜。
 交集为空 = 样本互相矛盾，先查哪份判据错了，不要硬选一个数。
 
-### 已标定（7 项，默认值由代码从 `calibrated.json` 读取，不写死在代码里）
+### 本工程的实测值（13 项；技能本身不发布这些值）
+
+下表是**这个工程**测出来的，存在工程目录 `calibrated.json`，不随技能分发。解析顺序：
+`SVP_CALIBRATED` → 从当前目录向上找 `calibrated.json` → 代码里的**未验证默认值**。
+来源通过 `pick_instance.CALIBRATED_SOURCE` 暴露；用默认值时 `ops.check_calibration()` 会推一条 `kind=uncalibrated` 通知。
 
 | 参数 | 值 | 证据 | 依据 |
 | --- | --- | --- | --- |

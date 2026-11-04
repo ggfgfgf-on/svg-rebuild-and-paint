@@ -18,7 +18,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-JSON_PATH = HERE / "calibrated.json"
+JSON_PATH = Path.cwd() / "calibrated.json"   # 标定值属于工程，默认落当前目录，不写进技能
 
 
 def _json_path(a):

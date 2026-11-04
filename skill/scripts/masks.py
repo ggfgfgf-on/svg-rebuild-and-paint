@@ -346,20 +346,9 @@ def raster_weight(mask, pts, r=0.0, feather=0.0):
 
 
 def _calibrated_local(name, default):
-    """工程标定（SVP_CALIBRATED）优先，其次技能默认；读不到就用传入默认值。"""
-    import json as _j, os as _os
-    from pathlib import Path as _P
-    p = _os.environ.get("SVP_CALIBRATED") or ""
-    for cand in ([_P(p)] if p and _P(p).is_file() else []) + [_P(__file__).resolve().parent / "calibrated.json"]:
-        try:
-            v = _j.loads(cand.read_text(encoding="utf-8")).get(name)
-        except Exception:
-            v = None
-        if isinstance(v, dict) and "value" in v:
-            return v["value"]
-        if isinstance(v, (int, float)):
-            return v
-    return default
+    """工程标定值（与 pick_instance.calibrated 同一套解析顺序）；没有工程文件就用传入默认值。"""
+    import pick_instance as _PI
+    return _PI.calibrated(name, default)
 
 
 def from_image(image, color, tol=None, keep_largest=True, pad=0):
