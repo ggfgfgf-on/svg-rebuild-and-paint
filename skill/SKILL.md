@@ -1199,6 +1199,11 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 那条 24s/30fps 的旧 raster 过程视频末帧就是"不糊、不偏亮"的基准（luma **22.3**）。
 它的观感 = **没有格填 shadow 层 + 没有 highlight 白点**，也不需要额外提亮。
 
+**辅助函数统一在 `scripts/render_util.py`**：`luma_of` / `target_luma_from_image` /
+`render_arr` / `render_luma` / `render_layer_rgba` / `strokes_to_rgba` / `send_strokes`。
+calibrate_tone、rebuild_shadow_layer、planner_8layer 都走这一份，不要再各写一套渲染/发送路径；
+`tests/test_render_util.py` 锁住亮度口径、单层 alpha、确定性。
+
 **亮度不硬编码**：用 `scripts/calibrate_tone.py` 从参考图现场反解 gain：
 
 ```

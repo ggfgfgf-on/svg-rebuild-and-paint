@@ -16,21 +16,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
 
 import plan_io
-import ops_incremental_demo as D
-import tile_inc
+import render_util as RU
 
 
 def render_layer(doc, layer):
-    d = {"canvas": doc["canvas"],
-         "layers": [{"name": "bg", "blend": "normal"}, {"name": "top", "blend": "normal"}],
-         "strokes": [dict(s, layer="top") for s in doc["strokes"] if s["layer"] == layer]}
-    p, cat, w, h = D.new_painter(d)
-    plan, spec = D.doc_to_plan(d, cat)
-    region = np.zeros((h, w), np.int32)
-    tile_inc.full(p, plan, spec, lambda nm: region, gpu=False, nthreads=8)
-    arr = np.ascontiguousarray(p.composite()).copy()
-    p.close()
-    return arr
+    """单层 RGBA —— 委托给 render_util（同一套渲染/亮度辅助，避免各脚本各写一份）。"""
+    return RU.render_layer_rgba(doc, layer)
 
 
 def resample_strokes(arr, w, h, cell=12, layer="shadow", size_k=5.0, op_max=0.85, op_scale=0.12,
@@ -81,27 +72,7 @@ def resample_random(arr, w, h, layer="shadow", n=9000, size=46.0, opacity=0.16, 
     return out
 
 
-def strokes_to_rgba(strokes, w, h):
-    """把一组笔触单独渲染成 RGBA（alpha=覆盖）。planner 里用来拿 shadow 层现状再重采样。"""
-    import paint_native
-    p = paint_native.Painter(w, h)
-    p.add_layer("normal")
-    p.clear_layer(0, (255, 255, 255), 0.0)
-    parts, offs, params, rids = [], [], [], []
-    cur = 0
-    for st in strokes:
-        a = np.ascontiguousarray(st["points"], dtype=np.float32).reshape(-1, 3)
-        parts.append(a.ravel()); offs.append(cur); cur += a.size
-        c = st["color"]
-        params.extend([st["size"], st["opacity"], c[0] / 255.0, c[1] / 255.0, c[2] / 255.0,
-                       st.get("hardness", 0.7), 1.0, float(paint_native._pid(st["preset"]))])
-        rids.append(0)
-    pts = np.concatenate(parts) if parts else np.zeros(0, np.float32)
-    p.stroke_batch_raw(1, pts, np.asarray(offs, np.int32), np.asarray(params, np.float32),
-                       np.asarray(rids, np.int32), nthreads=4)
-    arr = np.ascontiguousarray(p.layer_rgba(1)).copy()
-    p.close()
-    return arr
+strokes_to_rgba = RU.strokes_to_rgba
 
 
 def smooth_layer_strokes(strokes, w, h, layer="shadow", seed=0, cell=12, size_k=5.0, op_scale=0.12):

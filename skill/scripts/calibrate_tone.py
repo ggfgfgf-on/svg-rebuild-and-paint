@@ -26,28 +26,12 @@ import numpy as np
 from PIL import Image
 
 import ops
-import ops_incremental_demo as D
 import plan_io
-import tile_inc
+import render_util as RU
 
-LUMA = np.array([0.2126, 0.7152, 0.0722], np.float64)
-
-
-def render_luma(doc, gpu=False):
-    p, cat, w, h = D.new_painter(doc, gpu=gpu)
-    try:
-        plan, spec = D.doc_to_plan(doc, cat)
-        region = np.zeros((h, w), np.int32)
-        tile_inc.full(p, plan, spec, lambda nm: region, gpu=gpu, nthreads=8)
-        arr = np.ascontiguousarray(p.composite())
-    finally:
-        p.close()
-    return float(arr[..., :3].astype(np.float64).dot(LUMA).mean())
-
-
-def target_luma_from_image(path):
-    a = np.asarray(Image.open(path).convert("RGB"), dtype=np.float64)
-    return float(a.dot(LUMA).mean())
+# 渲染与亮度口径统一走 render_util（calibrate / rebuild_shadow_layer / 测试共用）
+render_luma = RU.render_luma
+target_luma_from_image = RU.target_luma_from_image
 
 
 def _with_gain(specs, gain):

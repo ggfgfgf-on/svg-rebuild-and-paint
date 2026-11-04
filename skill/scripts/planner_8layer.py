@@ -493,20 +493,11 @@ def main():
         p.add_layer(blend)
     p.set_region(rid)
     subj_layers = {"ambient", "glaze", "highlight", "texture"}
+    import render_util as _RU
     def _send(idx, name, nthreads):
+        # 笔触发送只有一条路径：render_util.send_strokes（planner / 标定 / 测试共用）
         reg = FG if name in subj_layers else rid
-        parts, offs, params, rids = [], [], [], []
-        cur = 0
-        for st in layers[name]:
-            a = np.ascontiguousarray(st["points"], dtype=np.float32).reshape(-1, 3)
-            parts.append(a.ravel()); offs.append(cur); cur += a.size
-            col = st["color"]
-            params.extend([st["size"], st["opacity"], col[0] / 255.0, col[1] / 255.0, col[2] / 255.0,
-                           st.get("hardness", 0.7), 1.0, float(paint_native._pid(st["preset"]))])
-            rids.append(int(st.get("region_id", 0)))
-        pts = np.concatenate(parts) if parts else np.zeros(0, np.float32)
-        p.stroke_batch_raw(idx, pts, np.asarray(offs, np.int32), np.asarray(params, np.float32),
-                           np.asarray(rids, np.int32), nthreads=nthreads, region=reg)
+        _RU.send_strokes(p, idx, layers[name], nthreads=nthreads, region=reg)
 
     outs = []
     todo = [(i + 1, nm) for i, (nm, bl) in enumerate(spec) if layers.get(nm)]
