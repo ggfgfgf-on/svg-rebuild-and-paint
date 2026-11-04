@@ -93,6 +93,8 @@ def _sheet(base, edited, box, path, labels=("before", "after"), h=340):
 
 def _build_mask(base, step):
     """一步的掩膜：优先用现成掩膜文件，否则从视觉提示（种子点+框）生长。"""
+    if step.get("all") or step.get("mask") == "all":
+        return {"type": "all"}          # 全画布：改光影用这个，不引入硬掩膜边界
     if step.get("mask_file"):
         return masks.from_json(json.loads(Path(step["mask_file"]).read_text(encoding="utf-8")))
     seeds = [tuple(s) for s in step.get("seeds") or ()]
@@ -111,6 +113,8 @@ def _build_mask(base, step):
 def _full_mask(mask, h, w, base=None):
     """把任意掩膜转成像素布尔图（只用于度量；选择仍走笔触权重）。"""
     t = mask.get("type")
+    if t == "all":
+        return np.ones((h, w), bool)     # 全画布：度量就是整幅
     if t == "raster":
         b = masks._decode_bits(mask)
         full = np.zeros((h, w), bool)
