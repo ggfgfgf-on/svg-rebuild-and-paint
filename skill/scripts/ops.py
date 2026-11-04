@@ -775,7 +775,7 @@ INTERNAL = {"seed", "selection", "weights", "mask", "mask_file", "all", "polygon
             "select_tag", "sel_box", "sel_hue", "sel_sat_min", "sel_val_min",
             "cells", "tiles", "prompt", "segment", "include", "exclude", "grow_px", "loop", "steps",
             "fit_boundary", "attach_thin", "filter_halo", "min_ratio", "model_grow_px",
-            "keep_model", "edge_ok", "edge_min_contrast", "search_px"}
+            "keep_model", "edge_ok", "edge_min_contrast", "search_px", "sel_mode"}
 
 
 def validate(spec):
@@ -1130,8 +1130,9 @@ def apply(doc, specs, selection=None, weights=None, seed=0):
         if any(k in raw for k in _SEL_KEYS):
             import masks as M
             m = resolve_mask(raw, {k: raw[k] for k in _SEL_KEYS if k in raw})
-            sel = M.select(out, m)
-            wts = M.weights(out, m)[1]
+            _smode = str(raw.get("sel_mode") or "any")
+            sel = M.select(out, m, mode=_smode)
+            wts = M.weights(out, m, mode=_smode)[1]
         clean = validate(dict(raw))
         clean.pop("op")
         if any(k in raw for k in _SEL_KEYS):

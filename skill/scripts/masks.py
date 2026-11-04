@@ -143,6 +143,18 @@ def stroke_weight(mask, stroke, feather=0.0, mode="any"):
     t = mask.get("type")
     if t == "all":
         return 1.0
+    if mode == "center":
+        # 整笔按"中心点是否在掩膜内"决定：比 any 少一圈外溢（any 只要有一点碰到就整笔改色），
+        # 比 all 少一圈空洞（all 会把跨边界的笔全排除）。
+        # 实现：把笔触临时缩成半径 0 的单点再走 any 的判定，复用同一套几何，避免另造一套。
+        pts0 = _pts(stroke)
+        if len(pts0) == 0:
+            return 0.0
+        probe = dict(stroke)
+        probe["points"] = [[float(np.mean(pts0[:, 0])), float(np.mean(pts0[:, 1]))]]
+        probe["size"] = 0.0
+        probe.pop("radius", None)
+        return float(stroke_weight(mask, probe, 0.0, "any"))
     if t == "and":
         # 交集：取最小值。用途典型是「红色笔触 ∩ 花头区域」——只靠颜色会把
         # 画面下方偏红的茎/叶缘也染上（实测叶子下沿出现蓝色斑点）。
