@@ -778,32 +778,63 @@ def resolve_mask(doc, spec):
         cs = dict(spec["cells"])
         if not cs.get("image"):
             raise ValueError("cells 需要 image")
-        steps = cs.get("steps")
-        if steps:
-            # 模型在环的 ops 链：每一步都是模型看上一轮结果后报的格子，逐步追加、可回放。
-            # 每步可选 windows / base（默认上一步结果为 base）/ mode / attach_px。
-            import numpy as _np2
-            import pick_instance as _PI2
-            from PIL import Image as _Im2
-            doc_w2, doc_h2 = _Im2.open(cs["image"]).size
+        # 统一的 ops loop：一个 loop = 有序的 phase 序列，每个 phase 由"模型报格子"或"自训练迭代"驱动，
+        # 全部在 ops 语义里，逐步可回放；每步过后有验收门（面积变化超限就回退该 phase）。
+        lp = cs.get("loop") or {}
+        phases = None
+        if cs.get("steps"):
+            phases = [{"cells": st} for st in cs["steps"]]
+        elif lp.get("phases"):
+            phases = list(lp["phases"])
+        elif lp:
+            phases = [{"auto": lp}]
+        if phases:
+            import pick_instance as _PIm
+            from PIL import Image as _Im3
+            doc_w3, doc_h3 = _Im3.open(cs["image"]).size
             prev = None
             if cs.get("base"):
-                prev = _PI2.rasterize(resolve_mask(doc, cs["base"]), doc_w2, doc_h2)
+                prev = _PIm.rasterize(resolve_mask(doc, cs["base"]), doc_w3, doc_h3)
+            acc = lp.get("accept") or {}
+            maxchg = float(acc.get("max_area_change", 0.02))
             trace = []
-            for si, st in enumerate(steps, 1):
-                if not isinstance(st, dict):
-                    raise ValueError("cells.steps[%d] 必须是对象" % (si - 1))
-                wins_i = st.get("windows") or [st]
-                base_i = _PI2.rasterize(resolve_mask(doc, st["base"]), doc_w2, doc_h2) if st.get("base") else prev
-                b_i = _PI2.cells_mask(cs["image"], wins_i, int(st.get("dilate_px", 0)),
-                                      near=base_i, near_px=int(st.get("attach_px", 4)))
-                mode_i = str(st.get("mode", "union"))
-                prev = b_i if base_i is None else ((b_i | base_i) if mode_i == "union" else (b_i & base_i))
-                trace.append({"step": si, "attach_px": int(st.get("attach_px", 4)), "mode": mode_i,
-                              "area": round(float(prev.mean()), 4),
-                              "cells": [c for w in wins_i for c in (w.get("pos") or [])]})
+            for si, ph in enumerate(phases, 1):
+                if "cells" in ph or "windows" in ph or "pos" in ph:
+                    st = ph.get("cells") or ph
+                    wins_i = st.get("windows") or [st]
+                    base_i = (_PIm.rasterize(resolve_mask(doc, st["base"]), doc_w3, doc_h3)
+                              if st.get("base") else prev)
+                    b_i = _PIm.cells_mask(cs["image"], wins_i, int(st.get("dilate_px", 0)),
+                                          near=base_i, near_px=int(st.get("attach_px", 4)))
+                    mode_i = str(st.get("mode", "union"))
+                    new = b_i if base_i is None else ((b_i | base_i) if mode_i == "union" else (b_i & base_i))
+                    kind, cells_i = "cells", [c for w in wins_i for c in (w.get("pos") or [])]
+                else:
+                    ap = dict(ph.get("auto") or ph)
+                    if cs.get("steps"):
+                        raise ValueError("auto phase 需要 cells.loop，而不是 cells.steps")
+                    wins0 = cs.get("windows") or [dict(cs, pos=[c for w in (cs.get("windows") or []) for c in (w.get("pos") or [])])]
+                    new, _info = _PIm.refine_loop(cs["image"], wins0,
+                                                  iters=int(ap.get("iters", 3)), tol=float(ap.get("tol", 0.995)),
+                                                  model=str(ap.get("model", "grabcut")), verbose=False,
+                                                  init_mask=prev if prev is not None else None,
+                                                  anchors=_PIm.cells_anchors(cs["image"], cs.get("windows") or []))
+                    kind, cells_i = "auto", []
+                rec = {"phase": si, "kind": kind, "cells": cells_i,
+                       "area": round(float(new.mean()), 4)}
+                if prev is not None and prev.any():
+                    chg = abs(float(new.sum()) - float(prev.sum())) / max(1.0, float(prev.sum()))
+                    rec["area_change"] = round(chg, 4)
+                    if chg > maxchg:
+                        rec["status"] = "rejected"
+                        trace.append(rec)
+                        continue
+                rec["status"] = "accepted"
+                trace.append(rec)
+                prev = new
             if prev is None or not prev.any():
-                raise ValueError("cells.steps 没有产生任何像素")
+                raise ValueError("cells.loop 没有产生任何像素")
+            globals()["LAST_LOOP_TRACE"] = {"phases": trace, "accept": maxchg}
             return M.from_bool(prev)
         wins = cs.get("windows") or [cs]
         from PIL import Image as _Image
