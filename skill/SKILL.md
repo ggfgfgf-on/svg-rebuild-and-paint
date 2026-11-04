@@ -99,8 +99,8 @@ python scripts/calibrate.py --param model_grow_px --choose 20 --reason "20 时�
 | `max_grow_px` | 2 | 模型看图 | 4 时面积 0.0637 > 描边 0.0614（+3.7%），1 欠长 |
 | `neg_px` | 3 | 模型 | 扫 1/3/6/10 无差异（0.801~0.804），保留默认 |
 | `attach_px` | 4 | 模型 | 扫 0~28 无可辨差异；只在有 near 时生效 |
-| `edge_min_contrast` | 0.376 | 规则 | 准确掩膜 contrast≈0.51 与加粗 3px ≈0.25 的中点 |
-| `accept_max_area_change` | 0.041 | 规则 | 精修稳态段最大面积变化；取 1 倍（2 倍会放过 +4.63% 那次失控） |
+| `edge_min_contrast` | 0.40 | 模型看图 | 放行 accurate 0.51、拒绝 fat_3px 0.25 与 refined 0.30（仍阶梯）；落在 0.303~0.507 中间 |
+| `accept_max_area_change` | 0.08 | 模型看图 | 正常精修第 1 轮 delta 0.0413 必须放行；与历史失控 4.63% 同量级，单轮门限无法区分 → 只拦 >8%，失控靠 edge_ok + max_total_grow_px |
 
 消费方：`refine_loop(neg_px/max_grow_px)`、`filter_added(min_ratio/model_grow_px)`、`edge_report(min_contrast)`、`ops` 的循环接受门（`accept_max_area_change`）。
 复验：`tests/test_calibrated.py`（字段、`chosen_by`、值在 sweep 内、接触表存在、默认值确实来自文件）。

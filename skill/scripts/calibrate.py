@@ -157,6 +157,92 @@ def record_rule(name, value, rule, extra=None):
     print("recorded %s = %s (rule)" % (name, value))
 
 
+
+def sweep_edge_min_contrast(image, trace, cells, values, base_mask=None):
+    """阈值型但让模型判：一屏看"每个阈值下哪些掩膜被接受/拒绝"，人挑分界。
+
+    样本（这是判据该分开的东西）：
+      accurate   人工描边/精修后的边界准确掩膜  -> 应 PASS
+      fat_3px    把 accurate 故意加粗 3px        -> 应 REJECT（描边 IoU 更高但边界不对）
+      cells_seed 模型格子并集（块状）            -> 应 REJECT
+      refined    从格子并集精修出来的掩膜        -> 看模型怎么判
+    """
+    import numpy as np
+    import cv2 as cv
+    import pick_instance as PI
+    import masks as M
+    from PIL import Image
+    w, h = Image.open(image).size
+    gt = PI.rasterize(M.from_json(_load_json(trace)), w, h)
+    accurate = PI.rasterize(M.from_json(_load_json(base_mask)), w, h) if base_mask else gt
+    wins = _cells_windows(cells)
+    cells_seed = PI.cells_mask(image, wins)
+    refined, _info = PI.refine_loop(image, wins, init_mask=cells_seed,
+                                    anchors=PI.cells_anchors(image, wins), iters=8, verbose=False)
+    samples = [("accurate", accurate), ("fat_3px", cv.dilate(accurate.astype(np.uint8), np.ones((7, 7), np.uint8)) > 0),
+               ("cells_seed", cells_seed), ("refined", refined)]
+    crop = _crop_of(accurate, pad=30)
+    rows = {}
+    tiles = []
+    for name, m in samples:
+        er = PI.edge_report(image, m, search_px=6)
+        rows[name] = {"contrast": er["contrast"], "d": er["d"], "iou_trace": round(_iou(m, gt), 3),
+                      "accept": {str(t): bool(er["contrast"] >= float(t) and er["d"] == 0) for t in values}}
+        tiles.append((name, m, er))
+    panels = []
+    for name, m, er in tiles:
+        p = _panel(image, m, crop, note="%s c=%.2f iou=%.3f" % (name, er["contrast"], rows[name]["iou_trace"]))
+        panels.append(p)
+    sheet = _sheet(panels)
+    return rows, sheet
+
+
+def sweep_accept_max_area_change(image, trace, cells, values, base_mask=None):
+    """把迭代过程摊开：每轮的面积变化 + 该轮掩膜，模型挑"回滚门限"。
+
+    判据不是"哪个数最好看"，而是"哪个门限能放行正常收敛、拦住失控跳变"。
+    """
+    import numpy as np
+    import cv2 as cv
+    import pick_instance as PI
+    import masks as M
+    from PIL import Image
+    w, h = Image.open(image).size
+    gt = PI.rasterize(M.from_json(_load_json(trace)), w, h)
+    wins = _cells_windows(cells)
+    if base_mask:
+        init = PI.rasterize(M.from_json(_load_json(base_mask)), w, h)
+    else:
+        init = PI.cells_mask(image, wins)
+    bits, info = PI.refine_loop(image, wins, init_mask=init, anchors=PI.cells_anchors(image, wins),
+                                iters=8, verbose=False)
+    hist = info.get("history") or []
+    areas = [float(x["area"]) for x in hist if x.get("area")]
+    deltas = [abs(areas[i] - areas[i - 1]) / max(1e-9, areas[i - 1]) for i in range(1, len(areas))]
+    crop = _crop_of(init, pad=30)
+    panels = []
+    rows = {"areas": [round(a, 4) for a in areas], "deltas": [round(d, 5) for d in deltas],
+            "final_iou": round(_iou(bits, gt), 3), "thresholds": {}}
+    for t in values:
+        allowed = sum(1 for d in deltas if d <= float(t))
+        rows["thresholds"][str(t)] = {"iterations_within": allowed, "iterations_total": len(deltas),
+                                      "would_rollback": len(deltas) - allowed}
+    for i, a in enumerate(areas):
+        d = deltas[i - 1] if i > 0 else 0.0
+        p = _panel(image, init if i == 0 else _iter_mask(image, wins, init, i),
+                   crop, note="iter %d area=%.4f d=%.4f" % (i, a, d))
+        panels.append(p)
+    return rows, _sheet(panels)
+
+
+def _iter_mask(image, wins, init, target_iter):
+    """跑 refine_loop 到第 target_iter 轮，返回那一轮的掩膜（用于摊开过程）。"""
+    import pick_instance as PI
+    bits, info = PI.refine_loop(image, wins, init_mask=init, anchors=PI.cells_anchors(image, wins),
+                                iters=int(target_iter), verbose=False)
+    return bits
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--param", required=True)
@@ -228,7 +314,9 @@ def main():
             print("没有 %s 的规则型记录器" % a.param, file=sys.stderr); return 2
         return 0
 
-    sweeps = {"attach_px": sweep_attach_px, "min_ratio": sweep_min_ratio}
+    sweeps = {"attach_px": sweep_attach_px, "min_ratio": sweep_min_ratio,
+              "edge_min_contrast": sweep_edge_min_contrast,
+              "accept_max_area_change": sweep_accept_max_area_change}
     if a.param in ("neg_px", "neg_k", "max_grow_px"):
         def fn(image, trace, cells, values, base_mask=None):
             return sweep_refine(image, trace, cells, values, base_mask, param=a.param)

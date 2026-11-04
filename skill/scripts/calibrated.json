@@ -1,17 +1,54 @@
 {
  "accept_max_area_change": {
-  "area_deltas": [
-   0.04132,
-   0.0
-  ],
-  "chosen_by": "rule",
-  "reason": "稳态段（最后 3 轮）最大面积变化 0.0413，直接作回滚门限（2 倍会放过历史上 +4.63% 的失控）；首轮大跳不计入",
-  "rule": "稳态段（最后 3 轮）最大面积变化 0.0413，直接作回滚门限（2 倍会放过历史上 +4.63% 的失控）；首轮大跳不计入",
-  "steady_tail": [
-   0.04132,
-   0.0
-  ],
-  "value": 0.041
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\accept_max_area_change.png",
+  "reason": "看图：正常精修第 1 轮 delta 0.0413 是必要的收紧，不能回滚；历史失控 +4.63% 与它同量级，单轮门限无法区分，故取 0.08 只拦 >8% 跳变，失控改由 edge_ok 与 max_total_grow_px 拦",
+  "spec": {
+   "base_mask": "mask_leaf_tip3.json",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "areas": [
+    0.0605,
+    0.058,
+    0.058
+   ],
+   "deltas": [
+    0.04132,
+    0.0
+   ],
+   "final_iou": 0.938,
+   "thresholds": {
+    "0.005": {
+     "iterations_total": 2,
+     "iterations_within": 1,
+     "would_rollback": 1
+    },
+    "0.01": {
+     "iterations_total": 2,
+     "iterations_within": 1,
+     "would_rollback": 1
+    },
+    "0.02": {
+     "iterations_total": 2,
+     "iterations_within": 1,
+     "would_rollback": 1
+    },
+    "0.041": {
+     "iterations_total": 2,
+     "iterations_within": 1,
+     "would_rollback": 1
+    },
+    "0.08": {
+     "iterations_total": 2,
+     "iterations_within": 2,
+     "would_rollback": 0
+    }
+   }
+  },
+  "value": 0.08
  },
  "attach_px": {
   "chosen_by": "model",
@@ -48,14 +85,70 @@
   "value": 4.0
  },
  "edge_min_contrast": {
-  "chosen_by": "rule",
-  "reason": "两样本中点：边界准确 contrast=0.506，人为加粗 3px contrast=0.247",
-  "rule": "两样本中点：边界准确 contrast=0.506，人为加粗 3px contrast=0.247",
-  "samples": {
-   "accurate": 0.506,
-   "fat_3px": 0.247
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\edge_min_contrast.png",
+  "reason": "看图：accurate 0.51 边界贴叶缘应放行，fat_3px 0.25 明显漫出叶缘应拒，refined 0.30 仍是阶梯应拒；取 0.40 落在 0.303~0.507 之间，两侧都有余量",
+  "spec": {
+   "base_mask": "mask_leaf_tip3.json",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
   },
-  "value": 0.376
+  "sweep": {
+   "accurate": {
+    "accept": {
+     "0.1": true,
+     "0.2": true,
+     "0.3": true,
+     "0.38": true,
+     "0.45": true,
+     "0.55": false
+    },
+    "contrast": 0.506,
+    "d": 0,
+    "iou_trace": 0.938
+   },
+   "cells_seed": {
+    "accept": {
+     "0.1": false,
+     "0.2": false,
+     "0.3": false,
+     "0.38": false,
+     "0.45": false,
+     "0.55": false
+    },
+    "contrast": -0.0333,
+    "d": -5,
+    "iou_trace": 0.703
+   },
+   "fat_3px": {
+    "accept": {
+     "0.1": false,
+     "0.2": false,
+     "0.3": false,
+     "0.38": false,
+     "0.45": false,
+     "0.55": false
+    },
+    "contrast": 0.2469,
+    "d": -3,
+    "iou_trace": 0.954
+   },
+   "refined": {
+    "accept": {
+     "0.1": true,
+     "0.2": true,
+     "0.3": true,
+     "0.38": false,
+     "0.45": false,
+     "0.55": false
+    },
+    "contrast": 0.3031,
+    "d": 0,
+    "iou_trace": 0.802
+   }
+  },
+  "value": 0.4
  },
  "max_grow_px": {
   "chosen_by": "model",
