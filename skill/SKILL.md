@@ -99,11 +99,16 @@ python scripts/calibrate.py --param model_grow_px --choose 20 --reason "20 时�
 | `max_grow_px` | 2 | 模型看图 | 4 时面积 0.0637 > 描边 0.0614（+3.7%），1 欠长 |
 | `neg_px` | 3 | 模型 | 扫 1/3/6/10 无差异（0.801~0.804），保留默认 |
 | `attach_px` | 4 | 模型 | 扫 0~28 无可辨差异；只在有 near 时生效 |
-| `edge_min_contrast` | 0.40 | 模型看图 | 放行 accurate 0.51、拒绝 fat_3px 0.25 与 refined 0.30（仍阶梯）；落在 0.303~0.507 中间 |
-| `accept_max_area_change` | 0.08 | 模型看图 | 正常精修第 1 轮 delta 0.0413 必须放行；与历史失控 4.63% 同量级，单轮门限无法区分 → 只拦 >8%，失控靠 edge_ok + max_total_grow_px |
+| `edge_min_contrast` | 0.40 | 模型 | 多图接口给区间 [0.304,0.505]（1 个样本）：放行 accurate 0.51、拒 fat_3px 0.25 与 refined 0.30；区间内取 0.40 |
+| `accept_max_area_change` | 0.044 | 模型 | 多图接口给区间 [0.042,0.045]：正常精修 4.13% 放行、历史失控 4.63% 拦住；取中点（此前写的 0.08 落在区间外，已作废） |
 
 消费方：`refine_loop(neg_px/max_grow_px)`、`filter_added(min_ratio/model_grow_px)`、`edge_report(min_contrast)`、`ops` 的循环接受门（`accept_max_area_change`）。
 复验：`tests/test_calibrated.py`（字段、`chosen_by`、值在 sweep 内、接触表存在、默认值确实来自文件）。
+
+**多图样本（阈值要 N 张图撑，不是 1 张）**：`python scripts/calibrate.py --param edge_min_contrast --samples samples.json`，
+样本格式 `{"samples":[{"image":..., "trace":..., "cells":..., "base_mask":..., "runaway_delta":0.0463}]}`；
+辅助函数 `calibrate.load_samples()` / `calibrate.sweep_multi()` 返回每样本区间与**交集**，交集空说明样本互相矛盾，先查哪个判据错了。
+目前仓库里只有 1 个真实样本（叶子那张），所以区间还宽；加图后重跑即可收窄。
 
 **口径要点**：参数只在“已有较好种子 + 新增细结构落在模型报的格子里”时才起作用；
 用格子并集当种子扫 5 档会**完全一样**（实测），所以 `--base-mask` 值得给。

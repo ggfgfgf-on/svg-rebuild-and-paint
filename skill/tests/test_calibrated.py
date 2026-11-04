@@ -24,7 +24,11 @@ def main():
         if e['chosen_by'] == 'model':
             for k in ('sweep', 'contact_sheet'):
                 assert k in e, '%s 缺 %s' % (name, k)
-            assert (ROOT / e['contact_sheet']).exists(), '%s 接触表不存在' % name
+            sheet = str(e.get('contact_sheet') or '')
+            has_sheet = bool(sheet) and (ROOT / sheet).is_file()
+            has_interval = bool(e.get('intersection'))
+            # 证据要么是接触表（单样本扫档），要么是多图交集（per-sample 区间）
+            assert has_sheet or has_interval, '%s 既没有接触表也没有多图交集，等于没证据' % name
             if name in NUMERIC:
                 keys = [float(k) for k in e['sweep']]
                 assert float(e['value']) in keys, '%s 的值 %r 不在 sweep 里 (%s)' % (name, e['value'], keys)

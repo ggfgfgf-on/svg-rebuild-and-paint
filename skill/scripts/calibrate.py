@@ -243,6 +243,96 @@ def _iter_mask(image, wins, init, target_iter):
     return bits
 
 
+
+def load_samples(path):
+    """多图样本：每个样本 = 一张图 + 一份人工描边（+ 可选 cells / 种子掩膜）。
+
+    这是"阈值该由多张图支撑"的接口；样本列表用 JSON 给：
+        [{"image": "a.png", "trace": "a_mask.json", "cells": "a_windows.json", "base_mask": "a_seed.json"}, ...]
+    """
+    data = _load_json(path)
+    if isinstance(data, dict):
+        data = data.get("samples") or [data]
+    out = []
+    for i, s in enumerate(data):
+        for k in ("image", "trace"):
+            if k not in s:
+                raise ValueError("样本 %d 缺 %r" % (i, k))
+        out.append(s)
+    return out
+
+
+def _numeric(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def sweep_multi(param, samples, values):
+    """对每个样本各跑一遍判定，取可接受区间的交集。
+
+    返回 {"per_sample": {...}, "intersection": [lo, hi], "values": [...]}：
+      edge_min_contrast：每样本回推 (max(应拒) + eps, min(应放行) - eps)
+      accept_max_area_change：每样本回推 (正常最大 delta, 失控最小 delta)
+    交集为空说明这些样本互相矛盾——这时候不该硬选一个数，而要先看是哪个样本的判据错了。
+    """
+    per = {}
+    lo_hi = []
+    for s in samples:
+        name = Path(s["image"]).name
+        rows = {}
+        if param == "edge_min_contrast":
+            import numpy as np
+            import cv2 as cv
+            import pick_instance as PI
+            import masks as M
+            from PIL import Image
+            w, h = Image.open(s["image"]).size
+            gt = PI.rasterize(M.from_json(_load_json(s["trace"])), w, h)
+            wins = _cells_windows(s["cells"]) if s.get("cells") else None
+            accurate = PI.rasterize(M.from_json(_load_json(s["base_mask"])), w, h) if s.get("base_mask") else gt
+            samples_mask = [("accurate", accurate, True),
+                            ("fat_3px", cv.dilate(accurate.astype(np.uint8), np.ones((7, 7), np.uint8)) > 0, False)]
+            if wins:
+                cells_seed = PI.cells_mask(s["image"], wins)
+                refined, _i = PI.refine_loop(s["image"], wins, init_mask=cells_seed,
+                                             anchors=PI.cells_anchors(s["image"], wins), iters=8, verbose=False)
+                samples_mask += [("cells_seed", cells_seed, False), ("refined", refined, False)]
+            acc, rej = [], []
+            for nm, m, should_pass in samples_mask:
+                er = PI.edge_report(s["image"], m, search_px=6)
+                ok = bool(er["ok"] and er["d"] == 0)
+                rows[nm] = {"contrast": er["contrast"], "d": er["d"], "ok_now": ok, "should_pass": should_pass}
+                (acc if should_pass else rej).append(er["contrast"])
+            lo = max(rej) + 1e-3 if rej else 0.0
+            hi = min(acc) - 1e-3 if acc else 1.0
+            if lo < hi:
+                lo_hi.append([round(lo, 3), round(hi, 3)])
+            rows["interval"] = [round(lo, 3), round(hi, 3)]
+        elif param == "accept_max_area_change":
+            import pick_instance as PI
+            import masks as M
+            from PIL import Image
+            w, h = Image.open(s["image"]).size
+            wins = _cells_windows(s["cells"]) if s.get("cells") else []
+            init = PI.rasterize(M.from_json(_load_json(s["base_mask"])), w, h) if s.get("base_mask") else PI.cells_mask(s["image"], wins)
+            bits, info = PI.refine_loop(s["image"], wins, init_mask=init, anchors=PI.cells_anchors(s["image"], wins),
+                                        iters=8, verbose=False)
+            hist = info.get("history") or []
+            areas = [float(x["area"]) for x in hist if x.get("area")]
+            deltas = [abs(areas[i] - areas[i - 1]) / max(1e-9, areas[i - 1]) for i in range(1, len(areas))]
+            normal = max(deltas) if deltas else 0.0
+            rows["normal_max_delta"] = round(normal, 4)
+            runaway = float(s.get("runaway_delta", 0) or 0)
+            if runaway > normal:
+                lo_hi.append([round(normal + 1e-3, 3), round(runaway - 1e-3, 3)])
+                rows["runaway_delta"] = runaway
+            rows["interval"] = [round(normal + 1e-3, 3), round(runaway, 3) if runaway else None]
+        per[name] = rows
+    lo = max((x[0] for x in lo_hi), default=0.0)
+    hi = min((x[1] for x in lo_hi), default=1.0)
+    return {"per_sample": per, "intersection": [round(lo, 3), round(hi, 3)] if lo < hi else [],
+            "samples": len(samples), "values": [float(v) for v in values]}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--param", required=True)
@@ -250,6 +340,7 @@ def main():
     ap.add_argument("--trace")
     ap.add_argument("--cells")
     ap.add_argument("--base-mask", default="")
+    ap.add_argument("--samples", default="", help="多图样本 JSON（每项 image/trace[/cells/base_mask]）")
     ap.add_argument("--values", default="")
     ap.add_argument("--choose", default="")
     ap.add_argument("--reason", default="")
@@ -314,6 +405,26 @@ def main():
             print("没有 %s 的规则型记录器" % a.param, file=sys.stderr); return 2
         return 0
 
+    if a.samples:
+        if a.param not in ("edge_min_contrast", "accept_max_area_change"):
+            print("多图样本目前只支持 edge_min_contrast / accept_max_area_change", file=sys.stderr); return 2
+        vals = [float(x) for x in (a.values or "0").split(",") if x.strip()]
+        out = sweep_multi(a.param, load_samples(a.samples), vals)
+        data = _load_json(a.json) if Path(a.json).exists() else {}
+        prev = data.get(a.param) or {}
+        merged = dict(prev)                      # 保留已有的 value/reason/contact_sheet，别整条覆盖
+        merged.update({"per_sample": out["per_sample"], "intersection": out["intersection"],
+                       "samples": out["samples"], "sweep": out["per_sample"],
+                       "chosen_by": prev.get("chosen_by", "unset"),
+                       "reason": prev.get("reason", ""),
+                       "contact_sheet": prev.get("contact_sheet", ""),
+                       "spec": dict(prev.get("spec") or {}, samples_file=Path(a.samples).name)})
+        data[a.param] = merged
+        Path(a.json).write_bytes((json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+        for name, rows in out["per_sample"].items():
+            print("%-22s %s" % (name, json.dumps(rows, ensure_ascii=False)))
+        print("samples=%d  intersection=%s" % (out["samples"], out["intersection"]))
+        return 0
     sweeps = {"attach_px": sweep_attach_px, "min_ratio": sweep_min_ratio,
               "edge_min_contrast": sweep_edge_min_contrast,
               "accept_max_area_change": sweep_accept_max_area_change}
