@@ -49,6 +49,17 @@ def _touched(doc, specs):
     return out
 
 
+def _clean_nan(o):
+    """NaN/Inf 不是合法 JSON，写盘前换成 null（否则下游 json.load 直接炸）。"""
+    if isinstance(o, float):
+        return None if (o != o or o in (float("inf"), float("-inf"))) else o
+    if isinstance(o, dict):
+        return {k: _clean_nan(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_clean_nan(v) for v in o]
+    return o
+
+
 def _apply_masked(doc, specs, mask, feather=0.0, mask_mode="any"):
     """按层取掩膜权重后应用算子（与 instruction_demo 同一套语义）。"""
     sel, wt = [], []
@@ -95,6 +106,16 @@ def _build_mask(base, step):
     """一步的掩膜：优先用现成掩膜文件，否则从视觉提示（种子点+框）生长。"""
     if step.get("all") or step.get("mask") == "all":
         return {"type": "all"}          # 全画布：改光影用这个，不引入硬掩膜边界
+    if step.get("prompt"):
+        # 提示点分割直接作为一步的选择：模型给点，判别由 pick_instance 做，参数全在 step 里
+        import pick_instance as _PI
+        pr = dict(step["prompt"])
+        bits = _PI.prompted_mask(
+            pr["image"], [[float(a), float(b)] for a, b in pr.get("pos") or []],
+            [[float(a), float(b)] for a, b in pr.get("neg") or []],
+            ring=float(pr.get("ring", 16)), radius=float(pr.get("radius", 10)),
+            model=str(pr.get("model", "gmm")), components=int(pr.get("components", 3)))
+        return masks.from_bool(bits)
     if step.get("mask_file"):
         return masks.from_json(json.loads(Path(step["mask_file"]).read_text(encoding="utf-8")))
     seeds = [tuple(s) for s in step.get("seeds") or ()]

@@ -70,8 +70,48 @@ def snap_polygon(image, poly, search=18, smooth=2, step=2.0):
     return new_poly, stats
 
 
-def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, model="gauss",
-                  bins=32, smooth_bins=2, bridge_px=11):
+def _gmm_fit(X, k=3, iters=40, seed=0, reg=1e-2):
+    """numpy 版 GMM（EM）：单高斯对多峰背景必然坍缩，这里每类用 k 个高斯。"""
+    rng = np.random.default_rng(seed)
+    k = int(max(1, min(k, max(1, len(X) // 50))))
+    idx = rng.choice(len(X), k, replace=False)
+    mu = X[idx].copy()
+    cov = [np.cov(X.T) + np.eye(X.shape[1]) * reg for _ in range(k)]
+    w = np.ones(k) / k
+    for _ in range(int(iters)):
+        dens = np.stack([w[j] * _gauss_pdf(X, mu[j], cov[j]) for j in range(k)], 1)
+        tot = dens.sum(1, keepdims=True) + 1e-300
+        r = dens / tot
+        Nk = r.sum(0) + 1e-9
+        w = Nk / len(X)
+        for j in range(k):
+            mu[j] = (r[:, j:j + 1] * X).sum(0) / Nk[j]
+            d = X - mu[j]
+            cov[j] = (r[:, j:j + 1] * d).T @ d / Nk[j] + np.eye(X.shape[1]) * reg
+    return w, mu, cov
+
+
+def _gauss_pdf(X, mu, cov):
+    d = X - mu
+    inv = np.linalg.inv(cov)
+    maha = np.einsum("...i,ij,...j->...", d, inv, d)
+    det = max(np.linalg.det(cov), 1e-30)
+    return np.exp(-0.5 * maha) / np.sqrt(((2 * np.pi) ** X.shape[-1]) * det + 1e-300)
+
+
+def _gmm_logpdf(F, w, mu, cov):
+    H, W = F.shape[:2]
+    X = F.reshape(-1, F.shape[2])
+    out = np.full(len(X), -1e30)
+    for j in range(len(w)):
+        p = np.log(w[j] + 1e-12) - 0.5 * np.einsum("...i,ij,...j->...", X - mu[j],
+                                                   np.linalg.inv(cov[j]), X - mu[j])
+        out = np.logaddexp(out, p)
+    return out.reshape(H, W)
+
+
+def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, model="gmm",
+                  components=3, bins=32, smooth_bins=2, bridge_px=11):
     """模型给正/负点提示，确定性函数出掩膜（唯一的"阈值"是似然比 0.5，不是拟合常量）。
 
     单高斯会崩：背景跨"暗底/亮边/梗"三种颜色，方差一放就把前景吞了——实测全图 0.9968。
@@ -81,6 +121,44 @@ def prompted_mask(image, positives, negatives, ring=16, iters=4, radius=10, mode
     import cv2 as _cv
     img = _cv.imread(str(image))
     H, W = img.shape[:2]
+    if model == "gmm":
+        F = _cv.cvtColor(_cv.GaussianBlur(img, (3, 3), 0), _cv.COLOR_BGR2LAB).astype(np.float64)
+        F[:, :, 0] /= 2.55
+        def _samp(pts):
+            acc = []
+            for x, y in pts:
+                mm = np.zeros((H, W), np.uint8)
+                _cv.circle(mm, (int(x), int(y)), int(radius), 1, -1)
+                acc.append(F[mm > 0])
+            return np.concatenate(acc, 0)
+        fg_s, bg_s = _samp(positives), _samp(negatives)
+        wf, muf, covf = _gmm_fit(fg_s, components, seed=0)
+        wb, mub, covb = _gmm_fit(bg_s, components, seed=1)
+        lf = _gmm_logpdf(F, wf, muf, covf)
+        lb = _gmm_logpdf(F, wb, mub, covb)
+        m = (lf > lb).astype(np.uint8)
+        m = _cv.morphologyEx(m, _cv.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        m = _cv.morphologyEx(m, _cv.MORPH_CLOSE, np.ones((13, 13), np.uint8))
+        n, cc, st, _ = _cv.connectedComponentsWithStats(m, 8)
+        if n > 1:
+            keep = sorted({int(cc[int(y), int(x)]) for x, y in positives
+                           if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
+            m = np.isin(cc, keep).astype(np.uint8) if keep else (cc == (1 + int(np.argmax(st[1:, _cv.CC_STAT_AREA])))).astype(np.uint8)
+        ff = m.copy(); mm2 = np.zeros((H + 2, W + 2), np.uint8)
+        _cv.floodFill(ff, mm2, (0, 0), 1)
+        out = refine_mask(image, m.astype(bool) | (ff == 0), corridor=ring, iters=iters)
+        hard = np.ones((H, W), np.uint8)
+        for x, y in negatives:
+            _cv.circle(hard, (int(x), int(y)), int(radius), 0, -1)
+        out = out & (hard > 0)
+        n2, cc2, _, _ = _cv.connectedComponentsWithStats(out.astype(np.uint8), 8)
+        keep2 = sorted({int(cc2[int(y), int(x)]) for x, y in positives
+                        if 0 <= int(y) < H and 0 <= int(x) < W} - {0})
+        if keep2 and n2 > 1:
+            out = np.isin(cc2, keep2)
+        ff3 = out.astype(np.uint8).copy(); mm3 = np.zeros((H + 2, W + 2), np.uint8)
+        _cv.floodFill(ff3, mm3, (0, 0), 1)
+        return out | (ff3 == 0)
     if model == "gauss":
         # 单高斯判别：对这张图实测 IoU 0.936（直方图版 0.707，会更糊）
         F = _cv.cvtColor(_cv.GaussianBlur(img, (3, 3), 0), _cv.COLOR_BGR2LAB).astype(np.float64)
@@ -269,8 +347,14 @@ def refine_mask(image, mask, corridor=12, iters=5, open_px=0):
     gc[allowed & ~sd.astype(bool)] = _cv.GC_PR_BGD
     gc[sd.astype(bool)] = _cv.GC_PR_FGD
     gc[inner] = _cv.GC_FGD
+    # 小图/小掩膜会让 grabCut 的样本集为空而抛断言（60x60 合成图实测崩溃）；样本不足就直接返回
+    if int(inner.sum()) < 20 or int((allowed & ~sd.astype(bool)).sum()) < 20:
+        return sd.astype(bool)
     bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
-    _cv.grabCut(img, gc, None, bgd, fgd, int(iters), _cv.GC_INIT_WITH_MASK)
+    try:
+        _cv.grabCut(img, gc, None, bgd, fgd, int(iters), _cv.GC_INIT_WITH_MASK)
+    except _cv.error:
+        return sd.astype(bool)
     bits = (((gc == _cv.GC_FGD) | (gc == _cv.GC_PR_FGD)) & allowed).astype(np.uint8)
     if open_px:
         bits = _cv.morphologyEx(bits, _cv.MORPH_OPEN, np.ones((int(open_px), int(open_px)), np.uint8))
@@ -311,7 +395,9 @@ def grid_overlay(image, box, out, step=50, scale=2):
         if major:
             dr.text((3, py + 2), str(gy), fill=(255, 255, 0))
     Path(out).parent.mkdir(parents=True, exist_ok=True)
-    im.save(out, "JPEG", quality=92)
+    # 按扩展名选格式：写 .png 却存 JPEG 会让读图端报"扩展名与字节不符"
+    fmt = "PNG" if str(out).lower().endswith(".png") else "JPEG"
+    im.save(out, fmt, **({"quality": 92} if fmt == "JPEG" else {}))
     return {"out": str(out), "box": [x0, y0, x1, y1], "step": int(step), "scale": int(scale),
             "size": [im.width, im.height]}
 
@@ -642,7 +728,8 @@ def main():
     s8.add_argument("--neg", required=True, help="x,y;x,y;...")
     s8.add_argument("--ring", type=int, default=16)
     s8.add_argument("--bridge", type=int, default=11)
-    s8.add_argument("--model", choices=["gauss", "hist"], default="gauss")
+    s8.add_argument("--model", choices=["gmm", "gauss", "hist"], default="gmm")
+    s8.add_argument("--components", type=int, default=3)
     s8.add_argument("--width", type=int, default=900)
     s8.add_argument("--height", type=int, default=1100)
     s8.add_argument("--out", required=True)
@@ -682,7 +769,8 @@ def main():
     if a.cmd == "prompted":
         pos = [[float(u) for u in t.split(",")] for t in a.pos.split(";")]
         neg = [[float(u) for u in t.split(",")] for t in a.neg.split(";")]
-        bits = prompted_mask(a.image, pos, neg, ring=a.ring, bridge_px=a.bridge, model=a.model)
+        bits = prompted_mask(a.image, pos, neg, ring=a.ring, bridge_px=a.bridge,
+                             model=a.model, components=a.components)
         bits = np.asarray(Image.fromarray(bits.astype(np.uint8) * 255).resize((a.width, a.height), Image.NEAREST)) > 0
         v = verify(bits, allow_border=True)
         Path(a.out).write_text(json.dumps(masks.to_json(masks.from_bool(bits))), encoding="utf-8")

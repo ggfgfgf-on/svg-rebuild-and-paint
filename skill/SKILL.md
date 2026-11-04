@@ -1304,10 +1304,22 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 edge_fit 0.9→1.94、平均位移 5.6px，3× 放大后绿线贴着叶缘。`--search 20` 会跳到相邻亮叶上（右侧凸出）。`edge_fit` 指标在这张图上不可靠（r1 1.51 → r2 1.09：
 叶子边缘亮、背景更暗，梯度反而不高），**判据只能是局部放大目视**。
 
+**prompt 已是 ops 选择类型**：`{"prompt": {"image","pos","neg","ring","radius","model","components","bridge"}}`
+和 `{"segment": {"image","roi","seeds","ring","passes","hue_k","sat_q","chroma_scale"}}` 都能直接写进 op，
+**参数全部暴露**（不再是把阈值写死在我脑子里）。edit_loop 的 step 也支持 `"prompt": {...}` 直接当掩膜。
+实测：真实计划里 prompt 选中 1370 笔触；3 步链 luma 39.99→34.58→41.40，叶外 Δ0.01–0.10。
+
+**多峰判别器**：GMM（numpy EM，k=3）比单高斯稳：16 个负点仍 IoU 0.906/area 0.0558，
+单高斯在同样负点数下坍缩到 area 0.709（整图变前景）。负点数量不该决定成败——这正是单高斯的病。
+
 **提示点分割 `pick_instance prompted`（模型语义参与的正道）**：`--pos`/`--neg` 传照片坐标点，
 函数只做"判别 + 走廊精修 + 负点硬排除"，没有拟合常量（唯一阈值是似然比 0）。实测：
 7 正 + 8 负 → 对人工描边 IoU **0.936**；负点加到 16 个 → 单高斯坍缩（area 0.709~0.9968，整图变前景）。
 所以**判别器要按多峰建模**（每类 GMM/多直方图），且负点要落在真背景上——不是越多越好。
+
+**小图与空样本要守卫**：`refine_mask` 在 60×60 合成图上 grabCut 抛
+`!bgdSamples.empty() && !fgdSamples.empty()` 断言（前景/背景确定样本不足）→ 已加"样本 <20px 直接返回 + try/except"。
+`edit_loop` 写 metrics.json 时 NaN 不是合法 JSON（下游 json.load 直接炸）→ 写盘前把 NaN/Inf 换成 null。
 
 **坐标纪律（血泪）**：看放大图落点前，必须先让 `grid_overlay` 把**照片坐标**网格画在图里。
 我两次把"显示坐标"当照片坐标（屏幕 x=(photo_x-80)×3），负点全打在目标外，白跑两轮；

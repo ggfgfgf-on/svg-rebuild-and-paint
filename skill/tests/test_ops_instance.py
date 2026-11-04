@@ -8,6 +8,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import ops
+import masks
 
 ok = True
 def check(n, c, extra=""):
@@ -31,6 +32,9 @@ with tempfile.TemporaryDirectory() as td:
     td = Path(td)
     img = td / "inst.png"
     Image.fromarray(arr).save(img)
+    import shutil as _sh, tempfile as _tf
+    _persist = Path(_tf.mkdtemp()) / "inst.png"
+    _sh.copyfile(img, _persist)
 
     inst = {"image": str(img), "seeds": [[30, 30]], "tolerance": 60, "hue_tol": 20, "grow": 4,
             "max_area": 0.5, "allow_border": True}
@@ -87,6 +91,19 @@ try:
     check("replan_region 缺 ref 报错", False)
 except ValueError as e:
     check("replan_region 缺 ref 报错", "missing" in str(e))
+
+# prompt / segment 是真算子选择（提示点、ROI、判别器/参数都必须能从 op 里传）
+m = ops.resolve_mask(doc, {"prompt": {"image": _persist, "pos": [[30, 30]], "neg": [[3, 3], [55, 5]],
+                                   "ring": 6, "model": "gmm", "components": 1}})
+sel = masks.select(doc, m)
+check("prompt 能选中球上的笔触", 0 < len(sel) < 4, len(sel))
+m2 = ops.resolve_mask(doc, {"segment": {"image": _persist, "roi": [5, 5, 55, 55], "ring": 6, "passes": 1}})
+check("segment 也能选中", len(masks.select(doc, m2)) > 0, len(masks.select(doc, m2)))
+try:
+    ops.resolve_mask(doc, {"prompt": {"image": _persist, "pos": [], "neg": []}})
+    check("空提示会报错", False)
+except Exception:
+    check("空提示会报错", True)
 
 print("RESULT", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)

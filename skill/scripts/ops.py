@@ -769,6 +769,38 @@ def resolve_mask(doc, spec):
         return M.all_()
     if "polygon" in spec:
         return M.polygon([tuple(map(float, p)) for p in spec["polygon"]])
+    if "prompt" in spec or "segment" in spec:
+        # 语义分割选择：提示点/ROI 由模型给，判别由确定性函数做，参数全部走 spec（不硬编码）
+        import numpy as _np
+        import pick_instance as _PI
+        from PIL import Image as _Image
+        pr = dict(spec.get("prompt") or spec.get("segment"))
+        img = pr.get("image")
+        if not img:
+            raise ValueError("%s 需要 image" % ("prompt" if "prompt" in spec else "segment"))
+        if "prompt" in spec:
+            bits = _PI.prompted_mask(
+                img,
+                [[float(a), float(b)] for a, b in pr.get("pos") or []],
+                [[float(a), float(b)] for a, b in pr.get("neg") or []],
+                ring=float(pr.get("ring", 16)), radius=float(pr.get("radius", 10)),
+                model=str(pr.get("model", "gmm")), components=int(pr.get("components", 3)),
+                bridge_px=int(pr.get("bridge", 11)))
+        else:
+            bits = _PI.segment(
+                img, roi=pr.get("roi"), seeds=[[float(a), float(b)] for a, b in pr.get("seeds") or []] or None,
+                ring=float(pr.get("ring", 18)), passes=int(pr.get("passes", 2)),
+                hue_k=float(pr.get("hue_k", 3.0)), sat_q=float(pr.get("sat_q", 15)),
+                chroma_scale=float(pr.get("chroma_scale", 0.55)))
+        arr = _np.asarray(_Image.open(img).convert("RGB"))
+        hh, ww = arr.shape[:2]
+        doc_h, doc_w = int(doc.get("height", doc.get("h", hh))), int(doc.get("width", doc.get("w", ww)))
+        if (hh, ww) != (doc_h, doc_w):
+            bits = _np.asarray(_Image.fromarray(bits.astype(_np.uint8) * 255).resize((doc_w, doc_h), _Image.NEAREST)) > 0
+        v = _PI.verify(bits, allow_border=True)
+        if v["components"] > 3 or v["fill"] < 0.4:
+            raise ValueError("分割选择验证不通过：components=%d fill=%.2f" % (v["components"], v["fill"]))
+        return M.from_bool(bits)
     if "instance" in spec:
         import numpy as _np
         import visual_mask as VM
