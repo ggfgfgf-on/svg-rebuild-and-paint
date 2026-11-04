@@ -1324,6 +1324,11 @@ edge_fit 0.9→1.94、平均位移 5.6px，3× 放大后绿线贴着叶缘。`--
 全部按浮点 roi 算。修掉的 bug：roi 原先被 `int()` 截断，子窗口整体偏 ≤1px、子格中心跟着漂。
 单测遍历 8×6 全格验证"中心∈框⊂roi"且 `px_to_cell(cell_center(x))==x`，并断言子窗 roi == 父格并集。
 
+**模型语义直通选择源 `cells`（不复用判别器）**：`{"cells": {"image","windows","base","mode","attach_px","dilate_px"}}`。
+报的格子直接栅格化成掩膜——**模型说属于就属于**；判别器（tiles/prompt/segment）只能通过 `base` 当辅助证据。
+`mode=union` 时用 `attach_px` 限制"只在已有掩膜旁边补上缺的那块"，避免整块方块贴上去。
+实测扫描 attach_px 0/4/8/16/28 → IoU 0.930/0.947/0.938/0.931/0.930，默认取 4（叶：0.938 → 0.947）。
+
 **锚点铁律（enforce_anchors）**：模型报过的格子**不许从掩膜里消失**。
 - `prompted_from_tiles(..., strict=True)` 默认容差 0：任何一个正点没进掩膜就报错并给坐标。
 - `enforce_anchors(image, mask, anchors)`：对丢失的锚点做局部自适应生长（邻域中位数 + 3×MAD 容差，

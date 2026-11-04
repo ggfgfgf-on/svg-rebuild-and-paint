@@ -769,6 +769,30 @@ def resolve_mask(doc, spec):
         return M.all_()
     if "polygon" in spec:
         return M.polygon([tuple(map(float, p)) for p in spec["polygon"]])
+    if "cells" in spec:
+        # 模型语义直通：报了的格子就是选中，不经过颜色判别器（判别器只是辅助证据）。
+        # spec = {"cells": {"image": p, "windows": [...], "dilate_px": 0,
+        #                   "base": <另一个 selection spec>, "mode": "union"|"intersect"}}
+        import numpy as _np
+        import pick_instance as _PI
+        cs = dict(spec["cells"])
+        if not cs.get("image"):
+            raise ValueError("cells 需要 image")
+        wins = cs.get("windows") or [cs]
+        from PIL import Image as _Image
+        doc_w, doc_h = _Image.open(cs["image"]).size
+        doc_w, doc_h = int(doc.get("width", doc_w)), int(doc.get("height", doc_h))
+        base = _PI.rasterize(resolve_mask(doc, cs["base"]), doc_w, doc_h) if cs.get("base") else None
+        bits = _PI.cells_mask(cs["image"], wins, int(cs.get("dilate_px", 0)),
+                              near=base, near_px=int(cs.get("attach_px", 4)))
+        if bits.shape[:2] != (doc_h, doc_w):
+            bits = _np.asarray(_Image.fromarray(bits.astype(_np.uint8) * 255).resize(
+                (doc_w, doc_h), _Image.NEAREST)) > 0
+        if base is not None:
+            bits = (bits | base) if str(cs.get("mode", "union")) == "union" else (bits & base)
+        if not bits.any():
+            raise ValueError("cells 选择为空：报的格子全被 base 交集裁掉了")
+        return M.from_bool(bits)
     if "tiles" in spec:
         # 模型用格子编号参与：{"tiles": {"image","roi","cols","rows","pos":["D2"],"neg":["A1"], ...}}
         import numpy as _np
@@ -854,7 +878,8 @@ def resolve_mask(doc, spec):
                 raise ValueError("instance 验证不通过：%s（area=%.4f comps=%d fill=%.2f）"
                                  % ("; ".join(v["reasons"]), v["area_frac"], v["components"], v["fill"]))
         return M.from_bool(bits)
-    raise ValueError("selection spec 里没有可用的掩膜来源（mask/mask_file/all/polygon/instance）")
+    raise ValueError("selection spec 里没有可用的掩膜来源"
+                     "（mask/mask_file/all/polygon/tiles/cells/prompt/segment/instance）")
 
 
 _SEL_KEYS = ("mask", "mask_file", "all", "polygon", "instance")

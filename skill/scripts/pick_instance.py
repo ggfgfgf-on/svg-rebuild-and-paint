@@ -172,6 +172,44 @@ def cells_for_box(roi, cols, rows, box):
     return [_tile_name(c, r) for r in range(r0, r1 + 1) for c in range(c0, c1 + 1)]
 
 
+def cells_mask(image, windows, dilate_px=0, near=None, near_px=0):
+    """把模型报的格子**直接**栅格化成掩膜：模型说属于就属于，不经过任何颜色判别器。
+
+    这是"语义由模型决定"的那条通道：判别器（GrabCut/knn）只是辅助，报格子才是权威。
+    支持多级窗口与前缀引用（"tip.D6"），几何换算复用 cell_box（浮点 roi，不漂移）。
+    """
+    from PIL import Image as _Image
+    W, H = _Image.open(image).size
+    by_id = {w.get("id"): w for w in windows if w.get("id")}
+    bits = np.zeros((H, W), bool)
+    hit = 0
+    for w in windows:
+        cols, rows = int(w.get("cols") or 8), int(w.get("rows") or 6)
+        src = w
+        for raw in w.get("pos") or []:
+            lab = raw
+            if "." in raw and raw.split(".", 1)[0] in by_id:
+                src = by_id[raw.split(".", 1)[0]]
+                lab = raw.split(".", 1)[1]
+                cols, rows = int(src.get("cols") or 8), int(src.get("rows") or 6)
+            b = cell_box(src["roi"], cols, rows, lab)
+            y0, y1 = max(0, int(np.floor(b[1]))), min(H, int(np.ceil(b[3])))
+            x0, x1 = max(0, int(np.floor(b[0]))), min(W, int(np.ceil(b[2])))
+            bits[y0:y1, x0:x1] = True
+            hit += 1
+    if dilate_px:
+        import cv2 as _cv
+        r = int(dilate_px)
+        bits = _cv.dilate(bits.astype(np.uint8), np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
+    if near is not None and int(near_px) > 0:
+        # 附着模式：格子只允许在已有掩膜附近"补上缺的那一块"，不许整块方块生硬地贴上去
+        import cv2 as _cv
+        r = int(near_px)
+        nd = _cv.dilate(np.asarray(near, np.uint8), np.ones((2 * r + 1, 2 * r + 1), np.uint8)) > 0
+        bits = bits & nd
+    return bits
+
+
 def tile_points(image, windows):
     """多级/多次 zoom：每级窗口自己的 roi + 细度，正负编号分别换算成照片坐标点。
 
