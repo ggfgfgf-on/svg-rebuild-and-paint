@@ -342,7 +342,7 @@ def _path_to_polylines(d, steps=16):
 
 
 def draw_path(doc, layer, d, color=(217, 180, 90), size=6.0, opacity=1.0,
-              preset="round_soft", guidance=1.0, selection=None, weights=None, seed=0, **_):
+              preset="round_soft", guidance=1.0, tag=None, selection=None, weights=None, seed=0, **_):
     """从零加笔：把 SVG path 展平成笔触，追加到指定层（不依赖参考图）。
 
     guidance=0 → 计划逐字节不变；guidance<1 时新笔触不透明度按比例衰减。
@@ -363,8 +363,11 @@ def draw_path(doc, layer, d, color=(217, 180, 90), size=6.0, opacity=1.0,
         pts = [[float(px), float(py), 1.0] for px, py in poly]
         if len(pts) == 1:
             pts.append([pts[0][0] + 1e-3, pts[0][1] + 1e-3, 1.0])
-        doc["strokes"].append({"layer": layer, "preset": preset, "size": float(size),
-                               "opacity": op, "color": rgb, "points": pts})
+        st = {"layer": layer, "preset": preset, "size": float(size),
+              "opacity": op, "color": rgb, "points": pts}
+        if tag:
+            st["tag"] = str(tag)
+        doc["strokes"].append(st)
     return doc
 
 
@@ -521,7 +524,97 @@ def replan_region(doc, ref, regions=None, layers=("band", "highlight"), mode="co
     return new_doc
 
 
+def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="dome", layer=None,
+                guidance=1.0, selection=None, weights=None, seed=0, **_):
+    """方向光：模型看图说"光从左上/右后来"，这个算子把方位角变成确定性的 shade 重算。
+
+    法线是"图像平面伪法线"，由 shade 场的梯度推出来（n ∝ (-∂shade/∂x, -∂shade/∂y, 1)）：
+    亮暗变化的走向决定了小平面朝向，再与光方向做 Lambert 点积。
+    这是笔画级近似，能表达侧逆光的方向差异，但不是三维几何——已知边界。
+    """
+    import cv2
+    import numpy as _np
+
+    targets = list(_targets(doc, layer, selection, weights, guidance))
+    if not targets:
+        return doc
+    for _, s0, _st in targets:
+        if "albedo" not in s0 or "shade" not in s0:
+            raise ValueError("relight_dir 需要先 split_shading（笔触缺少 albedo/shade）")
+
+    xs = [p[0] for _, s0, _ in targets for p in s0["points"]]
+    ys = [p[1] for _, s0, _ in targets for p in s0["points"]]
+    w = int(max(xs)) + 2
+    h = int(max(ys)) + 2
+    if mode == "dome":
+        # 球面伪法线：把主体当成一个椭球，法线由笔触相对主体中心的位置推出来。
+        # 这不是三维重建，但方向光该有的"亮面朝光源走"一定成立（可验证）。
+        cx, cy = (min(xs) + max(xs)) * 0.5, (min(ys) + max(ys)) * 0.5
+        rx = max(1.0, (max(xs) - min(xs)) * 0.5)
+        ry = max(1.0, (max(ys) - min(ys)) * 0.5)
+        az0 = _np.deg2rad(float(azimuth))
+        el0 = _np.deg2rad(float(elevation))
+        L0 = _np.array([_np.cos(az0) * _np.cos(el0), -_np.sin(az0) * _np.cos(el0), _np.sin(el0)])
+        n = 0
+        for _, s0, st in targets:
+            px = sum(p[0] for p in s0["points"]) / len(s0["points"])
+            py = sum(p[1] for p in s0["points"]) / len(s0["points"])
+            nx_, ny_ = (px - cx) / rx, (py - cy) / ry
+            nz_ = 1.2
+            nm = (nx_ * nx_ + ny_ * ny_ + nz_ * nz_) ** 0.5
+            lam = (nx_ / nm) * L0[0] + (ny_ / nm) * L0[1] + (nz_ / nm) * L0[2]
+            new_shade = float(s0["shade"]) * (1.0 + (lam - 0.5) * float(strength) * st)
+            new_shade = max(0.02, min(8.0, new_shade))
+            s0["color"] = _set_rgb(_np.clip(_np.asarray(s0["albedo"], _np.float64) * new_shade, 0.0, 255.0))
+            s0["shade"] = new_shade
+            n += 1
+        return doc
+    if mode != "gradient":
+        raise ValueError("relight_dir: mode must be dome or gradient")
+    acc = _np.zeros((h, w), _np.float64)
+    cnt = _np.zeros((h, w), _np.float64)
+    for _, s0, _ in targets:
+        sh = float(s0["shade"])
+        for p in s0["points"]:
+            xi = min(w - 1, max(0, int(p[0])))
+            yi = min(h - 1, max(0, int(p[1])))
+            acc[yi, xi] += sh
+            cnt[yi, xi] += 1.0
+    field = acc / _np.maximum(cnt, 1.0)
+    k = max(3, int(blur) | 1)
+    field = cv2.GaussianBlur(field, (k, k), 0)
+    gy, gx = _np.gradient(field)
+    sc = 8.0 / max(1e-6, float(_np.abs(_np.stack([gx, gy])).max())) * 0.5
+    nx, ny = -gx * sc, -gy * sc
+    nz = _np.ones_like(nx)
+    norm = _np.sqrt(nx * nx + ny * ny + nz * nz)
+    nx, ny, nz = nx / norm, ny / norm, nz / norm
+    az = _np.deg2rad(float(azimuth))
+    el = _np.deg2rad(float(elevation))
+    L = _np.array([_np.cos(az) * _np.cos(el), -_np.sin(az) * _np.cos(el), _np.sin(el)])
+    lam = _np.clip(nx * L[0] + ny * L[1] + nz * L[2], 0.0, None)
+    lam_mean = float(lam[cnt > 0].mean()) if (cnt > 0).any() else float(lam.mean())
+    lam = lam / max(lam_mean, 1e-6)
+
+    n = 0
+    for _, s0, st in targets:
+        shade = 0.0
+        for p in s0["points"]:
+            xi = min(w - 1, max(0, int(p[0])))
+            yi = min(h - 1, max(0, int(p[1])))
+            shade += float(lam[yi, xi])
+        shade /= max(1, len(s0["points"]))
+        new_shade = float(s0["shade"]) * (1.0 + (shade - 1.0) * float(strength) * st)
+        new_shade = max(0.02, min(8.0, new_shade))
+        col = _np.clip(_np.asarray(s0["albedo"], _np.float64) * new_shade, 0.0, 255.0)
+        s0["color"] = _set_rgb(col)
+        s0["shade"] = new_shade
+        n += 1
+    return doc
+
+
 OPS = {
+    "relight_dir": relight_dir,
     "replan_region": replan_region,
     "split_shading": split_shading,
     "set_light": set_light,
@@ -554,11 +647,13 @@ REQUIRED = {
     "split_shading": [],
     "set_light": [],
     "replan_region": ["ref"],
+    "relight_dir": [],
 }
 
 
 # 允许的键（编译器给的 JSON 里出现别的键一律拒绝——模型最容易在这里瞎编）
 ALLOWED = {
+    "relight_dir": {"azimuth", "elevation", "strength", "blur", "mode", "layer", "guidance"},
     "replan_region": {"ref", "regions", "layers", "mode", "thr", "ring", "highlight_mode",
                       "shadow_mode", "style_file", "gpu"},
     "set_layer_hue": {"layer", "hue", "guidance"},
@@ -570,12 +665,13 @@ ALLOWED = {
     "erase": {"layer", "guidance"},
     "redraw": {"fraction", "jitter", "layer", "order", "guidance"},
     "recolor_palette": {"palette", "guidance"},
-    "draw_path": {"layer", "d", "color", "size", "opacity", "preset", "guidance"},
+    "draw_path": {"layer", "d", "color", "size", "opacity", "preset", "guidance", "tag"},
     "tone_map": {"gain", "lift", "gamma", "layer", "guidance"},
     "split_shading": {"layer", "guidance"},
     "set_light": {"scale", "tint", "layer", "guidance"},
 }
-INTERNAL = {"seed", "selection", "weights", "mask", "mask_file", "all", "polygon", "instance", "mask_obj"}
+INTERNAL = {"seed", "selection", "weights", "mask", "mask_file", "all", "polygon", "instance", "mask_obj",
+            "select_tag"}
 
 
 def validate(spec):
@@ -669,6 +765,11 @@ def resolve_mask(doc, spec):
 _SEL_KEYS = ("mask", "mask_file", "all", "polygon", "instance")
 
 
+def select_by_tag(doc, tag):
+    """按 tag 精确选笔触下标（draw_path 加的笔可以真正被删掉，不用回放整条链）。"""
+    return [i for i, s in enumerate(doc["strokes"]) if str(s.get("tag")) == str(tag)]
+
+
 def apply(doc, specs, selection=None, weights=None, seed=0):
     """按顺序执行算子列表；返回新 doc（入参不受影响）。"""
     out = _copy_doc(doc)
@@ -678,6 +779,9 @@ def apply(doc, specs, selection=None, weights=None, seed=0):
         if name not in OPS:
             raise ValueError("unknown op %r; known: %s" % (name, ", ".join(sorted(OPS))))
         sel, wts = selection, weights
+        if "select_tag" in raw:
+            sel = select_by_tag(out, raw["select_tag"])
+            wts = np.ones(len(sel), np.float64)
         if any(k in raw for k in _SEL_KEYS):
             import masks as M
             m = resolve_mask(raw, {k: raw[k] for k in _SEL_KEYS if k in raw})
@@ -689,6 +793,7 @@ def apply(doc, specs, selection=None, weights=None, seed=0):
             clean["mask_obj"] = m
         for k in _SEL_KEYS:
             clean.pop(k, None)
+        clean.pop("select_tag", None)
         clean.setdefault("selection", sel)
         clean.setdefault("weights", wts)
         clean.setdefault("seed", seed)

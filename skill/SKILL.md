@@ -1285,11 +1285,19 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 | 软权重着色 | `ops._targets` 的强度 = guidance×掩膜权重，本来就走插值；raster feather 修好后边界是连续权重 | `set_layer_hue guidance=0.5` 色相落在中间值，不跳变 |
 | 实例级选择（**进 ops 语义**） | op 里可直接写 `selection`：`mask` / `mask_file` / `polygon`（模型自己画）/ `instance`（模型给种子点，长出掩膜并验证）/ `all`。另外 `replan_region` 已是正式算子，所以"照参考图重画这片区域"也是一条 op | 玫瑰实例 tone_map：区内 Δ7.22、区外 Δ0.029；**叶子改用模型画的多边形**（色相生长分不开同色背景）→ 验证通过（面积 4.72%、1 连通块），tone_map 区内 Δ9.14；`replan_region` 同参数重跑幂等（区内 Δ0.00） |
 | 实例自纠错 | 验证失败时 `pick_instance` 输出 `hints`（下一轮改什么）+ `--attempt-log` JSONL 记录每轮；`box_fill` 专门检测"掩膜≈手画框" | 叶子三轮：①泄漏面积 0.77 → ②收紧后仍占框 0.94 → ③按 hints 改多边形 → 通过（面积 0.047、fill 0.73） |
-| 光影分解 | `ops.split_shading` / `ops.set_light`：笔画级 albedo+shade，改光只动 shade | scale=0.5 时 luma 恰好减半、色相不变；未拆分就报错 |
+| 光影分解 | `ops.split_shading` / `ops.set_light` / `ops.relight_dir`（方向光） | `relight_dir` 用球面伪法线：光从左(180°) 左半 37.8/右半 19.7；光从右(0°) 左 26.6/右 34.4，**亮面跟着方位角翻边** |
 | 验收门 | `scripts/accept.py`：schema/确定性/区外不变/方向/主体 | 白玫瑰一例：确定性通过、区外 Δ0.003、区向 +83.44 |
 | 编辑谱系 | `scripts/lineage.py`（append-only JSONL + 快照 checkout）、`scripts/mask_registry.py`（掩膜 id + 来源） | 父子链、tree、checkout 恢复快照均有断言 |
 
 另有 `edit_loop --zoom x0,y0,x1,y1` 输出局部放大图（`zoom.jpg`）供模型看细节。
+
+**"模型画掩膜"是复用多模态的主路径**：`pick_instance` 现在支持 `polygon`（模型自己描边）
+和 `polygon + refine`（grabCut 边界吸附，零外部模型）。叶子一例：粗多边形 46,752 px →
+吸附后 46,806 px、改动 2,274 px、面积 0.0473、单连通块、验证通过；合成图上的 IoU 0.444 → 0.519。
+所以同色背景不需要分割模型，需要的是"模型给轮廓 + 图像自身统计吸附边界"。
+
+**draw_path 的笔触可以真删**：`draw_path` 加 `tag`，`erase` 用 `select_tag` 精确删；
+实测加笔后与基准差 0.459，删掉后差 **0.0000**，笔触数 29163 → 29164 → 29163。
 
 **比较对象要选对**：plan 里的坐标是 2 位小数，planner 出图用的是内存全精度，两者差异有 2.02 的基线；
 重规划效果要和 `render(plan)` 比，不要和 planner 自己出的 PNG 比，否则会把基线差算成泄漏。

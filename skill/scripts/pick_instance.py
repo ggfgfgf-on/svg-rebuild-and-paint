@@ -111,6 +111,32 @@ def verify_mask(mask, W, H, **kw):
     return verify(rasterize(mask, W, H), **kw)
 
 
+def refine_polygon(image, polygon, iters=6, seed_band=9):
+    """模型画的多边形 + grabCut 边界吸附：不需要分割模型，也能把粗描边贴到真实边缘。
+
+    做法：多边形内部腐蚀一圈当确定前景、外侧一圈当确定背景，边界带当"可能前景"，
+    然后用图像自身的颜色/边缘统计迭代收敛。返回 (精修掩膜, 统计)。
+    """
+    arr = np.asarray(Image.open(image).convert("RGB"))
+    H, W = arr.shape[:2]
+    m = rasterize(masks.polygon([tuple(map(float, p)) for p in polygon]), W, H)
+    k = np.ones((int(seed_band), int(seed_band)), np.uint8)
+    inner = cv2.erode(m.astype(np.uint8), k).astype(bool)
+    outer = cv2.dilate(m.astype(np.uint8), k).astype(bool) & ~m
+    gc = np.full((H, W), cv2.GC_BGD, np.uint8)
+    gc[cv2.dilate(m.astype(np.uint8), k * 2).astype(bool)] = cv2.GC_PR_BGD
+    gc[m] = cv2.GC_PR_FGD
+    gc[inner] = cv2.GC_FGD
+    gc[outer] = cv2.GC_PR_BGD
+    bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
+    cv2.grabCut(arr, gc, None, bgd, fgd, int(iters), cv2.GC_INIT_WITH_MASK)
+    out = (gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD)
+    stats = {"changed_px": int((out != m).sum()), "polygon_px": int(m.sum()),
+             "refined_px": int(out.sum()),
+             "grew": bool(out.sum() > m.sum())}
+    return out, stats
+
+
 def _crop(arr, box, scale=3, pad=12):
     H, W = arr.shape[:2]
     x0, y0, x1, y1 = box
@@ -157,8 +183,11 @@ def pick(image, specs, out_dir, attempt_log=None, attempt=1):
         if not seeds and not sp.get("polygon"):
             raise SystemExit("实例 %s 需要 seeds 或 polygon" % name)
         box = tuple(int(v) for v in sp["box"]) if sp.get("box") else None
+        refine_stats = None
         if sp.get("polygon"):
             full = rasterize(masks.polygon([tuple(map(float, p)) for p in sp["polygon"]]), W, H)
+            if sp.get("refine"):
+                full, refine_stats = refine_polygon(image, sp["polygon"], sp.get("refine_iters", 6))
             if box:
                 x0, y0, x1, y1 = box
                 clip = np.zeros((H, W), bool)
@@ -185,7 +214,9 @@ def pick(image, specs, out_dir, attempt_log=None, attempt=1):
         if v.get("bbox"):
             _crop(arr, v["bbox"]).save(crop, "JPEG", quality=94)
         report["instances"].append({"name": name, "seeds": seeds, "negatives": negs,
-                                    "source": "polygon" if sp.get("polygon") else "color-grow",
+                                    "source": ("polygon+grabcut" if sp.get("polygon") and sp.get("refine")
+                                               else "polygon" if sp.get("polygon") else "color-grow"),
+                                    "refine": refine_stats,
                                     "box": list(box) if box else None,
                                     "mask": str(mask_path), "overlay": str(out_dir / ("%s.overlay.png" % name)),
                                     "crop": str(crop) if v.get("bbox") else None,
