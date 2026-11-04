@@ -43,7 +43,9 @@ def test_rebuild_grid(tmp):
     doc, _, _ = plan_io.load_plan(out)
     sh = [s for s in doc["strokes"] if s["layer"] == "shadow"]
     assert n == len(sh) and n > 0
-    print("PASS rebuild(grid): %d soft dabs" % n)
+    sizes = [s["size"] for s in sh]
+    assert min(sizes) >= 4 * 12 * 0.85, "default resample must heavily overlap (size >= 4*cell)"
+    print("PASS rebuild(grid): %d soft dabs, size %.1f..%.1f (>= 4.8*cell)" % (n, min(sizes), max(sizes)))
 
 
 def main():

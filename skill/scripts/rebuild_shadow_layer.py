@@ -33,7 +33,7 @@ def render_layer(doc, layer):
     return arr
 
 
-def resample_strokes(arr, w, h, cell=16, layer="shadow", size_k=2.2, op_max=0.85, op_scale=0.6,
+def resample_strokes(arr, w, h, cell=12, layer="shadow", size_k=5.0, op_max=0.85, op_scale=0.12,
                      seed=0):
     """每格一支软笔；位置/大小/不透明度都加确定性抖动，避免软笔落在规则网格上再出摩尔纹。"""
     a = arr.astype(np.float64) / 255.0
@@ -52,7 +52,7 @@ def resample_strokes(arr, w, h, cell=16, layer="shadow", size_k=2.2, op_max=0.85
             jy = rng.uniform(-0.5, 0.5) * cell
             out.append({"layer": layer, "preset": "round_soft",
                         "size": round(cell * size_k * rng.uniform(0.85, 1.15), 2),
-                        "opacity": round(min(op_max, max(0.02, cov * op_scale * rng.uniform(0.85, 1.15))), 4),
+                        "opacity": round(min(op_max, max(0.002, cov * op_scale * rng.uniform(0.85, 1.15))), 4),
                         "color": [round(float(v) * 255.0, 2) for v in rgb],
                         "hardness": 0.7,
                         "points": [[x0 + cell / 2.0 + jx, y0 + cell / 2.0 + jy, 1.0]]})
@@ -81,13 +81,49 @@ def resample_random(arr, w, h, layer="shadow", n=9000, size=46.0, opacity=0.16, 
     return out
 
 
-def rebuild(plan_path, out_path, cell=16, layer="shadow", op_scale=0.6, seed=0, mode="grid"):
+def strokes_to_rgba(strokes, w, h):
+    """把一组笔触单独渲染成 RGBA（alpha=覆盖）。planner 里用来拿 shadow 层现状再重采样。"""
+    import paint_native
+    p = paint_native.Painter(w, h)
+    p.add_layer("normal")
+    p.clear_layer(0, (255, 255, 255), 0.0)
+    parts, offs, params, rids = [], [], [], []
+    cur = 0
+    for st in strokes:
+        a = np.ascontiguousarray(st["points"], dtype=np.float32).reshape(-1, 3)
+        parts.append(a.ravel()); offs.append(cur); cur += a.size
+        c = st["color"]
+        params.extend([st["size"], st["opacity"], c[0] / 255.0, c[1] / 255.0, c[2] / 255.0,
+                       st.get("hardness", 0.7), 1.0, float(paint_native._pid(st["preset"]))])
+        rids.append(0)
+    pts = np.concatenate(parts) if parts else np.zeros(0, np.float32)
+    p.stroke_batch_raw(1, pts, np.asarray(offs, np.int32), np.asarray(params, np.float32),
+                       np.asarray(rids, np.int32), nthreads=4)
+    arr = np.ascontiguousarray(p.layer_rgba(1)).copy()
+    p.close()
+    return arr
+
+
+def smooth_layer_strokes(strokes, w, h, layer="shadow", seed=0, cell=12, size_k=5.0, op_scale=0.12):
+    """把任意一层的格填笔触重采样成连续软笔（planner 默认调用，见 --shadow-smooth）。
+
+    cell=12 网格 + size=5*cell 的重叠软笔 + op_scale=0.12：实测格纹与"气泡"边界都消失，
+    整图亮度 45.6 -> 45.1（tone 参数不变）。
+    """
+    if not strokes:
+        return []
+    arr = strokes_to_rgba(strokes, w, h)
+    return resample_strokes(arr, w, h, cell, layer, size_k=size_k, op_scale=op_scale, seed=seed)
+
+
+def rebuild(plan_path, out_path, cell=12, layer="shadow", op_scale=0.12, seed=0, mode="grid",
+            size_k=5.0):
     doc, w, h = plan_io.load_plan(plan_path)
     arr = render_layer(doc, layer)
     if mode == "random":
         fresh = resample_random(arr, w, h, layer, seed=seed)
     else:
-        fresh = resample_strokes(arr, w, h, cell, layer, op_scale=op_scale, seed=seed)
+        fresh = resample_strokes(arr, w, h, cell, layer, size_k=size_k, op_scale=op_scale, seed=seed)
     strokes = [s for s in doc["strokes"] if s["layer"] != layer] + fresh
     blends = {l["name"]: l.get("blend", "normal") for l in (doc.get("layers") or [])}
     plan_io.dump_plan(str(out_path), w, h, strokes, layer_blends=blends,
@@ -99,13 +135,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("plan")
     ap.add_argument("out")
-    ap.add_argument("--cell", type=int, default=16)
+    ap.add_argument("--cell", type=int, default=12)
     ap.add_argument("--layer", default="shadow")
-    ap.add_argument("--op-scale", type=float, default=0.6)
+    ap.add_argument("--op-scale", type=float, default=0.12)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--mode", choices=("grid", "random"), default="grid")
+    ap.add_argument("--size-k", type=float, default=5.0)
     a = ap.parse_args()
-    n = rebuild(a.plan, a.out, a.cell, a.layer, a.op_scale, a.seed, a.mode)
+    n = rebuild(a.plan, a.out, a.cell, a.layer, a.op_scale, a.seed, a.mode, a.size_k)
     print("reshaped %r: %d soft strokes (cell=%d) -> %s" % (a.layer, n, a.cell, a.out))
 
 

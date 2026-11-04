@@ -1180,9 +1180,13 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 
 **已落地的修复（计划空间）**：`scripts/rebuild_shadow_layer.py` 把 shadow 层重采样成连续软笔：
 
-- `--mode random`（推荐）：按 alpha 接受率随机抛洒 6,486 支 `round_soft` 软笔（size≈46、opacity 0.16），
-  叠出连续阴影，**网格消失**；实测整图 luma 45.6 → **47.0**（基本不变）。
-- `--mode grid`：按格重采样并抖动，仍会留"气泡"边界，不推荐。
+- 默认参数（`cell=12, size_k=5.0, op_scale=0.12`）：按 12px 网格放 size≈60 的重叠软笔并加确定性抖动，
+  重叠比 ≈5，格纹与"气泡"边界都消失；实测整图 luma 45.6 → **45.2**（tone 参数不变）。
+- `--mode random` 会留软斑，已弃用为诊断选项。
+- **planner 默认开启**：`planner_8layer.py --shadow-smooth 1`（默认 1，`0` 关闭），
+  生成计划时直接换掉格填 shadow，新计划不会再带网格。
+- 纸纹（texture 层）贡献实测极小：erase 掉后 mean_abs=0.236/255、max=5、px>2 仅 883（占 0.09%），
+  所以画面上那层"纸感"不是它，无需默认关闭；真要关用 `erase layer=texture` 或 `--tex-op 0`。
 
 `tests/test_rebuild_shadow.py`：同 seed 逐字节相同、只换 shadow、混合模式保留、坐标离开 16px 格点，全 PASS。
 根治仍建议在 `plan_region` 的 shadow 填充里做相邻格重叠；重采样是"不需要参考图的可用修复"。

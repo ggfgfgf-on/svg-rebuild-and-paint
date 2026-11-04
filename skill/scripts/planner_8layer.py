@@ -478,6 +478,15 @@ def main():
     spec = [(l["name"], l.get("blend", "normal")) for l in S("layers", default=[])]
     _t0 = time.time()
     layers = build(21, p)
+    if _arg("--shadow-smooth", 1, int):
+        try:
+            import rebuild_shadow_layer as _rs
+            _before = len(layers.get("shadow") or [])
+            layers["shadow"] = _rs.smooth_layer_strokes(layers.get("shadow") or [], W, H,
+                                                       seed=int(_arg("--seed", 21, int)))
+            print("shadow-smooth %d -> %d strokes" % (_before, len(layers["shadow"])))
+        except Exception as ex:
+            print("shadow-smooth skipped:", ex)
     _t_build = time.time() - _t0
     for name, blend in spec:
         p.add_layer(blend)
