@@ -124,6 +124,7 @@ python scripts\calib_report.py --json <工程>\calibrated.json --out <工程>\CA
 
 **未标定 / 未验证**：`tol` 属工程级（每个工程自己量）；`attach_width`/`attach_len` 可能被标
 `inert_on_sample`（样本上判据未触发）；`max_spill`/`zoom_plan` 已实现但门限/粒度仍需工程数据校准。
+约定（人工，不设自动检查）：具体选值与实测写进工程报告，总手册只讲机制。
 本工程的选值与实测见工程目录 `CALIBRATION.md`（脚本生成）；**不写进这份总手册**。
 
 ## 契约
