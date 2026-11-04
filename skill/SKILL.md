@@ -90,6 +90,21 @@ python scripts/calibrate.py --param model_grow_px --choose 20 --reason "20 时�
 消费方：`pick_instance.calibrated(name, default)`；例如 `filter_added` 的 `model_grow_px` 默认取 `calibrated('model_grow_px', 14)`。
 复验：`tests/test_calibrated.py`（字段齐全、值在 sweep 内、接触表存在、默认值确实来自文件）。
 
+**已标定的参数（`scripts/calibrated.json`，默认值由代码读取，不写在代码里）**
+
+| 参数 | 值 | 谁定的 | 依据 |
+| --- | --- | --- | --- |
+| `model_grow_px` | 20 | 模型看图 | 叶柄完整且不触邻叶；30 越界 |
+| `min_ratio` | 0.8 | 模型看图 | 0.9/0.8 一致，1.1 开始把真实叶缘当晕边丢掉 |
+| `max_grow_px` | 2 | 模型看图 | 4 时面积 0.0637 > 描边 0.0614（+3.7%），1 欠长 |
+| `neg_px` | 3 | 模型 | 扫 1/3/6/10 无差异（0.801~0.804），保留默认 |
+| `attach_px` | 4 | 模型 | 扫 0~28 无可辨差异；只在有 near 时生效 |
+| `edge_min_contrast` | 0.376 | 规则 | 准确掩膜 contrast≈0.51 与加粗 3px ≈0.25 的中点 |
+| `accept_max_area_change` | 0.041 | 规则 | 精修稳态段最大面积变化；取 1 倍（2 倍会放过 +4.63% 那次失控） |
+
+消费方：`refine_loop(neg_px/max_grow_px)`、`filter_added(min_ratio/model_grow_px)`、`edge_report(min_contrast)`、`ops` 的循环接受门（`accept_max_area_change`）。
+复验：`tests/test_calibrated.py`（字段、`chosen_by`、值在 sweep 内、接触表存在、默认值确实来自文件）。
+
 **口径要点**：参数只在“已有较好种子 + 新增细结构落在模型报的格子里”时才起作用；
 用格子并集当种子扫 5 档会**完全一样**（实测），所以 `--base-mask` 值得给。
 

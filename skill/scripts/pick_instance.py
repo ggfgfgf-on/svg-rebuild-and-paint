@@ -363,14 +363,16 @@ def calibrated(name, default=None):
         return default
 
 
-def filter_added(image, base_mask, added_mask, min_ratio=0.8, anchors=None, keep_model=True,
+def filter_added(image, base_mask, added_mask, min_ratio=None, anchors=None, keep_model=True,
                  model_grow_px=None):
     """按梯度证据给"并进来的像素"分三类：edge（自带边）/ model（模型报过，梯度弱也算）/ halo（只有一圈糊边）。
     默认丢掉 halo，保留 edge 与 model——这就是"模型参与 + 可验证证据"的分工。
     """
     import cv2 as _cvf
     if model_grow_px is None:
-        model_grow_px = calibrated("model_grow_px", 14)
+        model_grow_px = calibrated("model_grow_px", 20)
+    if min_ratio is None:
+        min_ratio = calibrated("min_ratio", 0.8)
     rep = added_edge_report(image, base_mask, added_mask, min_ratio=min_ratio, anchors=anchors)
     keep = np.zeros_like(np.asarray(added_mask, bool))
     base_b = np.asarray(base_mask, bool)
@@ -447,7 +449,7 @@ def _edge_mag(image, blur=3):
     return _cv.magnitude(gx, gy)
 
 
-def edge_report(image, mask, search_px=6, blur=3, min_contrast=0.05):
+def edge_report(image, mask, search_px=6, blur=3, min_contrast=None):
     """自动判定"边界是否正好落在边缘上"（不依赖任何人工描边）。
 
     判据两条，都可解释：
@@ -456,6 +458,8 @@ def edge_report(image, mask, search_px=6, blur=3, min_contrast=0.05):
          否则说明"往前挪和现在差不多"，边界是平的/模糊的，不可信。
     """
     import cv2 as _cv
+    if min_contrast is None:
+        min_contrast = calibrated("edge_min_contrast", 0.05)
     out, info = fit_boundary(image, mask, search_px=search_px, blur=blur)
     scores = dict(info["scores"])
     s0 = float(scores.get(0, 0.0))
@@ -642,7 +646,8 @@ def enforce_anchors(image, mask, anchors, radius=40, cap=12000, k=3.0):
 
 
 def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, verbose=True,
-                init_mask=None, anchors=None, neg_px=3, neg_k=2.5, neg_max=400, max_grow_px=2, max_total_grow_px=None):
+                init_mask=None, anchors=None, neg_px=None, neg_k=2.5, neg_max=400, max_grow_px=None,
+                max_total_grow_px=None):
     """自动闭环：靠栅格提示起手，然后把已得掩膜的"确信内部/外圈"当作新提示反复精修。
 
     这就是"玫瑰掩膜多轮迭代"的机械化版本：
@@ -653,6 +658,10 @@ def refine_loop(image, windows, iters=6, tol=0.995, model="grabcut", ring=14, ve
     全过程无需人工再报格子；失败会带原因抛错（而不是悄悄给一张错掩膜）。
     """
     import cv2 as _cv
+    if neg_px is None:
+        neg_px = int(calibrated("neg_px", 3))
+    if max_grow_px is None:
+        max_grow_px = int(calibrated("max_grow_px", 2))
     img_cv = _cv.imread(str(image))
     H, W = img_cv.shape[:2]
     init_ref = None

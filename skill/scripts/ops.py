@@ -808,6 +808,15 @@ def _canvas(doc):
     return w, h
 
 
+def _PIcal(name, default):
+    """读脚本标定的默认值（pick_instance.calibrated 的薄封装，避免 ops 顶层依赖）。"""
+    try:
+        import pick_instance as _p
+        return _p.calibrated(name, default)
+    except Exception:
+        return default
+
+
 def _refine_cells_mask(doc, cs, rf):
     """把格子并集精修成边界：cells + refine=true -> grabcut 迭代。
 
@@ -920,7 +929,7 @@ def resolve_mask(doc, spec):
             if cs.get("base"):
                 prev = _PIm.rasterize(resolve_mask(doc, cs["base"]), doc_w3, doc_h3)
             acc = lp.get("accept") or {}
-            maxchg = float(acc.get("max_area_change", 0.02))
+            maxchg = float(acc.get("max_area_change") or _PIcal("accept_max_area_change", 0.02))
             trace = []
             for si, ph in enumerate(phases, 1):
                 if "cells" in ph or "windows" in ph or "pos" in ph:

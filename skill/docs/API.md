@@ -187,7 +187,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 对指定格子做下一层 zoom：父窗口 + 若干格子 -> 子窗口（自带 roi/网格/编号）。
 
-### `edge_report`(image, mask, search_px=6, blur=3, min_contrast=0.05)
+### `edge_report`(image, mask, search_px=6, blur=3, min_contrast=None)
 
 自动判定"边界是否正好落在边缘上"（不依赖任何人工描边）。
 
@@ -195,7 +195,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 模型明确报过的格子，绝不允许从掩膜里消失。
 
-### `filter_added`(image, base_mask, added_mask, min_ratio=0.8, anchors=None, keep_model=True, model_grow_px=None)
+### `filter_added`(image, base_mask, added_mask, min_ratio=None, anchors=None, keep_model=True, model_grow_px=None)
 
 按梯度证据给"并进来的像素"分三类：edge（自带边）/ model（模型报过，梯度弱也算）/ halo（只有一圈糊边）。 默认丢掉 halo，保留 edge 与 model——这就是"模型参与 + 可验证证据"的分工。
 
@@ -237,7 +237,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 把任意类型掩膜（raster/polygon/rect/point/all）铺成整图布尔图，便于统一验证。
 
-### `refine_loop`(image, windows, iters=6, tol=0.995, model='grabcut', ring=14, verbose=True, init_mask=None, anchors=None, neg_px=3, neg_k=2.5, neg_max=400, max_grow_px=2, max_total_grow_px=None)
+### `refine_loop`(image, windows, iters=6, tol=0.995, model='grabcut', ring=14, verbose=True, init_mask=None, anchors=None, neg_px=None, neg_k=2.5, neg_max=400, max_grow_px=None, max_total_grow_px=None)
 
 自动闭环：靠栅格提示起手，然后把已得掩膜的"确信内部/外圈"当作新提示反复精修。
 

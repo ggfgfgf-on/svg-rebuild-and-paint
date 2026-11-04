@@ -1,4 +1,139 @@
 {
+ "accept_max_area_change": {
+  "area_deltas": [
+   0.04132,
+   0.0
+  ],
+  "chosen_by": "rule",
+  "reason": "稳态段（最后 3 轮）最大面积变化 0.0413，直接作回滚门限（2 倍会放过历史上 +4.63% 的失控）；首轮大跳不计入",
+  "rule": "稳态段（最后 3 轮）最大面积变化 0.0413，直接作回滚门限（2 倍会放过历史上 +4.63% 的失控）；首轮大跳不计入",
+  "steady_tail": [
+   0.04132,
+   0.0
+  ],
+  "value": 0.041
+ },
+ "attach_px": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\attach_px.png",
+  "reason": "扫 0~28 IoU 0.703~0.706 无可辨差异；attach_px 只在有 near 时生效，取 4 避免方块外扩",
+  "spec": {
+   "base_mask": "cells",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "0": {
+    "area": 0.0462,
+    "iou": 0.706
+   },
+   "16": {
+    "area": 0.0458,
+    "iou": 0.703
+   },
+   "28": {
+    "area": 0.0458,
+    "iou": 0.703
+   },
+   "4": {
+    "area": 0.0458,
+    "iou": 0.703
+   },
+   "8": {
+    "area": 0.0458,
+    "iou": 0.703
+   }
+  },
+  "value": 4.0
+ },
+ "edge_min_contrast": {
+  "chosen_by": "rule",
+  "reason": "两样本中点：边界准确 contrast=0.506，人为加粗 3px contrast=0.247",
+  "rule": "两样本中点：边界准确 contrast=0.506，人为加粗 3px contrast=0.247",
+  "samples": {
+   "accurate": 0.506,
+   "fat_3px": 0.247
+  },
+  "value": 0.376
+ },
+ "max_grow_px": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\max_grow_px.png",
+  "reason": "从块状种子精修时 4 的面积 0.0637 已超过人工描边 0.0614(+3.7%)且面板更胖，1 欠长(0.765)，取 2(0.801)",
+  "spec": {
+   "base_mask": "cells",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "1.0": {
+    "area": 0.0513,
+    "contrast": 0.217,
+    "edge_ok": true,
+    "iou": 0.765,
+    "iters": 8
+   },
+   "2.0": {
+    "area": 0.0557,
+    "contrast": 0.2991,
+    "edge_ok": true,
+    "iou": 0.801,
+    "iters": 8
+   },
+   "4.0": {
+    "area": 0.0637,
+    "contrast": 0.3798,
+    "edge_ok": true,
+    "iou": 0.832,
+    "iters": 8
+   }
+  },
+  "value": 2.0
+ },
+ "min_ratio": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\min_ratio.png",
+  "reason": "0.8 与 0.9 结果一致(keep 1991)，1.1 开始把叶缘真实结构当晕边丢掉(右下出现红带)，0.6 多收 180px 边缘薄雾",
+  "spec": {
+   "base_mask": "mask_leaf_tip3.json",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "0.6": {
+    "edge": 1352,
+    "halo": 449,
+    "iou": 0.946,
+    "kept": 2171,
+    "model": 1488
+   },
+   "0.8": {
+    "edge": 1172,
+    "halo": 629,
+    "iou": 0.945,
+    "kept": 1991,
+    "model": 1488
+   },
+   "0.9": {
+    "edge": 1172,
+    "halo": 629,
+    "iou": 0.945,
+    "kept": 1991,
+    "model": 1488
+   },
+   "1.1": {
+    "edge": 718,
+    "halo": 1083,
+    "iou": 0.942,
+    "kept": 1541,
+    "model": 1488
+   }
+  },
+  "value": 0.8
+ },
  "model_grow_px": {
   "chosen_by": "model",
   "contact_sheet": "docs\\calib\\model_grow_px.png",
@@ -52,5 +187,47 @@
    }
   },
   "value": 20.0
+ },
+ "neg_px": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\neg_px.png",
+  "reason": "扫 1/3/6/10 结果 0.801~0.804 无差异，保留默认 3（贴边负样本量小，靠颜色筛选而非数量）",
+  "spec": {
+   "base_mask": "cells",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "1.0": {
+    "area": 0.0557,
+    "contrast": 0.2999,
+    "edge_ok": true,
+    "iou": 0.803,
+    "iters": 8
+   },
+   "10.0": {
+    "area": 0.0559,
+    "contrast": 0.2961,
+    "edge_ok": true,
+    "iou": 0.802,
+    "iters": 8
+   },
+   "3.0": {
+    "area": 0.0557,
+    "contrast": 0.2991,
+    "edge_ok": true,
+    "iou": 0.801,
+    "iters": 8
+   },
+   "6.0": {
+    "area": 0.0559,
+    "contrast": 0.3191,
+    "edge_ok": true,
+    "iou": 0.804,
+    "iters": 8
+   }
+  },
+  "value": 3.0
  }
 }
