@@ -1194,6 +1194,15 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 
 
 
+### 亮度基准：对齐 11-03 02:44 的 `rose-raster-process.mp4`
+
+那条 24s/30fps 的旧 raster 过程视频末帧就是"不糊、不偏亮"的基准（luma **22.3**）。
+它的观感 = **没有格填 shadow 层 + 没有 highlight 白点**，也不需要额外提亮。
+
+因此 `tone_map` 的标定不要拍脑袋：drop 掉 shadow 后原始亮度是 26.8，视频是 22.3，
+只用 **gain 0.9 / lift 0 / gamma 1** 就落到 21.9，与视频 `mean_abs=3.74`；
+之前用 gain 1.3 + lift 0.02 + gamma 1.1 会到 43.1（正好翻倍），所以"偏亮"是标定过头，不是渲染错。
+
 **texture 层 tile 合并**（消除方块接缝）：计划里 texture 是 81 笔 96px 的 `02_rough-canvas` tile 铺满画布，
 在 normal/提亮后能看到方块边。`scripts/merge_canvas_tiles.py` 把它们合并成一张覆盖全画布的纹理笔：
 
