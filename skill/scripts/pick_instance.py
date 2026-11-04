@@ -20,6 +20,56 @@ import masks
 import visual_mask as VM
 
 
+def snap_polygon(image, poly, search=18, smooth=2, step=2.0):
+    """把手画的粗轮廓吸到图像边缘上：每个采样点沿法线方向在 ±search 内找最强梯度。
+
+    手画点误差一般 5~20px（实测），靠眼睛再调很难收敛；这一步是确定性的，能复核。
+    平滑窗口避免锯齿；返回 (新多边形, 统计)。
+    """
+    arr = np.asarray(Image.open(image).convert("RGB"))
+    H, W = arr.shape[:2]
+    g = cv2.GaussianBlur(cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY).astype(np.float32), (3, 3), 0)
+    gy, gx = np.gradient(g)
+    mag = np.sqrt(gx * gx + gy * gy)
+    pts = [tuple(map(float, p)) for p in poly]
+    out = []
+    shifts = []
+    for i in range(len(pts)):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % len(pts)]
+        seg = float(np.hypot(x1 - x0, y1 - y0))
+        n = max(2, int(seg / float(step)))
+        for k in range(n):
+            t = k / float(n)
+            x, y = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
+            nx, ny = (y1 - y0) / max(seg, 1e-6), -(x1 - x0) / max(seg, 1e-6)   # 法线
+            best, best_d = -1.0, 0.0
+            for d in np.arange(-search, search + 0.5, 0.5):
+                xx, yy = int(round(x + nx * d)), int(round(y + ny * d))
+                if 0 <= xx < W and 0 <= yy < H:
+                    v = float(mag[yy, xx])
+                    if v > best:
+                        best, best_d = v, float(d)
+            out.append([x + nx * best_d, y + ny * best_d])
+            shifts.append(abs(best_d))
+    out = np.asarray(out, np.float64)
+    if smooth and len(out) > 2 * int(smooth):
+        k = int(smooth)
+        ker = np.ones(2 * k + 1) / (2 * k + 1)
+        out = np.stack([np.convolve(np.pad(out[:, 0], (k, k), mode="edge"), ker, "valid"),
+                        np.convolve(np.pad(out[:, 1], (k, k), mode="edge"), ker, "valid")], 1)
+    def _fit(points):
+        m = masks.polygon([tuple(map(float, q)) for q in points])
+        bits = rasterize(m, W, H)
+        e = cv2.morphologyEx(bits.astype(np.uint8), cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)).astype(bool)
+        return float(mag[e].mean())
+    new_poly = out.tolist()
+    stats = {"points": len(new_poly), "mean_shift": round(float(np.mean(shifts)), 2),
+             "max_shift": round(float(np.max(shifts)), 2),
+             "edge_fit_before": round(_fit(pts), 2), "edge_fit_after": round(_fit(new_poly), 2)}
+    return new_poly, stats
+
+
 def grid_overlay(image, box, out, step=50, scale=2):
     """带坐标网格的放大裁剪：模型据此读数描边，不再靠目测猜坐标。
 
@@ -366,6 +416,12 @@ def main():
     s1 = sub.add_parser("survey")
     s1.add_argument("--image", required=True); s1.add_argument("--out", required=True)
     s1.add_argument("--cols", type=int, default=4); s1.add_argument("--rows", type=int, default=4)
+    s5 = sub.add_parser("snap")
+    s5.add_argument("--image", required=True)
+    s5.add_argument("--poly", required=True, help="多边形 JSON（[[x,y],...]）")
+    s5.add_argument("--out", required=True, help="吸附后多边形 JSON")
+    s5.add_argument("--search", type=float, default=18)
+    s5.add_argument("--smooth", type=int, default=2)
     s4 = sub.add_parser("grid")
     s4.add_argument("--image", required=True)
     s4.add_argument("--box", required=True, help="x0,y0,x1,y1")
@@ -384,7 +440,12 @@ def main():
     s3.add_argument("--max", type=int, default=6)
     s3.add_argument("--sheet", help="候选叠图输出路径")
     a = ap.parse_args()
-    if a.cmd == "grid":
+    if a.cmd == "snap":
+        poly = json.loads(Path(a.poly).read_text(encoding="utf-8"))
+        new_poly, st = snap_polygon(a.image, poly, a.search, a.smooth)
+        Path(a.out).write_text(json.dumps(new_poly), encoding="utf-8")
+        print(json.dumps(st, ensure_ascii=False))
+    elif a.cmd == "grid":
         box = tuple(int(v) for v in a.box.split(","))
         print(json.dumps(grid_overlay(a.image, box, a.out, a.step, a.scale), ensure_ascii=False))
     elif a.cmd == "candidates":
