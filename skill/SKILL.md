@@ -1269,6 +1269,13 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 `set_layer_hue highlight 100 + set_layer_saturation 0.9 + tone_map(layer=highlight) gain 0.55`
 （实测叶子裁剪区 32.1，色相对、仍偏粉笔感）。
 
+**语义改图闭环（模型视觉提示 + 辅助函数）**：模型看图给种子点和框 →
+`visual_mask.py` 用 **HSV 色相门控 + 连通性 + 框硬约束** 长出像素级 raster 掩膜（纯 RGB 阈值在暗部会失效：
+深红 (67,0,1) 与深绿 (8,18,16) 逐通道差仅 45~59，会把背景吃进主体）→ 叠洋红 overlay 让模型自己验收边界 →
+`instruction_demo --mask-file --mask-mode all` 应用 ops → 逐区域度量。实测："把玫瑰换成白玫瑰"：
+玫瑰 (184,4,10)→(220,217,217)，叶子 (21,35,18) 逐字节不变（luma 31.6→31.4），背景 luma 16.6→17.5。
+没有任何"指令→参数"映射表：ops 是模型看着当前渲染临场写的。
+
 **外观参数三层（默认值也是数据，不是代码）**：`scripts/native/look.json` 是默认 profile，
 优先级 `--ops`（单次） > `--look <file>`（本次） > `native/look.json`（仓库默认） > 恒等。
 改 JSON 即改默认出图，不用改代码、不用发版；实测 `painting_clean`：恒等 25.69 → profile gain 0.95 得 24.37
