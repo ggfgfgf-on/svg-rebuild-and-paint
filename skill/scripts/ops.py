@@ -1063,7 +1063,10 @@ def resolve_mask(doc, spec):
                      "（mask/mask_file/all/polygon/tiles/cells/prompt/segment/instance）")
 
 
-_SEL_KEYS = ("mask", "mask_file", "all", "polygon", "instance")
+# 凡是 resolve_mask 认的来源都必须在这里登记：漏一个，ops.apply 就不会解析掩膜，
+# selection 变成 None，算子静默作用到全图（实测 cells 漏登记时 hue 改了 94% 画布）。
+_SEL_KEYS = ("mask", "mask_file", "all", "polygon", "instance", "tiles", "cells",
+             "prompt", "segment", "include", "exclude")
 
 
 def select_by_predicate(doc, spec):

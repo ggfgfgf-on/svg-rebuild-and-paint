@@ -163,6 +163,20 @@ def _stroke_json(s):
             "points": [[p[0], p[1], p[2]] for p in s["points"]]}
 
 
+
+def test_sel_keys_complete():
+    """回归：resolve_mask 支持的每个来源都必须在 _SEL_KEYS 里。
+    漏登记的后果不是报错，而是 ops.apply 解析不到掩膜 → selection=None → 算子静默作用到全图
+    （实测用 cells 选叶时 hue 改了 94.58% 画布，应为 5.57%）。
+    """
+    want = {"mask", "mask_file", "all", "polygon", "instance", "tiles", "cells",
+            "prompt", "segment", "include", "exclude"}
+    got = set(ops._SEL_KEYS)
+    missing = want - got
+    assert not missing, "selection 来源漏登记：%s" % sorted(missing)
+    print("PASS selection 来源登记完整（%d 个）" % len(got))
+    return True
+
 def main():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
