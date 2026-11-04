@@ -1199,9 +1199,18 @@ GPU 的 `pg_create` 不建隐式层，同一份代码在 GPU 上恰好对齐，�
 那条 24s/30fps 的旧 raster 过程视频末帧就是"不糊、不偏亮"的基准（luma **22.3**）。
 它的观感 = **没有格填 shadow 层 + 没有 highlight 白点**，也不需要额外提亮。
 
-因此 `tone_map` 的标定不要拍脑袋：drop 掉 shadow 后原始亮度是 26.8，视频是 22.3，
-只用 **gain 0.9 / lift 0 / gamma 1** 就落到 21.9，与视频 `mean_abs=3.74`；
-之前用 gain 1.3 + lift 0.02 + gamma 1.1 会到 43.1（正好翻倍），所以"偏亮"是标定过头，不是渲染错。
+**亮度不硬编码**：用 `scripts/calibrate_tone.py` 从参考图现场反解 gain：
+
+```
+python scripts/calibrate_tone.py plan/painting_clean.plan.json \
+    --target-image _shots/vid_last.png --base-ops tone_base_nohl.json \
+    --out tone_calibrated.json --gpu
+# -> solved_gain 0.9174, achieved_luma 22.323 (target 22.28, abs_error 0.041), 6 次渲染
+```
+
+做法是渲染器实测 luma + 几何二分（亮度对 gain 近似幂律），参考图换了 gain 就跟着变；
+`tests/test_calibrate_tone.py` 验证 roundtrip（已知 gain 0.62 -> 反解 0.6203）。
+历史教训：手写 gain 1.3 + lift 0.02 + gamma 1.1 会到 43.1（约两倍亮），是没标定，不是渲染错。
 
 **texture 层 tile 合并**（消除方块接缝）：计划里 texture 是 81 笔 96px 的 `02_rough-canvas` tile 铺满画布，
 在 normal/提亮后能看到方块边。`scripts/merge_canvas_tiles.py` 把它们合并成一张覆盖全画布的纹理笔：
