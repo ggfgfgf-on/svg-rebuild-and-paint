@@ -1,6 +1,8 @@
 """技能不许自带标定值：缺工程文件时必须回落默认值并发 uncalibrated 通知。"""
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,8 +16,11 @@ def main():
         "技能自己发布了标定值：这些值是某个工程测出来的，属于工程目录"
     old = os.environ.pop("SVP_CALIBRATED", None)
     cwd = os.getcwd()
+    # 必须在一个"上面没有任何 calibrated.json"的空目录里测：
+    # 技能若被装进某个工程目录，从技能目录往上走会撞到工程的标定文件（实测撞到过 model_grow_px=20）。
+    tmp = Path(tempfile.mkdtemp(prefix="svp_nocal_"))
     try:
-        os.chdir(str(ROOT))
+        os.chdir(str(tmp))
         PI.CALIBRATED_SOURCE = "default"
         v = PI.calibrated("model_grow_px", 14)
         assert v == 14, "没有工程文件时必须回落未验证默认值，实际 %r" % (v,)
@@ -29,6 +34,7 @@ def main():
         assert ops.check_calibration() is None
     finally:
         os.chdir(cwd)
+        shutil.rmtree(tmp, ignore_errors=True)
         PI.CALIBRATED_SOURCE = "default"
         if old:
             os.environ["SVP_CALIBRATED"] = old
