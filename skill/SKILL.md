@@ -1269,6 +1269,14 @@ screen 点，几乎全落在叶子上——叶子 +16.7 luma（57.6 vs 40.9）�
 `set_layer_hue highlight 100 + set_layer_saturation 0.9 + tone_map(layer=highlight) gain 0.55`
 （实测叶子裁剪区 32.1，色相对、仍偏粉笔感）。
 
+**`edit_loop.py` 支持多步 recipe（一个指令里多个区域/多组操作，顺序作用）与内联 ops**：
+`--ops-json`（可传 `-` 从 stdin 读，绕开 shell 引号）`--recipe recipe.json`（`{"instruction":…,"steps":[{name,seeds|mask_file,box,ops}]}`）。
+实测"背景换暖夜色 + 抬叶子高光"：步1 背景 luma 23.98→13.04（区内 Δ10.87，玫瑰区 Δ0.84），
+步2 叶子高光仅 +0.51 luma —— 因为 highlight 层只有 1,838 个点，调色能抬的上限由笔触数量决定，
+要更明显必须生成笔触而不是调参。
+**两个真 bug（修完）**：① `masks._decode_bits` 的缓存键是 `id(mask)`，对象回收后 id 复用会解出**别的掩膜**；
+② `edit_loop` 度量用 uint8 相减，下溢回绕把 Δ10 报成 Δ155（现在先转 float，并有回归断言）。
+
 **语义改图闭环脚本 `edit_loop.py`**：一次调用 = 一个迭代（掩膜→按层取权重→应用 ops→渲染→逐区域度量→
 对照图 + mask overlay + ops 全部落盘到 `--out-dir/<tag>/`）。实测"玫瑰换白"两轮迭代：
 it1 gain 1.45 → 玫瑰 luma 34.9→178.1，it2 gain 1.18 → 34.9→163.3，两轮 `outside mean_abs_change` 0.01 / 0.00

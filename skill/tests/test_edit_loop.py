@@ -29,5 +29,15 @@ try:
 except SystemExit as e:
     check("no seeds and no mask raises", "seeds" in str(e))
 
+import numpy as np
+x = np.array([[[8, 18, 16]]], np.uint8)
+y = np.array([[[15, 27, 16]]], np.uint8)
+check("uint8 wrap guard: zero change -> 0", float(EL._delta(x, x).mean()) == 0.0)
+check("uint8 wrap guard: real delta sane", abs(float(EL._delta(y, x).mean()) - (7 + 9 + 0) / 3) < 1e-6,
+      float(EL._delta(y, x).mean()))
+b = np.zeros((20, 30), bool); b[5:12, 4:20] = True
+m = __import__("masks").from_bool(b)
+check("full mask roundtrip", bool((EL._full_mask(m, 20, 30) == b).all()))
+
 print("RESULT", "OK" if ok else "FAILED")
 sys.exit(0 if ok else 1)
