@@ -342,12 +342,35 @@ def attach_thin(image, mask, gap_px=6, max_width_px=6, max_len_px=90, hue_tol=16
                  "components": int(n - 1), "rejected": rejected}
 
 
+def calibrated(name, default=None):
+    """读 scripts/calibrated.json 里的标定值（由 calibrate.py 生成、模型选定）。
+
+    分工：脚本枚举 + 渲染接触表，模型看图拍板，值落盘；这里只读，不猜。
+    """
+    import json as _j
+    from pathlib import Path as _P
+    p = _P(__file__).resolve().parent / "calibrated.json"
+    try:
+        d = _j.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+    v = (d.get(name) or {})
+    if "value" not in v:
+        return default
+    try:
+        return float(v["value"])
+    except Exception:
+        return default
+
+
 def filter_added(image, base_mask, added_mask, min_ratio=0.8, anchors=None, keep_model=True,
-                 model_grow_px=14):
+                 model_grow_px=None):
     """按梯度证据给"并进来的像素"分三类：edge（自带边）/ model（模型报过，梯度弱也算）/ halo（只有一圈糊边）。
     默认丢掉 halo，保留 edge 与 model——这就是"模型参与 + 可验证证据"的分工。
     """
     import cv2 as _cvf
+    if model_grow_px is None:
+        model_grow_px = calibrated("model_grow_px", 14)
     rep = added_edge_report(image, base_mask, added_mask, min_ratio=min_ratio, anchors=anchors)
     keep = np.zeros_like(np.asarray(added_mask, bool))
     base_b = np.asarray(base_mask, bool)

@@ -1,0 +1,56 @@
+{
+ "model_grow_px": {
+  "chosen_by": "model",
+  "contact_sheet": "docs\\calib\\model_grow_px.png",
+  "reason": "看图选 20：左叉叶柄完整并入、右邻叶边缘未被带入；14 时叶柄缺一半，30 时右邻叶边沿开始变绿（越界）。描边 IoU 20=0.945 略低于 14=0.947，差在人工描边没画叶柄，属口径差异",
+  "spec": {
+   "base_mask": "mask_leaf_tip3.json",
+   "cells": "leaf_windows7.json",
+   "image": "rose5-full.png",
+   "trace": "mask_leaf_traced.json"
+  },
+  "sweep": {
+   "0.0": {
+    "dropped_px": 2117,
+    "edge": 1172,
+    "halo": 629,
+    "iou": 0.941,
+    "kept_px": 1172,
+    "model": 1488
+   },
+   "14.0": {
+    "dropped_px": 1575,
+    "edge": 1172,
+    "halo": 629,
+    "iou": 0.947,
+    "kept_px": 1714,
+    "model": 1488
+   },
+   "20.0": {
+    "dropped_px": 1298,
+    "edge": 1172,
+    "halo": 629,
+    "iou": 0.945,
+    "kept_px": 1991,
+    "model": 1488
+   },
+   "30.0": {
+    "dropped_px": 629,
+    "edge": 1172,
+    "halo": 629,
+    "iou": 0.937,
+    "kept_px": 2660,
+    "model": 1488
+   },
+   "8.0": {
+    "dropped_px": 1733,
+    "edge": 1172,
+    "halo": 629,
+    "iou": 0.946,
+    "kept_px": 1556,
+    "model": 1488
+   }
+  },
+  "value": 20.0
+ }
+}

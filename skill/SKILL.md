@@ -73,6 +73,26 @@ python scripts/render_plan.py plan.json --ops ops.json --out edited.png --gpu
 语义表与闸门都由 ops.SOURCES 生成/执行，见 docs/API.md 的「选择源语义」（自动生成）。
 要点：cells 是格子并集（coarse），改色类算子必须 refine: true 或 allow_coarse: true，否则报错。
 
+## 参数标定（模型看图 + 脚本取证）
+
+可量化参数不靠手填，也不靠脚本 argmax：脚本枚举并渲染**接触表**，模型看图拍板，选择与依据落盘。
+
+```
+# 1) 枚举 + 渲染接触表（写 sweep 与图，不写 value）
+python scripts/calibrate.py --param model_grow_px --image <图> --trace <描边.json> \
+    --cells <windows.json> [--base-mask <种子掩膜.json>] --values 0,8,14,20,30
+
+# 2) 模型看完 docs/calib/<param>.png 后记录选择（必须给理由）
+python scripts/calibrate.py --param model_grow_px --choose 20 --reason "20 时叶柄完整且不触邻叶；30 越界"
+```
+
+落盘 `scripts/calibrated.json`：`value` / `chosen_by=model` / `reason` / `sweep` / `contact_sheet` / `spec`。
+消费方：`pick_instance.calibrated(name, default)`；例如 `filter_added` 的 `model_grow_px` 默认取 `calibrated('model_grow_px', 14)`。
+复验：`tests/test_calibrated.py`（字段齐全、值在 sweep 内、接触表存在、默认值确实来自文件）。
+
+**口径要点**：参数只在“已有较好种子 + 新增细结构落在模型报的格子里”时才起作用；
+用格子并集当种子扫 5 档会**完全一样**（实测），所以 `--base-mask` 值得给。
+
 ## 契约
 
 - 输入：PNG/JPEG，宽×高 ≤ 2MP。JPEG 先解码并**固化无损副本**，之后所有比较只对这份副本（解码器不同结果不同）。

@@ -151,6 +151,10 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 把"细长、低饱和、贴着主体"的暗结构并回掩膜（叶尖/叶柄/细颈）。
 
+### `calibrated`(name, default=None)
+
+读 scripts/calibrated.json 里的标定值（由 calibrate.py 生成、模型选定）。
+
 ### `candidate_sheet`(image, cand, out_sheet, roi=None, cols=3)
 
 把候选轮廓画在局部放大图上，模型一眼挑。
@@ -191,7 +195,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 模型明确报过的格子，绝不允许从掩膜里消失。
 
-### `filter_added`(image, base_mask, added_mask, min_ratio=0.8, anchors=None, keep_model=True, model_grow_px=14)
+### `filter_added`(image, base_mask, added_mask, min_ratio=0.8, anchors=None, keep_model=True, model_grow_px=None)
 
 按梯度证据给"并进来的像素"分三类：edge（自带边）/ model（模型报过，梯度弱也算）/ halo（只有一圈糊边）。 默认丢掉 halo，保留 edge 与 model——这就是"模型参与 + 可验证证据"的分工。
 
