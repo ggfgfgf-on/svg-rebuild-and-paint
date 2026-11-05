@@ -705,6 +705,55 @@ def _preserve_rendered_luma(doc, targets, target_luma, iters=10, tol=0.005, mask
             "rel_err": round(abs(_end - target_luma) / max(1e-6, target_luma), 4)}
 
 
+def _dome_frame(targets):
+    """椭球伪法线的包围框：中心 + 半径（纯解析，不碰像素）。"""
+    xs = [p[0] for _, s0, _ in targets for p in s0["points"]]
+    ys = [p[1] for _, s0, _ in targets for p in s0["points"]]
+    cx, cy = (min(xs) + max(xs)) * 0.5, (min(ys) + max(ys)) * 0.5
+    rx = max(1.0, (max(xs) - min(xs)) * 0.5)
+    ry = max(1.0, (max(ys) - min(ys)) * 0.5)
+    return cx, cy, rx, ry
+
+
+def _dome_normal(px, py, cx, cy, rx, ry, nz=1.2):
+    """椭球伪法线（单位向量）。"""
+    nx, ny = (px - cx) / rx, (py - cy) / ry
+    nm = (nx * nx + ny * ny + nz * nz) ** 0.5
+    return (nx / nm, ny / nm, nz / nm)
+
+
+def _normal_fields(targets, width, height, blur=0):
+    """shade 场梯度伪法线：n ∝ (-∂shade/∂x, -∂shade/∂y, 1)，返回三个 height×width 数组。"""
+    import cv2
+    import numpy as _np
+
+    acc = _np.zeros((height, width), _np.float64)
+    cnt = _np.zeros((height, width), _np.float64)
+    for _, s0, _ in targets:
+        sh = float(s0["shade"])
+        for p in s0["points"]:
+            xi = min(width - 1, max(0, int(p[0])))
+            yi = min(height - 1, max(0, int(p[1])))
+            acc[yi, xi] += sh
+            cnt[yi, xi] += 1.0
+    field = acc / _np.maximum(cnt, 1.0)
+    k = max(3, int(blur) | 1)
+    field = cv2.GaussianBlur(field, (k, k), 0)
+    gy, gx = _np.gradient(field)
+    sc = 8.0 / max(1e-6, float(_np.abs(_np.stack([gx, gy])).max())) * 0.5
+    nx, ny = -gx * sc, -gy * sc
+    nz = _np.ones_like(nx)
+    norm = _np.sqrt(nx * nx + ny * ny + nz * nz)
+    return (nx / norm, ny / norm, nz / norm, cnt > 0)
+
+
+def _normal_sample(fields, px, py, width, height):
+    """在法线场上按最近像素取一支笔的法线。"""
+    xi = min(width - 1, max(0, int(px)))
+    yi = min(height - 1, max(0, int(py)))
+    return (fields[0][yi, xi], fields[1][yi, xi], fields[2][yi, xi])
+
+
 def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="dome", layer=None,
                 guidance=1.0, selection=None, weights=None, seed=0, target="strokes",
                 render_iters=8, render_tol=0.01, **_):
@@ -726,16 +775,9 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
     _sel_mask = _target_mask(doc, targets) if str(target) == "rendered" else None
     pre_render = _render_luma(doc, _sel_mask) if _sel_mask is not None else None
 
-    xs = [p[0] for _, s0, _ in targets for p in s0["points"]]
-    ys = [p[1] for _, s0, _ in targets for p in s0["points"]]
-    w = int(max(xs)) + 2
-    h = int(max(ys)) + 2
     if mode == "dome":
-        # 球面伪法线：把主体当成一个椭球，法线由笔触相对主体中心的位置推出来。
-        # 这不是三维重建，但方向光该有的"亮面朝光源走"一定成立（可验证）。
-        cx, cy = (min(xs) + max(xs)) * 0.5, (min(ys) + max(ys)) * 0.5
-        rx = max(1.0, (max(xs) - min(xs)) * 0.5)
-        ry = max(1.0, (max(ys) - min(ys)) * 0.5)
+        # 椭球伪法线：主体当椭球，法线由笔触相对中心的位置解析算出（纯 plan 坐标，不碰像素）。
+        cx, cy, rx, ry = _dome_frame(targets)
         az0 = _np.deg2rad(float(azimuth))
         el0 = _np.deg2rad(float(elevation))
         L0 = _np.array([_np.cos(az0) * _np.cos(el0), -_np.sin(az0) * _np.cos(el0), _np.sin(el0)])
@@ -744,10 +786,8 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
         for _, s0, _st in targets:
             px = sum(p[0] for p in s0["points"]) / len(s0["points"])
             py = sum(p[1] for p in s0["points"]) / len(s0["points"])
-            nx_, ny_ = (px - cx) / rx, (py - cy) / ry
-            nz_ = 1.2
-            nm = (nx_ * nx_ + ny_ * ny_ + nz_ * nz_) ** 0.5
-            lams.append((nx_ / nm) * L0[0] + (ny_ / nm) * L0[1] + (nz_ / nm) * L0[2])
+            n = _dome_normal(px, py, cx, cy, rx, ry)
+            lams.append(n[0] * L0[0] + n[1] * L0[1] + n[2] * L0[2])
         mean_lam = float(_np.mean(lams)) if lams else 0.0
         pre_luma = _rendered_luma(targets, 1.0)
         n = 0
@@ -769,29 +809,16 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
         return doc
     if mode != "gradient":
         raise ValueError("relight_dir: mode must be dome or gradient")
-    acc = _np.zeros((h, w), _np.float64)
-    cnt = _np.zeros((h, w), _np.float64)
-    for _, s0, _ in targets:
-        sh = float(s0["shade"])
-        for p in s0["points"]:
-            xi = min(w - 1, max(0, int(p[0])))
-            yi = min(h - 1, max(0, int(p[1])))
-            acc[yi, xi] += sh
-            cnt[yi, xi] += 1.0
-    field = acc / _np.maximum(cnt, 1.0)
-    k = max(3, int(blur) | 1)
-    field = cv2.GaussianBlur(field, (k, k), 0)
-    gy, gx = _np.gradient(field)
-    sc = 8.0 / max(1e-6, float(_np.abs(_np.stack([gx, gy])).max())) * 0.5
-    nx, ny = -gx * sc, -gy * sc
-    nz = _np.ones_like(nx)
-    norm = _np.sqrt(nx * nx + ny * ny + nz * nz)
-    nx, ny, nz = nx / norm, ny / norm, nz / norm
+    xs = [p[0] for _, s0, _ in targets for p in s0["points"]]
+    ys = [p[1] for _, s0, _ in targets for p in s0["points"]]
+    w = int(max(xs)) + 2
+    h = int(max(ys)) + 2
+    nx, ny, nz, cover = _normal_fields(targets, w, h, blur)
     az = _np.deg2rad(float(azimuth))
     el = _np.deg2rad(float(elevation))
     L = _np.array([_np.cos(az) * _np.cos(el), -_np.sin(az) * _np.cos(el), _np.sin(el)])
     lam = _np.clip(nx * L[0] + ny * L[1] + nz * L[2], 0.0, None)
-    lam_mean = float(lam[cnt > 0].mean()) if (cnt > 0).any() else float(lam.mean())
+    lam_mean = float(lam[cover].mean()) if cover.any() else float(lam.mean())
     lam = lam / max(lam_mean, 1e-6)
 
     n = 0
@@ -993,40 +1020,15 @@ def light_rig(doc, lights=None, ambient=1.0, mode="dome", preserve="strokes", bl
     ys = [p[1] for _, s0, _ in targets for p in s0["points"]]
     scene_w = int(max(xs)) + 2
     scene_h = int(max(ys)) + 2
-    cx, cy = (min(xs) + max(xs)) * 0.5, (min(ys) + max(ys)) * 0.5
-    rx = max(1.0, (max(xs) - min(xs)) * 0.5)
-    ry = max(1.0, (max(ys) - min(ys)) * 0.5)
+    cx, cy, rx, ry = _dome_frame(targets)
 
     def _normal_at(px, py):
-        nx_, ny_ = (px - cx) / rx, (py - cy) / ry
-        nz = 1.2
-        nm = (nx_ * nx_ + ny_ * ny_ + nz * nz) ** 0.5
-        return _np.array([nx_ / nm, ny_ / nm, nz / nm])
+        return _np.array(_dome_normal(px, py, cx, cy, rx, ry))
 
-    grad = None
-    if mode == "gradient":
-        acc = _np.zeros((scene_h, scene_w), _np.float64)
-        cnt = _np.zeros((scene_h, scene_w), _np.float64)
-        for _, s0, _ in targets:
-            for p in s0["points"]:
-                xi = min(scene_w - 1, max(0, int(p[0])))
-                yi = min(scene_h - 1, max(0, int(p[1])))
-                acc[yi, xi] += float(s0["shade"])
-                cnt[yi, xi] += 1.0
-        field = acc / _np.maximum(cnt, 1.0)
-        k = max(3, int(blur) | 1)
-        field = cv2.GaussianBlur(field, (k, k), 0)
-        gy, gx = _np.gradient(field)
-        sc = 8.0 / max(1e-6, float(_np.abs(_np.stack([gx, gy])).max())) * 0.5
-        nx, ny = -gx * sc, -gy * sc
-        nz = _np.ones_like(nx)
-        norm = _np.sqrt(nx * nx + ny * ny + nz * nz)
-        grad = (nx / norm, ny / norm, nz / norm)
+    grad = _normal_fields(targets, scene_w, scene_h, blur) if mode == "gradient" else None
 
     def _normal_from_grad(px, py):
-        xi = min(scene_w - 1, max(0, int(px)))
-        yi = min(scene_h - 1, max(0, int(py)))
-        return _np.array([grad[0][yi, xi], grad[1][yi, xi], grad[2][yi, xi]])
+        return _np.array(_normal_sample(grad, px, py, scene_w, scene_h))
 
     parsed = []
     for i, light in enumerate(lights):

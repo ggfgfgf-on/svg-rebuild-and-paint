@@ -330,6 +330,8 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 ```
 层管理三件套：`remove_layer`（层与笔触一起删）、`rename_layer`（层与笔触一起改，目标名已存在会报错）、`move_layer`（只改顺序）。
 
+法线模型（`relight_dir` 与 `light_rig` 共用，见 `scripts/ops.py`）：`dome` 把选区当椭球，法线由笔触质心相对中心的偏移解析算出（纯 plan 坐标，不碰像素）；`gradient` 把 shade 画到 bbox 栅格上求梯度，再按笔触质心采样（内部有栅格中间量，但结果写回笔触参数）。两者都只是「图像平面伪法线」，不是 3D 法线贴图。公共 helper：`_dome_frame` / `_dome_normal` / `_normal_fields` / `_normal_sample`；`pick_instance.fit_boundary` 里的法线是轮廓边缘法线，与光照无关。
+
 **「细化」有两种，别混（这是同一任务两次冷启动 20 层 vs 15 层的实测差别）**
 
 - **补结构**：新加一层光、一层雨、一条船、一层纹理——画面内容变了。走 `add_layer` + `draw_path`，或直接改计划重新生成。
