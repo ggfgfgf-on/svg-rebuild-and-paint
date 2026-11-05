@@ -320,6 +320,7 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 贴图式光照（gobo）：`map` 是一张要「投影」的图。`map_mode:"luma"` 用亮度当光强（窗口格栅、树影），
 `rgb` 连颜色一起投（彩色窗花），`alpha` 用透明通道当光强。`map_rect` 决定投到画布哪一块。
 任意形状的遮挡/光池还可以把 `shape` 写成 `{"mask_file":"path.png"}` 或直接给图片路径。
+`map` 与 `shape.mask_file` 可以写相对路径，CLI 会按 **plan 文件所在目录** 解析（`ops.resolve_asset_paths`）；跨目录调用时写绝对路径最稳。
 投影的分辨率上限 = 笔触粒度（每笔一个颜色）：要更细的图案，就把长笔触拆短，别指望一条粗笔刷出窗格。
 
 ```json

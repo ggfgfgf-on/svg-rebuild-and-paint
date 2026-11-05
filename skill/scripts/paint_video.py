@@ -88,6 +88,7 @@ def main():
     structural = False
     if a.ops:
         specs = compile_ops.validate_ops(doc, json.loads(Path(a.ops).read_text(encoding="utf-8")))
+        ops.resolve_asset_paths(specs, Path(a.plan).resolve().parent)
         if a.mask_file:
             mask = masks.from_json(json.loads(Path(a.mask_file).read_text(encoding="utf-8")))
         elif a.rect:

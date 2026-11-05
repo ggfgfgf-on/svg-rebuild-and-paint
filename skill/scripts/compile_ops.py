@@ -60,6 +60,7 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
   * tone_map 是整体明暗的通用修法（专门对付 shadow/texture 两层 multiply 压暗）：
     gain 乘亮度（1.5~2.0 通常明显提亮），lift 加白（0.03~0.08 抬黑场），gamma<1 提中间调，
     layer 不给 = 所有层；不动颜色关系，只改明暗。
+  * light_rig 的 map / shape.mask_file / shape 路径：相对路径按 plan 文件所在目录解析。
   * 只允许上面 20 个算子，不要发明新字段；除 add_layer / draw_path 新建的层、以及 rename_layer 改出的新名外，层名必须是下面列出的层。
 """
 

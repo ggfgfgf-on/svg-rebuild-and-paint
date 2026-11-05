@@ -137,6 +137,18 @@ def main():
     assert ops.canonical(g2) == ops.canonical(outg)
     print("gobo deterministic: ok")
 
+    # 7) 相对路径按 plan 目录解析（art_apply_ops 的 ops JSON 里模型常写相对路径）
+    import os.path as _osp
+    specs = [{"op": "light_rig", "lights": [
+        {"map": "gobo.png"},
+        {"shape": {"mask_file": "mask.png"}},
+        {"shape": "plain.png"}]}]
+    ops.resolve_asset_paths(specs, td)
+    assert _osp.isabs(specs[0]["lights"][0]["map"])
+    assert _osp.isabs(specs[0]["lights"][1]["shape"]["mask_file"])
+    assert _osp.isabs(specs[0]["lights"][2]["shape"])
+    print("relative asset paths: ok")
+
     print("RESULT OK")
 
 

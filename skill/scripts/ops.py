@@ -705,6 +705,40 @@ def _preserve_rendered_luma(doc, targets, target_luma, iters=10, tol=0.005, mask
             "rel_err": round(abs(_end - target_luma) / max(1e-6, target_luma), 4)}
 
 
+def resolve_asset_paths(specs, base_dir):
+    """把 light_rig 的 map / shape 掩膜相对路径按 base_dir 解析成绝对路径（原地改 specs）。
+
+    CLI 传进来的 ops JSON 里模型通常写相对路径（"textures/gobo.png"），
+    但进程 CWD 是 skill 目录，不解析就会读不到；统一按 plan 所在目录解析。
+    """
+    from pathlib import Path as _Path
+
+    base = _Path(base_dir)
+
+    def _fix(p):
+        if not p:
+            return p
+        q = _Path(str(p))
+        return str(q if q.is_absolute() else (base / q).resolve())
+
+    for sp in specs or []:
+        if not isinstance(sp, dict) or sp.get("op") != "light_rig":
+            continue
+        for light in sp.get("lights") or []:
+            if not isinstance(light, dict):
+                continue
+            if light.get("map"):
+                light["map"] = _fix(light["map"])
+            shp = light.get("shape")
+            if isinstance(shp, dict):
+                for k in ("mask_file", "image", "mask"):
+                    if shp.get(k):
+                        shp[k] = _fix(shp[k])
+            elif isinstance(shp, str):
+                light["shape"] = _fix(shp)
+    return specs
+
+
 def _dome_frame(targets):
     """椭球伪法线的包围框：中心 + 半径（纯解析，不碰像素）。"""
     xs = [p[0] for _, s0, _ in targets for p in s0["points"]]

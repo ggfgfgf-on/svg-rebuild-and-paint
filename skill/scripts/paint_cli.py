@@ -75,6 +75,7 @@ def cmd_edit(a):
     doc, w, h = plan_io.load_plan(a.plan)
     specs, source = _compile(a, doc)
     compile_ops.validate_ops(doc, specs)
+    ops.resolve_asset_paths(specs, Path(a.plan).resolve().parent)
     mask = _mask_from_args(a, w, h)
 
     touched = {sp["layer"] for sp in specs if sp.get("layer")} or {l["name"] for l in doc["layers"]}
