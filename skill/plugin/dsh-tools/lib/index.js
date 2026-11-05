@@ -127,7 +127,7 @@ export function apply(ctx, config) {
 
   tools.register(define({
     name: 'art_apply_ops',
-    description: '把 ops JSON 应用到绘画计划并渲染出图。返回 PNG、字节数、秒数，以及引擎的 selected / dirty_rect。ops 只作用于已有图层（颜色、明暗、笔触密度、局部重画）；要补结构用 add_layer 建层（draw_path 指向新层会自动建层）。可选 out_plan：把应用 ops 之后的计划落盘，返回 plan_strokes / plan_layers——想在这次结果上继续改就传它，下一次以这份计划为输入；不给则只写图、原计划只读。densify 之后不传 out_plan 就看不到真实总笔数。另：一次调用里混用「带 layer 的算子」与全局算子时，全局算子会被限制在带 layer 算子提到的层上（selection 作用域）。',
+    description: '把 ops JSON 应用到绘画计划并渲染出图。返回 PNG、字节数、秒数，以及引擎的 selected / dirty_rect。ops 改画面内容与图层结构：颜色、明暗、笔触密度、局部重画，以及加层（add_layer 可带 index 指定插入位置）、删层、改名、重排（draw_path 指向新层会自动建层）。可选 out_plan：把应用 ops 之后的计划落盘，返回 plan_strokes / plan_layers——想在这次结果上继续改就传它，下一次以这份计划为输入；不给则只写图、原计划只读。densify 之后不传 out_plan 就看不到真实总笔数。另：一次调用里混用「带 layer 的算子」与全局算子时，全局算子会被限制在带 layer 算子提到的层上（selection 作用域）。',
     parameters: {
       plan: { type: 'string', description: '计划文件路径；只读，不会被修改' },
       ops: { type: 'string', description: 'ops JSON 路径' },

@@ -283,7 +283,7 @@ python scripts/compile_ops.py validate plan.json --ops ops.json   # 多余键会
 python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 ```
 
-16 个算子（详见 [API.md](API.md)）：
+19 个算子（详见 [API.md](API.md)）：
 
 | 算子 | 改什么 | 关键键 |
 |---|---|---|
@@ -298,13 +298,15 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 | `redraw` / `erase` | 选区内重画 / 擦除 | fraction, jitter |
 | `recolor_palette` | 整套调色板替换 | palette |
 | `draw_path` | 按 SVG path 加笔画（凭空起手；层不存在会自动建层） | layer, d, color, size, blend |
-| `add_layer` | 新增空图层（幂等；要在某层下面作画就先用它） | name, blend |
+| `add_layer` | 新增空图层（幂等；`index` 指定插入位置，0=垫底） | name, blend, index |
+| `remove_layer` / `rename_layer` / `move_layer` | 删层（连笔触） / 改名（连笔触） / 重排合成顺序 | name, to / index |
 | `replan_region` | 按参考图重排某区域 | ref |
 
 顺序约束：`split_shading` 必须在 `relight_dir` 之前（否则 `ValueError: 笔触缺少 albedo/shade`）。
 `guidance` 0–1 控制强度；`selection` 用 `--mask-file` / `--rect` / `--hard-mask` 限定作用范围。
 `draw_path` 一条 path = 一笔：要一片山就发上千条短笔，不要发十几条粗线。
-`add_layer` 幂等：同名层已存在时什么都不做；新层追加在最后，合成顺序 = 层顺序（想垫底就先建层再画）。
+`add_layer` 幂等：同名层已存在时什么都不做；`index` 不给 = 追加到最上，`index: 0` = 垫底（合成顺序 = 层顺序）。
+层管理三件套：`remove_layer`（层与笔触一起删）、`rename_layer`（层与笔触一起改，目标名已存在会报错）、`move_layer`（只改顺序）。
 
 **「细化」有两种，别混（这是同一任务两次冷启动 20 层 vs 15 层的实测差别）**
 
@@ -346,6 +348,7 @@ print("final strokes", len(out["strokes"]))
 `art_apply_ops` 的行为：默认只返回 `selected` / `dirty_rect`（不返回 densify 后的总笔数），也**不落盘** plan；
 传 `out_plan` 才把应用 ops 后的 plan 写到新文件，并回 `plan_strokes` / `plan_layers`。
 带新层的 edit（`add_layer`，或 `draw_path` 指向新层）会自动改走整幅渲染——增量渲染没有新层的下标——返回里多一个 `new_layers`。
+视频同理：`paint_video.py` 检测到层集合变化（加/删/改名/重排）时，在编辑帧换一个按编辑后计划建的 painter 整幅重画；末帧自检也改成对编辑后的计划做参考。
 `art_edit_brief` 的缩略图固定写在系统临时目录的 `compile_thumb.png`，不受 `out` 控制；要归档就自己挪走。
 
 ### 5.4 视频
@@ -410,7 +413,7 @@ python scripts/metric.py ref.png render.png
 |---|---|---|---|
 | 计划 | JSON：`canvas` / `layers` / `strokes` | 笔画数据 | 可渲染、可 diff 的唯一事实来源 |
 | 渲染 | `render_plan.py` / `art_paint` | plan（+ 可选 ops） | PNG；同一 plan 逐像素一致 |
-| 算子 | ops JSON（16 个） | 一组算子 | 改后的 plan，或直接渲染成 PNG |
+| 算子 | ops JSON（19 个） | 一组算子 | 改后的 plan，或直接渲染成 PNG |
 | 编译 | `compile_ops.py brief` | plan + 一句话指令 | 缩略图 + 提示词（ops 由你写） |
 | 校验 | `compile_ops.py validate` / `plan_io.py check` / `selfcheck.py` | plan / ops / 环境 | `ok`，或具体错误 |
 | 度量 | `metric.py`（有参考图）；§6.1（无参考图） | 两张图，或一张图 + 判据 | 一组可比较的数字 |

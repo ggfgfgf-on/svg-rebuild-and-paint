@@ -36,12 +36,12 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 `sel_mode`：any（默认，笔触任一点碰到选区即整笔生效）、center（中心点在选区内）、all（整笔在选区内，最不溢出）。改色类算子建议 center 或 all。
 
-### `add_layer`(doc, name, blend='normal', guidance=1.0, **_)
+### `add_layer`(doc, name, blend='normal', index=None, guidance=1.0, **_)
 
 新增一个空图层（幂等）：已存在同名层时原样返回，不重复添加、不改已有 blend。
 
 - 必填：`name`
-- 可选：`blend`, `guidance`
+- 可选：`blend`, `guidance`, `index`
 
 ### `densify`(doc, layer, k, guidance=1.0, selection=None, weights=None, seed=0, **_)
 
@@ -64,6 +64,13 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 - 必填：（无）
 - 可选：`guidance`, `layer`
 
+### `move_layer`(doc, name, index, guidance=1.0, **_)
+
+把图层移到指定位置（0 = 最底层），层内笔触不变，只改合成顺序。
+
+- 必填：`name`, `index`
+- 可选：`guidance`
+
 ### `recolor_palette`(doc, palette, guidance=1.0, selection=None, weights=None, seed=0, **_)
 
 把颜色吸附到给定色板（取最近的，再按强度插值）。
@@ -84,6 +91,20 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 - 必填：（无）
 - 可选：`azimuth`, `blur`, `elevation`, `guidance`, `layer`, `mode`, `render_iters`, `render_tol`, `strength`, `target`
+
+### `remove_layer`(doc, name, guidance=1.0, **_)
+
+删除图层连同它的全部笔触（幂等：层不存在就什么都不做）。
+
+- 必填：`name`
+- 可选：`guidance`
+
+### `rename_layer`(doc, name, to, guidance=1.0, **_)
+
+给图层改名，连同它所有笔触的 layer 字段一起改（幂等：新名已存在且旧名不存在时不动）。
+
+- 必填：`name`, `to`
+- 可选：`guidance`
 
 ### `replan_region`(doc, ref, regions=None, layers=('band', 'highlight'), mode='cover', thr=0.9, ring='auto', highlight_mode='keep', shadow_mode='drop', style_file=None, gpu=False, mask_obj=None, **_)
 

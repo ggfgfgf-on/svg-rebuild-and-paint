@@ -341,11 +341,19 @@ def _path_to_polylines(d, steps=16):
     return subs
 
 
-def add_layer(doc, name, blend="normal", guidance=1.0, **_):
+def _layer_index(layers, name):
+    for i, l in enumerate(layers):
+        if l.get("name") == name:
+            return i
+    return -1
+
+
+def add_layer(doc, name, blend="normal", index=None, guidance=1.0, **_):
     """新增一个空图层（幂等）：已存在同名层时原样返回，不重复添加、不改已有 blend。
 
     为什么需要它：其余算子都只作用于已有层，"补一层光/一层雨/一条船"必须先有层。
-    新层加在最后（合成顺序 = 层顺序），需要压在其他层下面时先建层再 draw_path。
+    index 指定插入位置（0 = 最底层，让新层能垫在已有层下面）；不给 = 追加到最后。
+    合成顺序 = 层顺序，所以垫底要 index=0，别用默认的追加。
     """
     g = _strength(guidance, 1.0)
     if g <= 0.0:
@@ -354,9 +362,80 @@ def add_layer(doc, name, blend="normal", guidance=1.0, **_):
     if not name:
         raise ValueError("add_layer needs a non-empty layer name")
     layers = doc.setdefault("layers", [])
-    if any(l.get("name") == name for l in layers):
+    if _layer_index(layers, name) >= 0:
         return doc
-    layers.append({"name": name, "blend": str(blend or "normal")})
+    spec = {"name": name, "blend": str(blend or "normal")}
+    if index is None:
+        layers.append(spec)
+    else:
+        i = max(0, min(len(layers), int(index)))
+        layers.insert(i, spec)
+    return doc
+
+
+def remove_layer(doc, name, guidance=1.0, **_):
+    """删除图层连同它的全部笔触（幂等：层不存在就什么都不做）。
+
+    guidance=0 → 计划不变；guidance>0 → 整层移除（层是二值的，不做概率擦除——
+    局部擦除用 erase）。
+    """
+    g = _strength(guidance, 1.0)
+    if g <= 0.0:
+        return doc
+    name = str(name or "").strip()
+    if not name:
+        raise ValueError("remove_layer needs a non-empty layer name")
+    layers = doc.get("layers") or []
+    i = _layer_index(layers, name)
+    if i < 0:
+        return doc
+    layers.pop(i)
+    doc["strokes"] = [s for s in doc["strokes"] if s.get("layer") != name]
+    return doc
+
+
+def rename_layer(doc, name, to, guidance=1.0, **_):
+    """给图层改名，连同它所有笔触的 layer 字段一起改（幂等：新名已存在且旧名不存在时不动）。
+
+    目标名已被别的层占用时直接报错——合并两层是语义决策，不该由改名偷偷做掉。
+    """
+    g = _strength(guidance, 1.0)
+    if g <= 0.0:
+        return doc
+    name = str(name or "").strip()
+    to = str(to or "").strip()
+    if not name or not to:
+        raise ValueError("rename_layer needs both name and to")
+    layers = doc.get("layers") or []
+    i = _layer_index(layers, name)
+    if i < 0:
+        if _layer_index(layers, to) >= 0:
+            return doc                      # 已是目标状态
+        raise ValueError("rename_layer: unknown layer %r" % (name,))
+    if _layer_index(layers, to) >= 0:
+        raise ValueError("rename_layer: target layer %r already exists" % (to,))
+    layers[i]["name"] = to
+    for s in doc["strokes"]:
+        if s.get("layer") == name:
+            s["layer"] = to
+    return doc
+
+
+def move_layer(doc, name, index, guidance=1.0, **_):
+    """把图层移到指定位置（0 = 最底层），层内笔触不变，只改合成顺序。"""
+    g = _strength(guidance, 1.0)
+    if g <= 0.0:
+        return doc
+    name = str(name or "").strip()
+    if not name:
+        raise ValueError("move_layer needs a non-empty layer name")
+    layers = doc.get("layers") or []
+    i = _layer_index(layers, name)
+    if i < 0:
+        raise ValueError("move_layer: unknown layer %r" % (name,))
+    spec = layers.pop(i)
+    j = max(0, min(len(layers), int(index)))
+    layers.insert(j, spec)
     return doc
 
 
@@ -737,6 +816,9 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
 
 OPS = {
     "add_layer": add_layer,
+    "remove_layer": remove_layer,
+    "rename_layer": rename_layer,
+    "move_layer": move_layer,
     "relight_dir": relight_dir,
     "replan_region": replan_region,
     "split_shading": split_shading,
@@ -757,6 +839,9 @@ OPS = {
 # 每个算子需要的必填键（编译器/校验用）
 REQUIRED = {
     "add_layer": ["name"],
+    "remove_layer": ["name"],
+    "rename_layer": ["name", "to"],
+    "move_layer": ["name", "index"],
     "set_layer_hue": ["layer", "hue"],
     "set_layer_saturation": ["layer", "sat"],
     "set_layer_brightness": ["layer", "factor"],
@@ -777,7 +862,10 @@ REQUIRED = {
 
 # 允许的键（编译器给的 JSON 里出现别的键一律拒绝——模型最容易在这里瞎编）
 ALLOWED = {
-    "add_layer": {"name", "blend", "guidance"},
+    "add_layer": {"name", "blend", "index", "guidance"},
+    "remove_layer": {"name", "guidance"},
+    "rename_layer": {"name", "to", "guidance"},
+    "move_layer": {"name", "index", "guidance"},
     "relight_dir": {"azimuth", "elevation", "strength", "blur", "mode", "layer", "guidance",
                     "target", "render_iters", "render_tol"},
     "replan_region": {"ref", "regions", "layers", "mode", "thr", "ring", "highlight_mode",

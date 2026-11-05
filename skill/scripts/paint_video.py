@@ -82,7 +82,10 @@ def main():
         for b in range(0, n, per):
             groups.append((name, li + 1, np.arange(b, min(b + per, n))))
 
+    groups_total = len(groups)
     plan2, spec2, dirty, touched = plan1, spec, {}, set()
+    out = doc
+    structural = False
     if a.ops:
         specs = compile_ops.validate_ops(doc, json.loads(Path(a.ops).read_text(encoding="utf-8")))
         if a.mask_file:
@@ -104,6 +107,9 @@ def main():
         out = ops.apply(doc, specs, selection=sel, weights=wt)
         plan2, spec2 = D.doc_to_plan(out, cat, base=plan1, only=touched)
         dirty = tile_inc.dirty_rects(doc, plan1, sel_by_layer, w, h)
+        # 加层/删层/改名/重排会改变层下标，增量重建只认旧层：这类编辑在编辑帧整幅重建
+        structural = ([l["name"] for l in doc["layers"]]
+                      != [l["name"] for l in out["layers"]])
 
     out_path = Path(a.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -124,11 +130,19 @@ def main():
                 name, li, sel = groups[drawn]
                 tile_inc.draw(p, plan1, spec, name, li, sel, region, a.gpu, nthreads=8)
                 drawn += 1
-            for name in sorted(touched):
-                rects = dirty.get(name) or []
-                for (rx0, ry0, rx1, ry1) in rects:
-                    p.clear_rect(layer_li[name], rx0, ry0, rx1, ry1)
-            tile_inc.rebuild(p, plan2, spec2, dirty, lambda nm: region, gpu=a.gpu, nthreads=8)
+            if structural:
+                # 层集合变了：旧 painter 没有新层下标，直接换一个按编辑后计划建的 painter 整幅重画
+                p.close()
+                p, cat, w, h = D.new_painter(out, gpu=a.gpu)
+                plan_full, spec_full = D.doc_to_plan(out, cat)
+                tile_inc.full(p, plan_full, spec_full, lambda nm: region, gpu=a.gpu, nthreads=8)
+                groups, drawn = [], 0
+            else:
+                for name in sorted(touched):
+                    rects = dirty.get(name) or []
+                    for (rx0, ry0, rx1, ry1) in rects:
+                        p.clear_rect(layer_li[name], rx0, ry0, rx1, ry1)
+                tile_inc.rebuild(p, plan2, spec2, dirty, lambda nm: region, gpu=a.gpu, nthreads=8)
             edited = True
             edit_frames = i + 1
         while not edited and drawn <= target and drawn < len(groups):
@@ -152,8 +166,10 @@ def main():
     subprocess.run(cmd, capture_output=True, check=False)
     t_enc = time.perf_counter() - t_enc
 
-    q, _, _, _ = D.new_painter(doc, gpu=a.gpu)
-    tile_inc.full(q, plan2, spec2, lambda nm: region, gpu=a.gpu, nthreads=8)
+    # 自检必须拿「编辑后的计划」做参考；之前两边都用原始计划，结构编辑会假通过
+    q, _, _, _ = D.new_painter(out, gpu=a.gpu)
+    plan_ref, spec_ref = D.doc_to_plan(out, cat)
+    tile_inc.full(q, plan_ref, spec_ref, lambda nm: region, gpu=a.gpu, nthreads=8)
     ref = np.ascontiguousarray(q.composite())
     q.close()
     diff = int(np.any(last != ref, axis=2).sum())
@@ -161,7 +177,7 @@ def main():
     size_mb = round(out_path.stat().st_size / 1048576, 2)
     print(json.dumps({
         "frames": a.frames, "fps": a.fps, "duration_s": round(a.frames / a.fps, 2),
-        "groups": len(groups), "edited_at_frame": edit_frames,
+        "groups": groups_total, "edited_at_frame": edit_frames,
         "render_and_save_s": round(t2 - t1, 2), "encode_s": round(t_enc, 2), "total_s": round(t2 - t0, 2),
         "mb": size_mb, "last_frame_vs_full_render_diff_px": diff,
         "out": str(out_path),

@@ -37,7 +37,10 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
   {"op": "redraw",              "fraction": 0..1, "jitter": 0..0.5}
   {"op": "recolor_palette",     "palette": [[r,g,b], ...],        "guidance": 0..1}
   {"op": "draw_path",           "layer": "<层名>", "d": "<SVG path>", "color": "#rrggbb", "size": >0, "opacity": 0..1, "preset": "<笔刷名>", "guidance": 0..1}
-  {"op": "add_layer",          "name": "<新层名>", "blend": "normal", "guidance": 0..1}
+  {"op": "add_layer",          "name": "<新层名>", "blend": "normal", "index": 0..N?, "guidance": 0..1}
+  {"op": "remove_layer",       "name": "<层名>", "guidance": 0..1}
+  {"op": "rename_layer",       "name": "<旧层名>", "to": "<新层名>", "guidance": 0..1}
+  {"op": "move_layer",         "name": "<层名>", "index": 0..N, "guidance": 0..1}
   {"op": "tone_map",            "gain": >0, "lift": 0..1, "gamma": >0, "layer": "<层名，可省>", "guidance": 0..1}
 
 规则：
@@ -45,13 +48,14 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
   * 只改「花瓣」这类局部时，改画区域由外部 mask 提供，算子本身不要写坐标。
   * draw_path 是「从零加笔」：d 用 canvas 坐标写 SVG path（M/L/H/V/C/Q/T/Z），不需要 mask，
     只需要层名；想加在别处就把坐标写到那里。它和别的算子一样受 guidance 控制。
-  * add_layer 建新层（幂等，重复调用不重复建）；draw_path 指向不存在的层也会自动建层。
-    要补结构（一层光、一层雨、一条船、一层纹理）就用这两步；densify 只加密已有笔触，
+  * add_layer 建新层（幂等，重复调用不重复建），index 指定插入位置（0=垫底，不给=追加到最上）；
+    draw_path 指向不存在的层也会自动建层。remove_layer / rename_layer / move_layer 管理已有层。
+    要补结构（一层光、一层雨、一条船、一层纹理）就用这几步；densify 只加密已有笔触，
     不改变画面内容，堆得再多也长不出新东西。
   * tone_map 是整体明暗的通用修法（专门对付 shadow/texture 两层 multiply 压暗）：
     gain 乘亮度（1.5~2.0 通常明显提亮），lift 加白（0.03~0.08 抬黑场），gamma<1 提中间调，
     layer 不给 = 所有层；不动颜色关系，只改明暗。
-  * 只允许上面 12 个算子，不要发明新字段；除 add_layer / draw_path 新建的层外，层名必须是下面列出的层。
+  * 只允许上面 19 个算子，不要发明新字段；除 add_layer / draw_path 新建的层、以及 rename_layer 改出的新名外，层名必须是下面列出的层。
 """
 
 
@@ -172,11 +176,34 @@ def validate_ops(doc, specs, allow_layers=None):
     for i, spec in enumerate(specs):
         try:
             ops.validate(spec)
-            if spec["op"] == "add_layer":
+            opn = spec["op"]
+            if opn == "add_layer":
                 nm = str(spec.get("name") or "").strip()
                 if not nm:
                     raise ValueError("add_layer needs a non-empty layer name")
                 names.add(nm)
+            elif opn == "remove_layer":
+                nm = str(spec.get("name") or "").strip()
+                if not nm:
+                    raise ValueError("remove_layer needs a non-empty layer name")
+                names.discard(nm)
+            elif opn == "rename_layer":
+                old = str(spec.get("name") or "").strip()
+                new = str(spec.get("to") or "").strip()
+                if not old or not new:
+                    raise ValueError("rename_layer needs both name and to")
+                if old not in names:
+                    raise ValueError("unknown layer %r; known: %s" % (old, ", ".join(sorted(names))))
+                if new in names:
+                    raise ValueError("rename_layer target %r already exists" % (new,))
+                names.discard(old)
+                names.add(new)
+            elif opn == "move_layer":
+                nm = str(spec.get("name") or "").strip()
+                if not nm:
+                    raise ValueError("move_layer needs a non-empty layer name")
+                if nm not in names:
+                    raise ValueError("unknown layer %r; known: %s" % (nm, ", ".join(sorted(names))))
             if "layer" in spec and spec["layer"] not in names:
                 if spec["op"] == "draw_path":
                     names.add(spec["layer"])      # draw_path 指向新层 = 自动建层
