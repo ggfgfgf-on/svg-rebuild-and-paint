@@ -342,21 +342,7 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 
 判断方法：比改动前后的层集合——层集合没变，就只是在“调”。这是接口语义，不是流程要求：`densify` 永远长不出新层，`add_layer` 才能。
 
-**补结构的可复用做法**（冷启动最容易漏的一步）：
-
-1. 先看 `layers`：没有光层（`glow` / `sunglow` / `suncore` / `veil` 这类）就说明结构还没补，别急着 `densify`。
-2. `add_layer` 建层（光层用 `blend:"screen"`，阴影用 `multiply`，氛围用 `softlight`），再用 `draw_path` 往层里画；`draw_path` 的目标层不存在会自动建层。
-3. 光按「大范围晕 → 盘面/受光面 → 核心高光 → 帘幕/空气感」拆层，每层只画一段亮度范围；一层软笔盖完就是没有结构。
-4. 补完结构再 `densify` / `set_layer_*` / `light_rig`；只做后一步 = 上面 15 层那条路。
-
-```json
-[{"op":"add_layer","name":"sunglow","blend":"screen"},
- {"op":"draw_path","layer":"sunglow","d":"M 300 620 L 420 620","color":"#ffb060","size":140,"opacity":0.06,"preset":"round_soft"},
- {"op":"add_layer","name":"suncore","blend":"screen"},
- {"op":"draw_path","layer":"suncore","d":"M 340 600 L 370 600","color":"#fff2c8","size":48,"opacity":0.12,"preset":"round_soft"}]
-```
-
-`draw_path` 的 `d` 用 canvas 坐标；一条 path = 一笔，一片光要发多条短笔，不要指望一条粗线。
+算子是按「改什么」分的：`add_layer` / `draw_path` 改层集合与内容，`densify` / `tone_map` / `set_layer_*` 只改已有笔触。计划摘要会给出 `layer_count`、`blend_counts`、`light_layers`、`shadow_layers` 这些事实；有没有 `screen` / `add` 光层是看得见的，但要不要补、补几层、怎么拆，由你对照缩略图判断——文档不规定步骤。
 
 **一个必须知道的隐藏作用域（`paint_cli.py edit`，即 `art_apply_ops` 走的路径）**
 
@@ -440,7 +426,7 @@ python scripts/metric.py ref.png render.png
 | 分层合理 | 层名与 blend | 有底（normal）、有光（screen）、有调色/暗角（softlight/multiply） |
 | 计划合法 | `plan_io.py check` / `compile_ops.py validate` | 无非法 preset、无悬空 layer |
 | 细化有效 | 细化前后被选中/改变的像素数 | `selected > 0`，且画面确实更像目标 |
-| 结构是否补过 | 改动前后 `layers` 集合差 / `new_layers` | 结构细化应出现新层；层集合没变 = 只调了色 |
+| 层集合有没有变 | 改动前后 `layers` 集合差 / `new_layers` | 补结构会改变层集合；只改笔触则不变 |
 | 可复现 | 重新 materialize + 渲染 | 与交付 PNG 逐像素一致 |
 
 再加一次**自查图**：把最终 PNG 读进来，问自己三件事——(a) 主体轮廓是否成立；(b) 最亮处是否只有一个视觉焦点；(c) 缩小到 25% 看是否还读得懂构图。三条都过再交付。

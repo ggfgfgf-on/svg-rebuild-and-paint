@@ -35,11 +35,15 @@ def main():
         assert [l["name"] for l in s["layers"]] == ["petal", "leaf"], s["layers"]
         assert s["layers"][0]["strokes"] == 6 and s["layers"][0]["mean_color"].startswith("#")
         assert s["palette_top"] and s["total_strokes"] == 10
+        assert s["layer_count"] == 2
+        assert s["blend_counts"] == {"normal": 1, "multiply": 1}
+        assert s["light_layers"] == []
+        assert s["shadow_layers"] == ["leaf"]
         print("PASS summarize: layers=%d palette=%d total=%d"
               % (len(s["layers"]), len(s["palette_top"]), s["total_strokes"]))
 
         p = compile_ops.build_prompt(s, "把花改成蓝色，叶子保持", masks.rect(5, 5, 60, 40))
-        for token in ("set_layer_hue", "guidance", "把花改成蓝色，叶子保持", '"petal"'):
+        for token in ("set_layer_hue", "guidance", "把花改成蓝色，叶子保持", '"petal"', "light_layers"):
             assert token in p, token
         assert p.count("JSON") >= 2
         print("PASS prompt: schema + summary + instruction + mask, %d chars" % len(p))

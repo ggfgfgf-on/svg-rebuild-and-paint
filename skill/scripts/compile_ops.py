@@ -135,6 +135,16 @@ def summarize(doc, palette_top=8):
             "mean_color": _hex(cols.mean(axis=0)), "size_median": round(float(np.median(sizes)), 1),
             "size_range": [round(float(sizes.min()), 1), round(float(sizes.max()), 1)],
         })
+    blend_counts = {}
+    light_layers = []
+    shadow_layers = []
+    for spec in doc.get("layers") or []:
+        b = str(spec.get("blend", "normal"))
+        blend_counts[b] = blend_counts.get(b, 0) + 1
+        if b in ("screen", "add", "dodge", "linearlight", "vividlight"):
+            light_layers.append(spec.get("name"))
+        elif b in ("multiply", "darken", "colorburn"):
+            shadow_layers.append(spec.get("name"))
     q = np.round(np.asarray([np.asarray(s["color"], np.float64)[:3] for s in strokes]) / 32.0) * 32.0
     uniq, counts = np.unique(q.astype(int), axis=0, return_counts=True)
     order = np.argsort(-counts)[:palette_top]
@@ -145,6 +155,10 @@ def summarize(doc, palette_top=8):
     return {
         "canvas": doc.get("canvas"),
         "layers": layers,
+        "layer_count": len(doc.get("layers") or []),
+        "blend_counts": dict(sorted(blend_counts.items(), key=lambda kv: -kv[1])),
+        "light_layers": light_layers,
+        "shadow_layers": shadow_layers,
         "palette_top": palette,
         "presets": dict(sorted(presets.items(), key=lambda kv: -kv[1])[:10]),
         "total_strokes": len(strokes),
