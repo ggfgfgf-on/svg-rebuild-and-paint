@@ -104,11 +104,16 @@ python skill/scripts/api_doc.py
 ## 快速开始
 
 ```powershell
-# Windows：装进 $env:DSH_HOME\skills\svg-rebuild-and-paint
+# Windows：自动装进"DSH 实际在用的 home"（$env:DSH_HOME，其次脚本所在的 .dsh/.dsh-home，
+# 其次 ~/.dsh），装完跑一次 selfcheck；旧版本落在 <home>\skill-backups（不在 skills 里）
 git clone https://github.com/ggfgfgf-on/svg-rebuild-and-paint.git
 .\svg-rebuild-and-paint\skill\install.ps1
 
-# macOS / Linux
+# 明确指定 home / skills 根目录
+.\svg-rebuild-and-paint\skill\install.ps1 -HarnessHome D:\x\.dsh
+.\svg-rebuild-and-paint\skill\install.ps1 -Dest D:\x\skills
+
+# macOS / Linux（绘画半区需要 Windows x64 的 DLL）
 ./svg-rebuild-and-paint/skill/install.sh
 ```
 
