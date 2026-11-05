@@ -283,13 +283,14 @@ python scripts/compile_ops.py validate plan.json --ops ops.json   # 多余键会
 python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 ```
 
-19 个算子（详见 [API.md](API.md)）：
+20 个算子（详见 [API.md](API.md)）：
 
 | 算子 | 改什么 | 关键键 |
 |---|---|---|
 | `set_layer_hue` / `_saturation` / `_brightness` | 整层色相 / 饱和 / 亮度 | layer, hue/sat/factor, guidance |
 | `tone_map` | 曝光 / 提亮 / 对比曲线 | gain, lift, gamma |
-| `set_light` | 主光角度与色温 | azimuth/elevation/strength/tint |
+| `set_light` | 主光角度与色温（全局均匀） | scale, tint |
+| `light_rig` | 多光源：每盏灯可带方向/位置、颜色、强度、半径衰减、任意形状作用区域 | lights, ambient, mode, preserve |
 | `relight_dir` | 按方向重算受光 | azimuth, elevation, strength |
 | `split_shading` | 明暗拆层 | layer |
 | `swap_brush` | 换笔刷预设 | layer, preset |
@@ -306,6 +307,15 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 `guidance` 0–1 控制强度；`selection` 用 `--mask-file` / `--rect` / `--hard-mask` 限定作用范围。
 `draw_path` 一条 path = 一笔：要一片山就发上千条短笔，不要发十几条粗线。
 `add_layer` 幂等：同名层已存在时什么都不做；`index` 不给 = 追加到最上，`index: 0` = 垫底（合成顺序 = 层顺序）。
+多光源写法（`split_shading` 必须先跑；`preserve` 默认 strokes 保持整体亮度，`none` 才让画面整体变亮/变暗）：
+
+```json
+[{"op":"split_shading"},
+ {"op":"light_rig","ambient":0.85,"lights":[
+   {"type":"directional","azimuth":200,"elevation":15,"strength":1.1,"color":"#ffb070"},
+   {"type":"radial","at":[900,300],"strength":0.9,"color":"#7fb4ff","radius":420,
+    "shape":{"ellipse":[900,300,520,380],"feather":60}}]}]
+```
 层管理三件套：`remove_layer`（层与笔触一起删）、`rename_layer`（层与笔触一起改，目标名已存在会报错）、`move_layer`（只改顺序）。
 
 **「细化」有两种，别混（这是同一任务两次冷启动 20 层 vs 15 层的实测差别）**
@@ -413,7 +423,7 @@ python scripts/metric.py ref.png render.png
 |---|---|---|---|
 | 计划 | JSON：`canvas` / `layers` / `strokes` | 笔画数据 | 可渲染、可 diff 的唯一事实来源 |
 | 渲染 | `render_plan.py` / `art_paint` | plan（+ 可选 ops） | PNG；同一 plan 逐像素一致 |
-| 算子 | ops JSON（19 个） | 一组算子 | 改后的 plan，或直接渲染成 PNG |
+| 算子 | ops JSON（20 个） | 一组算子 | 改后的 plan，或直接渲染成 PNG |
 | 编译 | `compile_ops.py brief` | plan + 一句话指令 | 缩略图 + 提示词（ops 由你写） |
 | 校验 | `compile_ops.py validate` / `plan_io.py check` / `selfcheck.py` | plan / ops / 环境 | `ok`，或具体错误 |
 | 度量 | `metric.py`（有参考图）；§6.1（无参考图） | 两张图，或一张图 + 判据 | 一组可比较的数字 |

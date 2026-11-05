@@ -814,8 +814,230 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
     return doc
 
 
+def _light_region_mask(doc, shape):
+    """把一盏灯的作用区域栅格化成 0..1 掩膜：circle / ellipse / rect / polygon 任选。"""
+    import cv2
+    import numpy as _np
+
+    if not isinstance(shape, dict):
+        raise ValueError("light_rig region/shape must be a dict")
+    w, h = _canvas(doc)
+    m = _np.zeros((max(1, h), max(1, w)), _np.uint8)
+    if "polygon" in shape:
+        pts = _np.asarray(shape["polygon"], _np.int32).reshape(-1, 2)
+        if len(pts) < 3:
+            raise ValueError("light_rig polygon needs >= 3 points")
+        cv2.fillPoly(m, [pts], 255)
+    elif "ellipse" in shape:
+        cx, cy, rx, ry = [float(v) for v in shape["ellipse"]]
+        ang = float(shape.get("angle", 0.0))
+        cv2.ellipse(m, (int(round(cx)), int(round(cy))),
+                    (max(1, int(round(rx))), max(1, int(round(ry)))), ang, 0, 360, 255, -1)
+    elif "circle" in shape:
+        cx, cy, r = [float(v) for v in shape["circle"]]
+        cv2.circle(m, (int(round(cx)), int(round(cy))), max(1, int(round(r))), 255, -1)
+    elif "rect" in shape:
+        x0, y0, x1, y1 = [float(v) for v in shape["rect"]]
+        m[max(0, int(y0)):max(0, int(y1)), max(0, int(x0)):max(0, int(x1))] = 255
+    else:
+        raise ValueError("light_rig region shape must be circle / ellipse / rect / polygon")
+    feather = float(shape.get("feather", 0.0) or 0.0)
+    if feather > 0:
+        k = max(3, int(feather) | 1)
+        m = cv2.GaussianBlur(m.astype(_np.float32), (k, k), 0)
+    mask = m.astype(_np.float64) / 255.0
+    if shape.get("invert"):
+        mask = 1.0 - mask
+    return mask
+
+
+def _smoothstep(x):
+    import numpy as _np
+    t = _np.clip(x, 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def light_rig(doc, lights=None, ambient=1.0, mode="dome", preserve="strokes", blur=0,
+              layer=None, guidance=1.0, selection=None, weights=None, seed=0,
+              render_iters=8, render_tol=0.01, **_):
+    """多光源光照：一段 lights 列表，每盏灯可带方向/位置、颜色、强度、距离衰减和任意形状作用区域。
+
+    每盏灯的字段（都可省，除 type=radial 必须给 at）：
+      type: "directional"（默认，用 azimuth/elevation）或 "radial"（用 at=[x,y] 点光）
+      strength: 默认 0.6；color: "#rrggbb" 或 [r,g,b]（灯的颜色，白 = 1,1,1 乘子）
+      at: [x, y]  灯的位置；radial 必需，directional 也可用来给 radius 当圆心
+      radius: 距离衰减半径（px）；falloff: smooth（默认）/ linear / hard
+      shape: {circle:[x,y,r]} | {ellipse:[x,y,rx,ry,angle?]} | {rect:[x0,y0,x1,y1]} |
+             {polygon:[[x,y],...]}，可加 feather（px）与 invert:true —— 灯只照这个形状里
+    ambient: 环境光基线（默认 1.0；<1 压暗未照亮区，>1 提亮）
+    mode: 伪法线来源，dome（椭球，relight_dir 同款）或 gradient（按 shade 场梯度）
+    preserve: strokes（默认，笔画级亮度守恒）/ rendered（渲染级守恒，慢）/ none
+
+    与 set_light / relight_dir 的分工：set_light 是全局均匀改光照，relight_dir 是单方向光，
+    light_rig 才是"几个灯、什么颜色、各照哪儿"的组合。
+    """
+    import cv2
+    import numpy as _np
+
+    if not isinstance(lights, (list, tuple)) or not lights:
+        raise ValueError("light_rig needs a non-empty lights list")
+    ambient = float(ambient)
+    if ambient < 0:
+        raise ValueError("light_rig: ambient must be >= 0")
+    if mode not in ("dome", "gradient"):
+        raise ValueError("light_rig: mode must be dome or gradient")
+    if preserve not in ("strokes", "rendered", "none"):
+        raise ValueError("light_rig: preserve must be strokes / rendered / none")
+
+    targets = list(_targets(doc, layer, selection, weights, guidance))
+    if not targets:
+        return doc
+    for _, s0, _ in targets:
+        if "albedo" not in s0 or "shade" not in s0:
+            raise ValueError("light_rig 需要先 split_shading（笔触缺少 albedo/shade）")
+
+    w, h = _canvas(doc)
+    xs = [p[0] for _, s0, _ in targets for p in s0["points"]]
+    ys = [p[1] for _, s0, _ in targets for p in s0["points"]]
+    scene_w = int(max(xs)) + 2
+    scene_h = int(max(ys)) + 2
+    cx, cy = (min(xs) + max(xs)) * 0.5, (min(ys) + max(ys)) * 0.5
+    rx = max(1.0, (max(xs) - min(xs)) * 0.5)
+    ry = max(1.0, (max(ys) - min(ys)) * 0.5)
+
+    def _normal_at(px, py):
+        nx_, ny_ = (px - cx) / rx, (py - cy) / ry
+        nz = 1.2
+        nm = (nx_ * nx_ + ny_ * ny_ + nz * nz) ** 0.5
+        return _np.array([nx_ / nm, ny_ / nm, nz / nm])
+
+    grad = None
+    if mode == "gradient":
+        acc = _np.zeros((scene_h, scene_w), _np.float64)
+        cnt = _np.zeros((scene_h, scene_w), _np.float64)
+        for _, s0, _ in targets:
+            for p in s0["points"]:
+                xi = min(scene_w - 1, max(0, int(p[0])))
+                yi = min(scene_h - 1, max(0, int(p[1])))
+                acc[yi, xi] += float(s0["shade"])
+                cnt[yi, xi] += 1.0
+        field = acc / _np.maximum(cnt, 1.0)
+        k = max(3, int(blur) | 1)
+        field = cv2.GaussianBlur(field, (k, k), 0)
+        gy, gx = _np.gradient(field)
+        sc = 8.0 / max(1e-6, float(_np.abs(_np.stack([gx, gy])).max())) * 0.5
+        nx, ny = -gx * sc, -gy * sc
+        nz = _np.ones_like(nx)
+        norm = _np.sqrt(nx * nx + ny * ny + nz * nz)
+        grad = (nx / norm, ny / norm, nz / norm)
+
+    def _normal_from_grad(px, py):
+        xi = min(scene_w - 1, max(0, int(px)))
+        yi = min(scene_h - 1, max(0, int(py)))
+        return _np.array([grad[0][yi, xi], grad[1][yi, xi], grad[2][yi, xi]])
+
+    parsed = []
+    for i, light in enumerate(lights):
+        if not isinstance(light, dict):
+            raise ValueError("light_rig: lights[%d] must be a dict" % i)
+        typ = str(light.get("type", "directional"))
+        if typ not in ("directional", "radial"):
+            raise ValueError("light_rig: lights[%d].type must be directional or radial" % i)
+        col = _np.asarray(_to_rgb(light.get("color", "#ffffff")), _np.float64)[:3] / 255.0
+        if col.shape != (3,) or (col <= 0).any():
+            raise ValueError("light_rig: lights[%d].color must be a positive rgb" % i)
+        strength = float(light.get("strength", 0.6))
+        if strength < 0:
+            raise ValueError("light_rig: lights[%d].strength must be >= 0" % i)
+        at = light.get("at")
+        if typ == "radial" and at is None:
+            raise ValueError("light_rig: lights[%d] (radial) needs at=[x,y]" % i)
+        if at is not None:
+            at = [float(at[0]), float(at[1])]
+        radius = light.get("radius")
+        radius = None if radius is None else max(1.0, float(radius))
+        if radius is not None and at is None:
+            raise ValueError("light_rig: lights[%d].radius needs at=[x,y]" % i)
+        falloff = str(light.get("falloff", "smooth"))
+        if falloff not in ("smooth", "linear", "hard"):
+            raise ValueError("light_rig: lights[%d].falloff must be smooth/linear/hard" % i)
+        lvec = None
+        if typ == "directional":
+            az = _np.deg2rad(float(light.get("azimuth", 315.0)))
+            el = _np.deg2rad(float(light.get("elevation", 40.0)))
+            lvec = _np.array([_np.cos(az) * _np.cos(el), -_np.sin(az) * _np.cos(el), _np.sin(el)])
+            lvec = lvec / max(1e-9, float(_np.linalg.norm(lvec)))
+        depth = float(light.get("depth", max(20.0, (radius or 80.0) * 0.5)) or 80.0)
+        shape = light.get("shape") or light.get("region")
+        mask = _light_region_mask(doc, shape) if shape else None
+        parsed.append(dict(typ=typ, col=col, strength=strength, at=at, radius=radius,
+                           falloff=falloff, lvec=lvec, depth=depth, mask=mask))
+
+    pre_luma = _rendered_luma(targets, 1.0)
+    sel_mask = None
+    pre_render = None
+    if preserve == "rendered":
+        sel_mask = _target_mask(doc, targets)
+        pre_render = _render_luma(doc, sel_mask)
+
+    for _, s0, st in targets:
+        px = sum(p[0] for p in s0["points"]) / len(s0["points"])
+        py = sum(p[1] for p in s0["points"]) / len(s0["points"])
+        n = _normal_at(px, py) if mode == "dome" else _normal_from_grad(px, py)
+        total = 0.0
+        tacc = _np.zeros(3, _np.float64)
+        for lt in parsed:
+            if lt["typ"] == "radial":
+                lx, ly = lt["at"]
+                dx, dy = lx - px, ly - py
+                dist = (dx * dx + dy * dy) ** 0.5
+                lv = _np.array([dx, dy, lt["depth"]])
+            else:
+                lv = lt["lvec"]
+                dist = None
+                if lt["at"] is not None and lt["radius"] is not None:
+                    dist = ((px - lt["at"][0]) ** 2 + (py - lt["at"][1]) ** 2) ** 0.5
+            nm = float(_np.linalg.norm(lv))
+            if nm <= 1e-9:
+                continue
+            lam = max(0.0, float(n[0] * lv[0] / nm + n[1] * lv[1] / nm + n[2] * lv[2] / nm))
+            g = 1.0
+            if lt["radius"] is not None and lt["at"] is not None and dist is not None:
+                t = (lt["radius"] - dist) / lt["radius"]
+                if lt["falloff"] == "hard":
+                    g = 1.0 if dist <= lt["radius"] else 0.0
+                elif lt["falloff"] == "linear":
+                    g = max(0.0, min(1.0, t))
+                else:
+                    g = float(_smoothstep(t))
+            if lt["mask"] is not None:
+                mi = min(h - 1, max(0, int(py)))
+                mj = min(w - 1, max(0, int(px)))
+                g *= float(lt["mask"][mi, mj])
+            c = lt["strength"] * lam * g * float(st)
+            total += c
+            tacc += c * lt["col"]
+        total = ambient + total
+        tacc = ambient + tacc
+        if total <= 1e-9:
+            continue
+        tint = tacc / total
+        new_shade = float(s0["shade"]) * total
+        new_shade = max(0.02, min(8.0, new_shade))
+        s0["shade"] = new_shade
+        s0["color"] = _set_rgb(_np.clip(_np.asarray(s0["albedo"], _np.float64) * new_shade * tint,
+                                        0.0, 255.0))
+
+    if preserve == "strokes":
+        _preserve_mean_luma(targets, pre_luma)
+    elif preserve == "rendered":
+        _preserve_rendered_luma(doc, targets, pre_render, iters=render_iters, tol=render_tol,
+                                mask=sel_mask)
+    return doc
+
+
 OPS = {
-    "add_layer": add_layer,
+    "light_rig": light_rig,    "add_layer": add_layer,
     "remove_layer": remove_layer,
     "rename_layer": rename_layer,
     "move_layer": move_layer,
@@ -839,6 +1061,7 @@ OPS = {
 # 每个算子需要的必填键（编译器/校验用）
 REQUIRED = {
     "add_layer": ["name"],
+    "light_rig": [],
     "remove_layer": ["name"],
     "rename_layer": ["name", "to"],
     "move_layer": ["name", "index"],
@@ -863,6 +1086,8 @@ REQUIRED = {
 # 允许的键（编译器给的 JSON 里出现别的键一律拒绝——模型最容易在这里瞎编）
 ALLOWED = {
     "add_layer": {"name", "blend", "index", "guidance"},
+    "light_rig": {"lights", "ambient", "mode", "preserve", "blur", "layer", "guidance",
+                  "render_iters", "render_tol"},
     "remove_layer": {"name", "guidance"},
     "rename_layer": {"name", "to", "guidance"},
     "move_layer": {"name", "index", "guidance"},

@@ -64,6 +64,13 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 - 必填：（无）
 - 可选：`guidance`, `layer`
 
+### `light_rig`(doc, lights=None, ambient=1.0, mode='dome', preserve='strokes', blur=0, layer=None, guidance=1.0, selection=None, weights=None, seed=0, render_iters=8, render_tol=0.01, **_)
+
+多光源光照：一段 lights 列表，每盏灯可带方向/位置、颜色、强度、距离衰减和任意形状作用区域。
+
+- 必填：（无）
+- 可选：`ambient`, `blur`, `guidance`, `layer`, `lights`, `mode`, `preserve`, `render_iters`, `render_tol`
+
 ### `move_layer`(doc, name, index, guidance=1.0, **_)
 
 把图层移到指定位置（0 = 最底层），层内笔触不变，只改合成顺序。

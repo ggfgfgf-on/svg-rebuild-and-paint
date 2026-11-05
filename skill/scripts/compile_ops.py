@@ -37,6 +37,11 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
   {"op": "redraw",              "fraction": 0..1, "jitter": 0..0.5}
   {"op": "recolor_palette",     "palette": [[r,g,b], ...],        "guidance": 0..1}
   {"op": "draw_path",           "layer": "<层名>", "d": "<SVG path>", "color": "#rrggbb", "size": >0, "opacity": 0..1, "preset": "<笔刷名>", "guidance": 0..1}
+  {"op": "split_shading",                                        "guidance": 0..1}
+  {"op": "set_light",          "scale": >0, "tint": [r,g,b]?, "layer": "<层名，可省>", "guidance": 0..1}
+  {"op": "relight_dir",        "azimuth": 0..360, "elevation": 0..90, "strength": 0..2, "blur": >=0, "mode": "dome|gradient", "layer": "<层名，可省>"}
+  {"op": "light_rig",          "lights": [{"type": "directional|radial", "azimuth": 0..360, "elevation": 0..90, "strength": >0, "color": "#rrggbb", "at": [x,y]?, "radius": >0?, "shape": {"circle|ellipse|rect|polygon": [...], "feather": px}?}], "ambient": >0, "preserve": "strokes|rendered|none"}
+  {"op": "replan_region",      "ref": "<参考图路径>", "regions": [...], "layers": [...]}
   {"op": "add_layer",          "name": "<新层名>", "blend": "normal", "index": 0..N?, "guidance": 0..1}
   {"op": "remove_layer",       "name": "<层名>", "guidance": 0..1}
   {"op": "rename_layer",       "name": "<旧层名>", "to": "<新层名>", "guidance": 0..1}
@@ -55,7 +60,7 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
   * tone_map 是整体明暗的通用修法（专门对付 shadow/texture 两层 multiply 压暗）：
     gain 乘亮度（1.5~2.0 通常明显提亮），lift 加白（0.03~0.08 抬黑场），gamma<1 提中间调，
     layer 不给 = 所有层；不动颜色关系，只改明暗。
-  * 只允许上面 19 个算子，不要发明新字段；除 add_layer / draw_path 新建的层、以及 rename_layer 改出的新名外，层名必须是下面列出的层。
+  * 只允许上面 20 个算子，不要发明新字段；除 add_layer / draw_path 新建的层、以及 rename_layer 改出的新名外，层名必须是下面列出的层。
 """
 
 

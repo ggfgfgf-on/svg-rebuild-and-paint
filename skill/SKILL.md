@@ -43,14 +43,14 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 - **四层能力与两个入口**：`art_vectorize` / `art_paint` / `art_edit_brief` / `art_apply_ops` 各自背后是哪条命令、传什么、返回什么、坑在哪；
 - **一句话 → 走哪条**：转 SVG、画一张、改色调光、出视频、验收，各自的第一条命令；
-- **调参手册**：SVG 的 `K/ss/turd/dil/blur/区域预算`，绘画的层/笔刷/size/opacity/hardness，改画的 19 个算子与顺序约束，视频的帧数与增量渲染；
+- **调参手册**：SVG 的 `K/ss/turd/dil/blur/区域预算`，绘画的层/笔刷/size/opacity/hardness，改画的 20 个算子与顺序约束，视频的帧数与增量渲染；
 - **症状 → 参数速查**：露白、发灰、太阳成环、天空横带、云像药丸、水面竖条、改画没反应，各自先改哪个参数。
 
 先读它，再回这份文件查具体坑位与实测数据。
 
-## ops 算子全表（19 个，确定性、可 diff、零随机）
+## ops 算子全表（20 个，确定性、可 diff、零随机）
 
-凭空画/改画都走这层：先把画面拆成 plan（layers + strokes），再用算子改；`draw_path` 让空画布长出笔画（层不存在会自动建层），`add_layer` 显式建层，`set_light` / `split_shading` / `relight_dir` 给形体，`densify` / `redraw` 加细节——**这就是"从零画出一张画"的完整链路**，不是只有改色。
+凭空画/改画都走这层：先把画面拆成 plan（layers + strokes），再用算子改；`draw_path` 让空画布长出笔画（层不存在会自动建层），`add_layer` 显式建层，`set_light` / `split_shading` / `relight_dir` / `light_rig` 给形体，`densify` / `redraw` 加细节——**这就是"从零画出一张画"的完整链路**，不是只有改色。
 
 | op | 作用 | 必填键 |
 |---|---|---|
@@ -59,7 +59,8 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 | `remove_layer` | 删层（连它的笔触） | name |
 | `rename_layer` | 层改名（连笔触；目标已存在报错） | name, to |
 | `move_layer` | 重排合成顺序 | name, index |
-| `set_light` | 主光角度/强度/色温 | — |
+| `set_light` | 全局均匀改光照（scale/tint） | — |
+| `light_rig` | 多光源：方向/点光 × 颜色 × 强度 × 半径衰减 × 任意形状区域 | lights |
 | `relight_dir` | 重算全局受光方向，阴影高光跟着走 | — |
 | `split_shading` | 明暗拆成独立层，便于单独调 | — |
 | `replan_region` | 按参考图重排某区域（需 ref 图） | ref |
@@ -78,7 +79,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 **用 ops 凭空画的三个硬约束（踩过坑，写在这里）**
 
-1. **顺序**：`split_shading` 必须在 `relight_dir` 之前，否则 `relight_dir` 直接抛 `ValueError: 笔触缺少 albedo/shade`。
+1. **顺序**：`split_shading` 必须在 `relight_dir` / `light_rig` 之前，否则直接抛 `ValueError: 笔触缺少 albedo/shade`。`set_light` 同样依赖它。
 2. **draw_path 是一条 path = 一笔**：给一条 1200px 的粗折线，画出来就是一根粗线，不是一片山。要厚涂得像落日那样发上千条短笔，不是发十几条粗线。
 3. **增量渲染看不见新笔画**：`paint_cli.py edit` 只重画「原有笔触」的脏矩形，凭空加笔画会得到空白图（4 KB）。新的 `paint_cli.py` 检测到笔画数变化会自动整幅重画，host 工具 `art_apply_ops` 也带上了 `--fast`；手工调 CLI 时记得加 `--fast`。
 
