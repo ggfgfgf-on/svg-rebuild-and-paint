@@ -1,3 +1,5 @@
+---
+name: svg-rebuild-and-paint
 description: >-
   Three runnable layers, all measured. (1) Bitmap -> true vector SVG: potrace curves per colour mask,
   pure flat <path> (no <image>/base64/gradients), no staircase at any zoom, plus a per-pixel error
