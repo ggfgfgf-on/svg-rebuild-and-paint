@@ -462,6 +462,8 @@ def main():
     process_palette_sample = None
     process_palette_max = 1024
     process_options = {}
+    # 命名参数（与位置参数等价；位置参数是历史兼容，命名版才好让模型调）
+    named = {"k": None, "ss": None, "turd": None, "dil": None, "blur": None, "alphamax": None}
     args = []
     i = 0
     while i < len(raw_args):
@@ -707,6 +709,11 @@ def main():
             if nxt is None:
                 raise SystemExit("--compact-precision needs a value")
             compact_precision = int(nxt); i += 1
+        elif a in ("--k", "--ss", "--turd", "--dil", "--blur", "--alphamax"):
+            if nxt is None:
+                raise SystemExit(a + " needs a value")
+            named[a[2:]] = nxt
+            i += 1
         else:
             args.append(a)
         i += 1
@@ -731,18 +738,31 @@ def main():
     if (process_full_palette_explicit or process_palette_sample is not None
             or process_palette_max != 1024) and not process_final:
         print("[vectorize] process palette options are ignored without --process-final", file=sys.stderr)
-    ref, out = args[0], args[1]
-    K = int(args[2]) if len(args) > 2 else 128
-    if len(args) <= 2 and not process_final:
+    pos = [x for x in args if not str(x).startswith("-")]
+    ref, out = pos[0], pos[1]
+    K = int(pos[2]) if len(pos) > 2 else 128
+    if len(pos) <= 2 and not process_final and named["k"] is None:
         print("[vectorize] no K given, using default K=128; pass 256-384 for final output", flush=True)
-    turd = int(args[3]) if len(args) > 3 else 6
-    alphamax = float(args[4]) if len(args) > 4 else 1.0
-    dil = int(args[5]) if len(args) > 5 else 1        # 掩码膨胀像素数：消除层间白缝
-    blur = float(args[6]) if len(args) > 6 else 0.0      # 先轻微高斯模糊：边界更干净，曲线更顺
-    ss = int(args[7]) if len(args) > 7 else 1          # 超采样：2~3 倍放大再描，曲线更顺、边界更准
-    sk_thr = float(args[8]) if len(args) > 8 else 0.0   # 线稿层：边缘梯度阈值，0=不要线稿
-    dark_k = int(args[9]) if len(args) > 9 else 0      # 分层色板：暗区(L<80)单独分配多少色，0=不分层
-    med = int(args[10]) if len(args) > 10 else 0         # 中值滤波半径(3/5)：压掉边缘暗碎块，0=关
+    turd = int(pos[3]) if len(pos) > 3 else 6
+    alphamax = float(pos[4]) if len(pos) > 4 else 1.0
+    dil = int(pos[5]) if len(pos) > 5 else 1        # 掩码膨胀像素数：消除层间白缝
+    blur = float(pos[6]) if len(pos) > 6 else 0.0      # 先轻微高斯模糊：边界更干净，曲线更顺
+    ss = int(pos[7]) if len(pos) > 7 else 1          # 超采样：2~3 倍放大再描，曲线更顺、边界更准
+    sk_thr = float(pos[8]) if len(pos) > 8 else 0.0   # 线稿层：边缘梯度阈值，0=不要线稿
+    dark_k = int(pos[9]) if len(pos) > 9 else 0      # 分层色板：暗区(L<80)单独分配多少色，0=不分层
+    med = int(pos[10]) if len(pos) > 10 else 0         # 中值滤波半径(3/5)：压掉边缘暗碎块，0=关
+    if named["k"] is not None:
+        K = int(named["k"])
+    if named["ss"] is not None:
+        ss = int(named["ss"])
+    if named["turd"] is not None:
+        turd = int(named["turd"])
+    if named["alphamax"] is not None:
+        alphamax = float(named["alphamax"])
+    if named["dil"] is not None:
+        dil = int(named["dil"])
+    if named["blur"] is not None:
+        blur = float(named["blur"])
 
     if process_from_front and process_final:
         # Enabled by default. blur stays per-layer (1.0/0.5/0.18);
@@ -777,7 +797,7 @@ def main():
             print("[vectorize] --palette-sample is not applied with --process-final; "
                   "use --process-palette-sample=N", file=sys.stderr)
         if process_palette is None:
-            process_palette = K if len(args) > 2 else 256
+            process_palette = K if (len(pos) > 2 or named["k"] is not None) else 256
         if process_palette_max < 8:
             raise SystemExit("--process-palette-max must be >= 8")
         if not (0 <= process_palette <= process_palette_max):

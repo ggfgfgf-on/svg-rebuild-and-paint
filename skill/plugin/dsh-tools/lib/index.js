@@ -98,6 +98,7 @@ export function apply(ctx, config) {
     async execute(args) {
       const argv = [abs(args.plan), '--out', abs(args.out)]
       if (typeof args.ops === 'string' && args.ops.length > 0) argv.push('--ops', abs(args.ops))
+      if (args.gpu === true) argv.push('--gpu')
       const r = run(scripts, 'render_plan.py', argv)
       const info = statFile(args.out)
       return ['PNG: ' + info.path, 'size: ' + (info.bytes / 1024).toFixed(0) + ' KB', 'seconds: ' + r.seconds.toFixed(2)].join('\n')
@@ -134,7 +135,7 @@ export function apply(ctx, config) {
       gpu: { type: 'boolean', description: '可选，用 GPU 后端' },
     },
     async execute(args) {
-      const argv = ['edit', abs(args.plan), '--ops', abs(args.ops), '--out', abs(args.out)]
+      const argv = ['edit', abs(args.plan), '--ops', abs(args.ops), '--out', abs(args.out), '--fast']
       if (args.gpu === true) argv.push('--gpu')
       const r = run(scripts, 'paint_cli.py', argv)
       const info = statFile(args.out)

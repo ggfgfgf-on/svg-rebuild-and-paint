@@ -34,8 +34,52 @@ whenToUse: >-
 python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印 OK/FAIL
 ```
 
-实测约 **10.6 s**：位图→SVG（mean 1.16 / uncovered 0）、空画布 `draw`（2 paths）、计划→30fps 视频（60 帧 / 2.0 s）。
+实测约 **11.2 s**：位图→SVG（mean 1.1554 / uncovered 0 / 213 KB）、空画布 `draw`（2 paths）、计划→30fps 视频（60 帧 / 2.0 s / 25 KB）。
 三条全 OK 才说明 Python 依赖与 `scripts/native/*.dll` 都就绪；某条 FAIL 的最后一个字段就是原因。
+
+## 不会调？先看 docs/USAGE.md
+
+**[docs/USAGE.md](docs/USAGE.md) 是唯一的操作手册**：四层能力 → 哪个入口 → 改哪个参数。它回答的是"别的模型拿到这套东西不会用"：
+
+- **四层能力与两个入口**：`art_vectorize` / `art_paint` / `art_edit_brief` / `art_apply_ops` 各自背后是哪条命令、传什么、返回什么、坑在哪；
+- **一句话 → 走哪条**：转 SVG、画一张、改色调光、出视频、验收，各自的第一条命令；
+- **调参手册**：SVG 的 `K/ss/turd/dil/blur/区域预算`，绘画的层/笔刷/size/opacity/hardness，改画的 15 个算子与顺序约束，视频的帧数与增量渲染；
+- **症状 → 参数速查**：露白、发灰、太阳成环、天空横带、云像药丸、水面竖条、改画没反应，各自先改哪个参数。
+
+先读它，再回这份文件查具体坑位与实测数据。
+
+## ops 算子全表（15 个，确定性、可 diff、零随机）
+
+凭空画/改画都走这层：先把画面拆成 plan（layers + strokes），再用算子改；`draw_path` 让空画布长出笔画，`set_light` / `split_shading` / `relight_dir` 给形体，`densify` / `redraw` 加细节——**这就是"从零画出一张画"的完整链路**，不是只有改色。
+
+| op | 作用 | 必填键 |
+|---|---|---|
+| `draw_path` | 按 SVG path 往图层加笔画（空画布起手） | layer, d |
+| `set_light` | 主光角度/强度/色温 | — |
+| `relight_dir` | 重算全局受光方向，阴影高光跟着走 | — |
+| `split_shading` | 明暗拆成独立层，便于单独调 | — |
+| `replan_region` | 按参考图重排某区域（需 ref 图） | ref |
+| `densify` | 加密笔触（加细节、加厚） | layer, k |
+| `redraw` | 选区内重画 | — |
+| `erase` | 擦除选区 | — |
+| `set_layer_hue` | 图层色相 | layer, hue |
+| `set_layer_saturation` | 图层饱和度 | layer, sat |
+| `set_layer_brightness` | 图层亮度 | layer, factor |
+| `recolor_palette` | 整套调色板替换 | palette |
+| `tone_map` | 整体曝光/对比曲线 | — |
+| `scale_stroke_size` | 笔触尺寸缩放 | layer, k |
+| `swap_brush` | 换笔刷预设 | layer, preset |
+
+校验：`python scripts/compile_ops.py validate plan.json --ops ops.json`（多余键会被拒——模型最容易在这里瞎编）。
+
+**用 ops 凭空画的三个硬约束（踩过坑，写在这里）**
+
+1. **顺序**：`split_shading` 必须在 `relight_dir` 之前，否则 `relight_dir` 直接抛 `ValueError: 笔触缺少 albedo/shade`。
+2. **draw_path 是一条 path = 一笔**：给一条 1200px 的粗折线，画出来就是一根粗线，不是一片山。要厚涂得像落日那样发上千条短笔，不是发十几条粗线。
+3. **增量渲染看不见新笔画**：`paint_cli.py edit` 只重画「原有笔触」的脏矩形，凭空加笔画会得到空白图（4 KB）。新的 `paint_cli.py` 检测到笔画数变化会自动整幅重画，host 工具 `art_apply_ops` 也带上了 `--fast`；手工调 CLI 时记得加 `--fast`。
+
+**已验证的凭空链路**：123 条 `draw_path`（天空/山脊/水面）→ `split_shading` → `relight_dir(azimuth=300, elevation=28)` → `densify(k=1.7)` → `set_light`，167 笔，0.07 s，出图 202 KB。它是「贴纸/海报」质感而不是厚涂——原因就是第 2 条：笔画太少、每条太长。
+
 
 ## 有 host 工具包时（先看这里）
 
@@ -60,6 +104,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 ```
 
 - `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，同时是 `canvas` / `layers` / `strokes` 的**格式样板**——照它改就是自己的计划。
+- **凭空画（无参考图）最可控的走法：直接写计划、交引擎渲染** —— `plan_io.dump_plan(path, W, H, strokes, layer_blends=...)` 落盘，`render_util.render_arr(plan, gpu=False, nthreads=8)` 出图；先大笔平涂形体，再叠明暗与细节笔，迭代时看图改笔触。**不要逐像素造一张参考图再采样**：那样是脚本在画，不是引擎在画，形体改不动。字段语义与调参见 **[docs/USAGE.md](docs/USAGE.md) 第 4 节**（plan 结构 / 层与 blend / 笔刷 / 参数经验值）；完整范例是一张 960×680、12,701 笔、5 层的落日计划。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
 - **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
 
