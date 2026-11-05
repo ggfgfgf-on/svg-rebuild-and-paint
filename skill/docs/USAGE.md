@@ -63,13 +63,13 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 | `art_vectorize` | `image`, `out`, `k?`, `ss?` | `vectorize.py <img> <out> --k K --ss S` | 只有 `out` 的 SVG | SVG 路径、path 条数、MB、秒 |
 | `art_paint` | `plan`, `out`, `ops?`, `gpu?` | `render_plan.py <plan> --out <png> [--ops] [--gpu]` | 只有 `out` 的 PNG；plan 只读 | PNG 路径、KB、秒 |
 | `art_edit_brief` | `plan`, `instruction`, `out` | `compile_ops.py brief <plan> "<指令>" --thumb --out` | `out` 的 brief.json + 系统临时目录 `compile_thumb.png` | brief 路径、缩略图绝对路径、ops 模板 |
-| `art_apply_ops` | `plan`, `ops`, `out`, `gpu?` | `paint_cli.py edit <plan> --ops <ops> --out <png> --fast` | 只有 `out` 的 PNG；**不落盘改后的 plan** | PNG、KB、秒；`selected` / `dirty_rect` |
+| `art_apply_ops` | `plan`, `ops`, `out`, `out_plan?`, `gpu?` | `paint_cli.py edit <plan> --ops <ops> --out <png> --fast [--save-plan]` | `out` 的 PNG；给了 `out_plan` 才落盘改后的 plan | PNG、KB、秒、`selected`/`dirty_rect`；给 `out_plan` 时另回 `plan`/`plan_strokes`/`plan_layers`、秒；`selected` / `dirty_rect` |
 
 **四个工具共同的契约**（写在这里，因为参数表只写"进去什么"，写不下"出来什么"）：
 
-- **plan 永远是只读输入**：没有一个工具会改写你给的 plan；要"改后的 plan"必须自己 materialize（`ops.apply(doc, specs, selection=None)` 再 `plan_io.dump_plan`）。
+- **plan 永远是只读输入**：没有一个工具会改写你给的 plan。要"改后的 plan"，要么 `art_apply_ops` 传 `out_plan`（写一份新文件），要么自己 materialize（`ops.apply(doc, specs, selection=None)` 再 `plan_io.dump_plan`）。
 - **图与 plan 的对应关系靠你自己维持**：PNG 是产物，plan 是源；想复现就保留 plan + ops。
-- **批量笔数变化不回报**：`densify` 之后真实笔数只能从 materialize 出来的 plan 里数。
+- **批量笔数变化不回报**：`densify` 之后真实笔数只能从落盘的 plan（`out_plan` 或 materialize）里数。
 - 每个工具一个新进程跑脚本，所以**改 `scripts/*.py` 立即生效**；改插件的工具描述要重启 DSH。
 
 **坑（都踩过）**
@@ -283,7 +283,7 @@ python scripts/compile_ops.py validate plan.json --ops ops.json   # 多余键会
 python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 ```
 
-15 个算子（详见 [API.md](API.md)）：
+16 个算子（详见 [API.md](API.md)）：
 
 | 算子 | 改什么 | 关键键 |
 |---|---|---|
@@ -297,12 +297,23 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 | `densify` | 加密笔触（加细节） | layer, k |
 | `redraw` / `erase` | 选区内重画 / 擦除 | fraction, jitter |
 | `recolor_palette` | 整套调色板替换 | palette |
-| `draw_path` | 按 SVG path 加笔画（凭空起手） | layer, d, color, size |
+| `draw_path` | 按 SVG path 加笔画（凭空起手；层不存在会自动建层） | layer, d, color, size, blend |
+| `add_layer` | 新增空图层（幂等；要在某层下面作画就先用它） | name, blend |
 | `replan_region` | 按参考图重排某区域 | ref |
 
 顺序约束：`split_shading` 必须在 `relight_dir` 之前（否则 `ValueError: 笔触缺少 albedo/shade`）。
 `guidance` 0–1 控制强度；`selection` 用 `--mask-file` / `--rect` / `--hard-mask` 限定作用范围。
 `draw_path` 一条 path = 一笔：要一片山就发上千条短笔，不要发十几条粗线。
+`add_layer` 幂等：同名层已存在时什么都不做；新层追加在最后，合成顺序 = 层顺序（想垫底就先建层再画）。
+
+**「细化」有两种，别混（这是同一任务两次冷启动 20 层 vs 15 层的实测差别）**
+
+- **补结构**：新加一层光、一层雨、一条船、一层纹理——画面内容变了。走 `add_layer` + `draw_path`，或直接改计划重新生成。
+  走到这条路的成品是 20 层：`sun` / `sunglow` / `suncore` / `glow` / `veil` 各管一段光，另有 `boat` / `lights` / `birds` / `rain` / `texture` 专属小层。
+- **加密 / 调色**：`densify`、`tone_map`、`set_layer_*`——形状不变，只是更厚、更准。只走这条路的成品 15 层、层数没涨：
+  天空笔径中位数 38px（对照 118px）、塔不透明度 0.84（对照 0.15，薄涂叠体积）、大笔（≥60px）占比 8.0%（对照 17.1%）。
+
+判断方法：比改动前后的层集合——层集合没变，就只是在“调”。这是接口语义，不是流程要求：`densify` 永远长不出新层，`add_layer` 才能。
 
 **一个必须知道的隐藏作用域（`paint_cli.py edit`，即 `art_apply_ops` 走的路径）**
 
@@ -332,8 +343,9 @@ plan_io.dump_plan("final.plan.json", w, h, out["strokes"],
 print("final strokes", len(out["strokes"]))
 ```
 
-另外两个 `art_apply_ops` 的行为要知道：它**只返回** `selected` / `dirty_rect`（不返回 densify 后的总笔数），
-也**不落盘**应用后的 plan——需要"这张 PNG 对应的 plan"时按上面第 2 条自己做 materialize。
+`art_apply_ops` 的行为：默认只返回 `selected` / `dirty_rect`（不返回 densify 后的总笔数），也**不落盘** plan；
+传 `out_plan` 才把应用 ops 后的 plan 写到新文件，并回 `plan_strokes` / `plan_layers`。
+带新层的 edit（`add_layer`，或 `draw_path` 指向新层）会自动改走整幅渲染——增量渲染没有新层的下标——返回里多一个 `new_layers`。
 `art_edit_brief` 的缩略图固定写在系统临时目录的 `compile_thumb.png`，不受 `out` 控制；要归档就自己挪走。
 
 ### 5.4 视频
@@ -398,7 +410,7 @@ python scripts/metric.py ref.png render.png
 |---|---|---|---|
 | 计划 | JSON：`canvas` / `layers` / `strokes` | 笔画数据 | 可渲染、可 diff 的唯一事实来源 |
 | 渲染 | `render_plan.py` / `art_paint` | plan（+ 可选 ops） | PNG；同一 plan 逐像素一致 |
-| 算子 | ops JSON（15 个） | 一组算子 | 改后的 plan，或直接渲染成 PNG |
+| 算子 | ops JSON（16 个） | 一组算子 | 改后的 plan，或直接渲染成 PNG |
 | 编译 | `compile_ops.py brief` | plan + 一句话指令 | 缩略图 + 提示词（ops 由你写） |
 | 校验 | `compile_ops.py validate` / `plan_io.py check` / `selfcheck.py` | plan / ops / 环境 | `ok`，或具体错误 |
 | 度量 | `metric.py`（有参考图）；§6.1（无参考图） | 两张图，或一张图 + 判据 | 一组可比较的数字 |

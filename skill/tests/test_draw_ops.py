@@ -6,7 +6,7 @@
   * draw_path 只加笔、不改旧笔；guidance=0 计划逐字节不变；同输入两次逐字节相同
   * 新笔触点落在 path 的 bbox 内；掩膜 bbox 能直接框住它（脏矩形可用）
   * redraw order=coverage/layer/zorder 的优先级与定义一致；未知 order 报错
-  * compile_ops.validate_ops 接受合法 draw_path、拒绝坏 path / 未知层
+  * compile_ops.validate_ops 接受合法 draw_path（新层自动建层）、拒绝坏 path；未知层只对非建层算子拒绝
 """
 import json
 import sys
@@ -66,12 +66,12 @@ def test_draw_path_invariance_and_determinism():
     assert canon(once) == canon(twice), "draw_path must be deterministic"
     half = ops.apply(doc, [{"op": "draw_path", "layer": "front", "d": "M 10 30 L 90 30", "size": 7, "opacity": 0.6, "guidance": 0.5}])
     assert abs(half["strokes"][-1]["opacity"] - 0.3) < 1e-6, half["strokes"][-1]["opacity"]
-    try:
-        ops.apply(doc, [{"op": "draw_path", "layer": "nope", "d": "M 1 1 L 2 2"}])
-        raise AssertionError("unknown layer accepted")
-    except ValueError:
-        pass
-    print("PASS draw_path: guidance=0 identical, repeat identical, guidance=0.5 halves opacity, bad layer rejected")
+    grown = ops.apply(doc, [{"op": "draw_path", "layer": "nope", "d": "M 1 1 L 2 2",
+                            "blend": "screen"}])
+    names = [l["name"] for l in grown["layers"]]
+    assert names[-1] == "nope" and grown["layers"][-1]["blend"] == "screen", grown["layers"]
+    assert grown["strokes"][-1]["layer"] == "nope"
+    print("PASS draw_path: guidance=0 identical, repeat identical, guidance=0.5 halves opacity, new layer auto-created")
 
 
 def test_draw_path_dirty_rect():
@@ -111,16 +111,19 @@ def test_redraw_order():
 def test_validate_ops():
     doc = base_doc()
     compile_ops.validate_ops(doc, [{"op": "draw_path", "layer": "front", "d": "M 0 0 L 10 10", "size": 4.0}])
+    compile_ops.validate_ops(doc, [{"op": "draw_path", "layer": "ghost", "d": "M 0 0 L 1 1"}])   # 新层放行
+    compile_ops.validate_ops(doc, [{"op": "add_layer", "name": "glow", "blend": "screen"}])
     for bad in ({"op": "draw_path", "layer": "front", "d": ""},
                 {"op": "draw_path", "layer": "front", "d": "M 0 0 L 1 1", "size": 0},
-                {"op": "draw_path", "layer": "ghost", "d": "M 0 0 L 1 1"},
+                {"op": "add_layer"},
+                {"op": "set_layer_brightness", "layer": "ghost", "factor": 1.2},
                 {"op": "redraw", "order": "bogus"}):
         try:
             compile_ops.validate_ops(doc, [bad])
             raise AssertionError("bad op accepted: %r" % (bad,))
         except ValueError:
             pass
-    print("PASS validate_ops: valid draw_path accepted, empty d / size<=0 / unknown layer / bad order rejected")
+    print("PASS validate_ops: valid draw_path & new layer & add_layer accepted; empty d / size<=0 / add_layer without name / unknown layer on non-building op / bad order rejected")
 
 
 def main():

@@ -43,18 +43,19 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 - **四层能力与两个入口**：`art_vectorize` / `art_paint` / `art_edit_brief` / `art_apply_ops` 各自背后是哪条命令、传什么、返回什么、坑在哪；
 - **一句话 → 走哪条**：转 SVG、画一张、改色调光、出视频、验收，各自的第一条命令；
-- **调参手册**：SVG 的 `K/ss/turd/dil/blur/区域预算`，绘画的层/笔刷/size/opacity/hardness，改画的 15 个算子与顺序约束，视频的帧数与增量渲染；
+- **调参手册**：SVG 的 `K/ss/turd/dil/blur/区域预算`，绘画的层/笔刷/size/opacity/hardness，改画的 16 个算子与顺序约束，视频的帧数与增量渲染；
 - **症状 → 参数速查**：露白、发灰、太阳成环、天空横带、云像药丸、水面竖条、改画没反应，各自先改哪个参数。
 
 先读它，再回这份文件查具体坑位与实测数据。
 
-## ops 算子全表（15 个，确定性、可 diff、零随机）
+## ops 算子全表（16 个，确定性、可 diff、零随机）
 
-凭空画/改画都走这层：先把画面拆成 plan（layers + strokes），再用算子改；`draw_path` 让空画布长出笔画，`set_light` / `split_shading` / `relight_dir` 给形体，`densify` / `redraw` 加细节——**这就是"从零画出一张画"的完整链路**，不是只有改色。
+凭空画/改画都走这层：先把画面拆成 plan（layers + strokes），再用算子改；`draw_path` 让空画布长出笔画（层不存在会自动建层），`add_layer` 显式建层，`set_light` / `split_shading` / `relight_dir` 给形体，`densify` / `redraw` 加细节——**这就是"从零画出一张画"的完整链路**，不是只有改色。
 
 | op | 作用 | 必填键 |
 |---|---|---|
-| `draw_path` | 按 SVG path 往图层加笔画（空画布起手） | layer, d |
+| `draw_path` | 按 SVG path 往图层加笔画（空画布起手；新层自动建） | layer, d |
+| `add_layer` | 新增空图层（幂等，可指定 blend） | name |
 | `set_light` | 主光角度/强度/色温 | — |
 | `relight_dir` | 重算全局受光方向，阴影高光跟着走 | — |
 | `split_shading` | 明暗拆成独立层，便于单独调 | — |
@@ -79,6 +80,8 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 3. **增量渲染看不见新笔画**：`paint_cli.py edit` 只重画「原有笔触」的脏矩形，凭空加笔画会得到空白图（4 KB）。新的 `paint_cli.py` 检测到笔画数变化会自动整幅重画，host 工具 `art_apply_ops` 也带上了 `--fast`；手工调 CLI 时记得加 `--fast`。
 
 4. **一次 edit 里别混用「带 layer 的算子」和「全局算子」**：`paint_cli.py edit`（即 `art_apply_ops`）先取「带 layer 的算子提到的层」做 selection，再传给所有算子，全局 `tone_map`/`erase`/`redraw` 会被悄悄压到那几层上。实测同一组 ops：真全局 luma 52.894，走 CLI 49.555，约 95% 像素不同。要全局就单独跑一次，或用 `ops.apply(doc, specs, selection=None)` materialize 成新 plan 再 `render_plan.py`（这样 PNG 与 plan 一一对应）。`art_apply_ops` 只回 `selected`/`dirty_rect`，不落盘 plan；`art_edit_brief` 的缩略图固定在系统临时目录 `compile_thumb.png`。详见 docs/USAGE.md §5.3、§6.1。
+
+5. **`densify` 长不出新东西**：它只在既有笔触旁加子笔触，层集合不变。要补结构（新的一层光/雨/船/纹理）必须 `add_layer` / `draw_path`（或改计划重新生成）——两次冷启动对照里，走结构补充的成品 20 层，只走 densify+tone_map 的 15 层，天空笔径中位数 118 vs 38px。
 
 **已验证的凭空链路**：123 条 `draw_path`（天空/山脊/水面）→ `split_shading` → `relight_dir(azimuth=300, elevation=28)` → `densify(k=1.7)` → `set_light`，167 笔，0.07 s，出图 202 KB。它是「贴纸/海报」质感而不是厚涂——原因就是第 2 条：笔画太少、每条太长。
 

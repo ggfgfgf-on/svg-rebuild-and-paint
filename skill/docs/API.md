@@ -36,6 +36,13 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 
 `sel_mode`：any（默认，笔触任一点碰到选区即整笔生效）、center（中心点在选区内）、all（整笔在选区内，最不溢出）。改色类算子建议 center 或 all。
 
+### `add_layer`(doc, name, blend='normal', guidance=1.0, **_)
+
+新增一个空图层（幂等）：已存在同名层时原样返回，不重复添加、不改已有 blend。
+
+- 必填：`name`
+- 可选：`blend`, `guidance`
+
 ### `densify`(doc, layer, k, guidance=1.0, selection=None, weights=None, seed=0, **_)
 
 在选中笔触旁追加子笔触（k>1；k=1 逐字节不变）。
@@ -43,12 +50,12 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 - 必填：`layer`, `k`
 - 可选：`guidance`
 
-### `draw_path`(doc, layer, d, color=(217, 180, 90), size=6.0, opacity=1.0, preset='round_soft', guidance=1.0, tag=None, selection=None, weights=None, seed=0, **_)
+### `draw_path`(doc, layer, d, color=(217, 180, 90), size=6.0, opacity=1.0, preset='round_soft', guidance=1.0, tag=None, selection=None, weights=None, seed=0, blend='normal', **_)
 
 从零加笔：把 SVG path 展平成笔触，追加到指定层（不依赖参考图）。
 
 - 必填：`layer`, `d`
-- 可选：`color`, `guidance`, `opacity`, `preset`, `size`, `tag`
+- 可选：`blend`, `color`, `guidance`, `opacity`, `preset`, `size`, `tag`
 
 ### `erase`(doc, layer=None, guidance=1.0, selection=None, weights=None, seed=0, **_)
 

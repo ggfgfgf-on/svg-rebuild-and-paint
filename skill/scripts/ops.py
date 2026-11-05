@@ -341,9 +341,31 @@ def _path_to_polylines(d, steps=16):
     return subs
 
 
+def add_layer(doc, name, blend="normal", guidance=1.0, **_):
+    """新增一个空图层（幂等）：已存在同名层时原样返回，不重复添加、不改已有 blend。
+
+    为什么需要它：其余算子都只作用于已有层，"补一层光/一层雨/一条船"必须先有层。
+    新层加在最后（合成顺序 = 层顺序），需要压在其他层下面时先建层再 draw_path。
+    """
+    g = _strength(guidance, 1.0)
+    if g <= 0.0:
+        return doc
+    name = str(name or "").strip()
+    if not name:
+        raise ValueError("add_layer needs a non-empty layer name")
+    layers = doc.setdefault("layers", [])
+    if any(l.get("name") == name for l in layers):
+        return doc
+    layers.append({"name": name, "blend": str(blend or "normal")})
+    return doc
+
+
 def draw_path(doc, layer, d, color=(217, 180, 90), size=6.0, opacity=1.0,
-              preset="round_soft", guidance=1.0, tag=None, selection=None, weights=None, seed=0, **_):
+              preset="round_soft", guidance=1.0, tag=None, selection=None, weights=None, seed=0,
+              blend="normal", **_):
     """从零加笔：把 SVG path 展平成笔触，追加到指定层（不依赖参考图）。
+
+    层不存在时自动建层（混合模式取 blend 参数）——从零起手不必先手工 add_layer。
 
     guidance=0 → 计划逐字节不变；guidance<1 时新笔触不透明度按比例衰减。
     坐标就是 canvas 坐标，所以掩膜/脏矩形可以直接算 bbox。
@@ -356,7 +378,7 @@ def draw_path(doc, layer, d, color=(217, 180, 90), size=6.0, opacity=1.0,
         return doc
     names = [l.get("name") for l in (doc.get("layers") or [])]
     if layer not in names:
-        raise ValueError("unknown layer %r; known: %s" % (layer, ", ".join(str(n) for n in names)))
+        add_layer(doc, layer, blend=blend)     # 指向不存在的层就自动建层：从零加笔不需要先手工建层
     rgb = _set_rgb(_to_rgb(color))
     op = max(0.0, min(1.0, float(opacity) * g))
     for poly in polys:
@@ -714,6 +736,7 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
 
 
 OPS = {
+    "add_layer": add_layer,
     "relight_dir": relight_dir,
     "replan_region": replan_region,
     "split_shading": split_shading,
@@ -733,6 +756,7 @@ OPS = {
 
 # 每个算子需要的必填键（编译器/校验用）
 REQUIRED = {
+    "add_layer": ["name"],
     "set_layer_hue": ["layer", "hue"],
     "set_layer_saturation": ["layer", "sat"],
     "set_layer_brightness": ["layer", "factor"],
@@ -753,6 +777,7 @@ REQUIRED = {
 
 # 允许的键（编译器给的 JSON 里出现别的键一律拒绝——模型最容易在这里瞎编）
 ALLOWED = {
+    "add_layer": {"name", "blend", "guidance"},
     "relight_dir": {"azimuth", "elevation", "strength", "blur", "mode", "layer", "guidance",
                     "target", "render_iters", "render_tol"},
     "replan_region": {"ref", "regions", "layers", "mode", "thr", "ring", "highlight_mode",
@@ -766,7 +791,7 @@ ALLOWED = {
     "erase": {"layer", "guidance"},
     "redraw": {"fraction", "jitter", "layer", "order", "guidance"},
     "recolor_palette": {"palette", "guidance"},
-    "draw_path": {"layer", "d", "color", "size", "opacity", "preset", "guidance", "tag"},
+    "draw_path": {"layer", "d", "color", "size", "opacity", "preset", "guidance", "tag", "blend"},
     "tone_map": {"gain", "lift", "gamma", "layer", "guidance"},
     "split_shading": {"layer", "guidance"},
     "set_light": {"scale", "tint", "layer", "guidance"},

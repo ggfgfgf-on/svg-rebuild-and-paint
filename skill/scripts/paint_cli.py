@@ -88,9 +88,30 @@ def cmd_edit(a):
         sel_by_layer[name] = s1
     out = ops.apply(doc, specs, selection=sel, weights=wt)
 
-    p, cat, w, h = D.new_painter(doc, gpu=a.gpu)
+    saved_plan = None
+    if getattr(a, "save_plan", None):
+        # 把应用后的计划落盘：工具链从此可以「局部改 -> 再改」，不必每次从原始计划重放 ops
+        saved_plan = Path(a.save_plan)
+        saved_plan.parent.mkdir(parents=True, exist_ok=True)
+        parts = {"canvas": [int(w), int(h)],
+                 "layers": [dict(l) for l in (out.get("layers") or [])],
+                 "strokes": out["strokes"], "count": len(out["strokes"])}
+        for k in ("regions", "subject_layers"):
+            if k in out:
+                parts[k] = out[k]
+        saved_plan.write_text(json.dumps(parts, separators=(",", ":"), ensure_ascii=False,
+                                         default=lambda o: o.tolist() if hasattr(o, "tolist") else o.item()),
+                              encoding="utf-8")
+
+    known_layers = {l["name"] for l in (doc.get("layers") or [])}
+    new_layers = [l["name"] for l in (out.get("layers") or []) if l["name"] not in known_layers]
+    # 新层（add_layer / draw_path 自动建层）在原始 painter 里没有对应下标，
+    # 增量重建只认旧层，所以带新层的编辑一律走整幅渲染，保证 PNG 与计划一致。
+    fast = bool(getattr(a, "fast", False)) or bool(new_layers)
+    base_doc = out if fast else doc
+    p, cat, w, h = D.new_painter(base_doc, gpu=a.gpu)
     region = np.zeros((h, w), np.int32)
-    if getattr(a, "fast", False):
+    if fast:
         # 只想要最终图时，直接整幅渲染编辑后的计划（省掉"先画旧的再局部重算"的一整遍）
         plan2, spec2 = D.doc_to_plan(out, cat)
         tile_inc.full(p, plan2, spec2, lambda nm: region, gpu=a.gpu, nthreads=8)
@@ -120,6 +141,12 @@ def cmd_edit(a):
     report = {"ok": True, "compiled_from": source, "ops": specs, "selected": len(sel),
               "dirty_rect": [x0, y0, x1, y1], "png": str(a.out),
               "elapsed_s": round(time.perf_counter() - t0, 2)}
+    if new_layers:
+        report["new_layers"] = new_layers
+    if saved_plan is not None:
+        report["plan"] = str(saved_plan)
+        report["plan_strokes"] = len(out["strokes"])
+        report["plan_layers"] = len(out.get("layers") or [])
     if getattr(a, "video", None):
         ops_path = a.ops
         if not ops_path:                      # 模型编译的算子要先落盘，视频脚本只吃文件
@@ -209,6 +236,8 @@ def main():
         p.add_argument("--feather", type=float, default=24.0)
         p.add_argument("--hard-mask", action="store_true", help="掩膜权重二值化为 1（改色时要满强度）")
         p.add_argument("--gpu", action="store_true")
+        p.add_argument("--save-plan", default=None,
+                       help="可选取：把应用 ops 之后的计划写到这个路径（在它的结果上可以继续改）")
 
     e = sub.add_parser("edit", help="编译/加载算子 -> 编辑 -> 增量渲染（可选出视频）")
     common(e)

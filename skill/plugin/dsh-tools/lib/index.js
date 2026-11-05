@@ -107,7 +107,7 @@ export function apply(ctx, config) {
 
   tools.register(define({
     name: 'art_edit_brief',
-    description: '把一句自然语言改图指令编译成一次「可执行的编辑初审」：产出计划摘要 + 当前画面缩略图（零 API key，走当前会话的多模态模型）。先调这个，然后自己读缩略图、按 brief 里的 prompt 写出 ops JSON，再调 art_apply_ops 应用。适用于按指令改画：改色、调光、细化、局部重画。',
+    description: '把一句自然语言改图指令编译成一次「可执行的编辑初审」：产出计划摘要 + 当前画面缩略图（零 API key，走当前会话的多模态模型）。先调这个，然后自己读缩略图、按 brief 里的 prompt 写出 ops JSON，再调 art_apply_ops 应用。适用于按指令改画：改色、调光、局部重画。注意它产出的是「局部修饰」算子；要给画面补结构（新的一层光/雨/船/纹理），得自己在 ops 里写 add_layer + draw_path。',
     parameters: {
       plan: { type: 'string', description: '计划文件路径' },
       instruction: { type: 'string', description: '一句改图指令，例如「背景压深成墨绿夜色」「把主体改成冷调」' },
@@ -127,15 +127,17 @@ export function apply(ctx, config) {
 
   tools.register(define({
     name: 'art_apply_ops',
-    description: '把 ops JSON 应用到绘画计划并渲染出图。返回 PNG 路径、字节数、秒数，以及引擎打印的 selected（被选中笔触数）与 dirty_rect（脏矩形）。注意：不落盘应用后的计划，也不返回 densify 之后的真实笔数；需要与 PNG 一一对应的最终 plan 时，用 ops.apply(doc, specs, selection=None) 自行 materialize 再渲染。另：一次调用里混用「带 layer 的算子」与全局算子时，全局算子会被限制在带 layer 算子提到的层上（selection 作用域）。',
+    description: '把 ops JSON 应用到绘画计划并渲染出图。返回 PNG、字节数、秒数，以及引擎的 selected / dirty_rect。ops 只作用于已有图层（颜色、明暗、笔触密度、局部重画）；要补结构用 add_layer 建层（draw_path 指向新层会自动建层）。可选 out_plan：把应用 ops 之后的计划落盘，返回 plan_strokes / plan_layers——想在这次结果上继续改就传它，下一次以这份计划为输入；不给则只写图、原计划只读。densify 之后不传 out_plan 就看不到真实总笔数。另：一次调用里混用「带 layer 的算子」与全局算子时，全局算子会被限制在带 layer 算子提到的层上（selection 作用域）。',
     parameters: {
       plan: { type: 'string', description: '计划文件路径；只读，不会被修改' },
       ops: { type: 'string', description: 'ops JSON 路径' },
-      out: { type: 'string', description: '输出 PNG 路径（只写图，不写 plan）' },
+      out: { type: 'string', description: '输出 PNG 路径' },
+      out_plan: { type: 'string', description: '可选：把应用 ops 后的计划写到这个路径，下次可直接拿它继续改；不给则只出图' },
       gpu: { type: 'boolean', description: '可选，用 GPU 后端' },
     },
     async execute(args) {
       const argv = ['edit', abs(args.plan), '--ops', abs(args.ops), '--out', abs(args.out), '--fast']
+      if (typeof args.out_plan === 'string' && args.out_plan.length > 0) argv.push('--save-plan', abs(args.out_plan))
       if (args.gpu === true) argv.push('--gpu')
       const r = run(scripts, 'paint_cli.py', argv)
       const info = statFile(args.out)
