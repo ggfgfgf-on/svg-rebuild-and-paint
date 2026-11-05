@@ -55,8 +55,7 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
     只需要层名；想加在别处就把坐标写到那里。它和别的算子一样受 guidance 控制。
   * add_layer 建新层（幂等，重复调用不重复建），index 指定插入位置（0=垫底，不给=追加到最上）；
     draw_path 指向不存在的层也会自动建层。remove_layer / rename_layer / move_layer 管理已有层。
-    要补结构（一层光、一层雨、一条船、一层纹理）就用这几步；densify 只加密已有笔触，
-    不改变画面内容，堆得再多也长不出新东西。
+    add_layer / draw_path 改层集合或层内容；densify 只加密已有笔触，不改变画面内容。
   * tone_map 是整体明暗的通用修法（专门对付 shadow/texture 两层 multiply 压暗）：
     gain 乘亮度（1.5~2.0 通常明显提亮），lift 加白（0.03~0.08 抬黑场），gamma<1 提中间调，
     layer 不给 = 所有层；不动颜色关系，只改明暗。
