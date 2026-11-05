@@ -869,4 +869,3 @@ python scripts/paint_cli.py compile plan.json --instruction "..." --provider ark
 python scripts/paint_cli.py video plan.json --ops ops.json --mask-file m.json --out a.mp4 --frames 600
 python scripts/paint_cli.py eval plan.json examples/batch/expected_hard.json examples/batch/compiled_hard.json
 ```
-
