@@ -66,8 +66,8 @@ export function apply(ctx, config) {
     parameters: {
       image: { type: 'string', description: '输入位图路径（绝对路径或相对当前工作目录）' },
       out: { type: 'string', description: '输出 SVG 路径' },
-      k: { type: 'number', description: '可选，调色板色数上限（例如 128/256/384；不给用脚本默认）' },
-      ss: { type: 'number', description: '可选，超采样倍率（2 或 3；不给用脚本默认）' },
+      k: { type: 'number', description: '可选，调色板色数上限（默认 128；交付通常 256-384，图标/线稿 64-128）' },
+      ss: { type: 'number', description: '可选，超采样倍率 2-3（越大边界越干净，代价约平方级）' },
     },
     async execute(args) {
       const argv = [abs(args.image), abs(args.out)]
@@ -90,8 +90,8 @@ export function apply(ctx, config) {
     name: 'art_paint',
     description: '把一个绘画计划（plan.json / plan.npz：canvas + layers + strokes）确定性地渲染成一张图。同一个计划每次渲染逐像素一致；可用 ops 文件把改动叠加上去。这就是厚涂绘画引擎的渲染入口。',
     parameters: {
-      plan: { type: 'string', description: '计划文件路径（plan.json 或 plan.npz）' },
-      out: { type: 'string', description: '输出 PNG 路径' },
+      plan: { type: 'string', description: '计划文件路径（plan.json 或 plan.npz）；只读，不会被修改' },
+      out: { type: 'string', description: '输出 PNG 路径（唯一的落盘产物）' },
       ops: { type: 'string', description: '可选，ops JSON 路径（按顺序作用在计划上）' },
       gpu: { type: 'boolean', description: '可选，用 DirectCompute GPU 后端渲染' },
     },
@@ -111,7 +111,7 @@ export function apply(ctx, config) {
     parameters: {
       plan: { type: 'string', description: '计划文件路径' },
       instruction: { type: 'string', description: '一句改图指令，例如「背景压深成墨绿夜色」「把主体改成冷调」' },
-      out: { type: 'string', description: '输出 brief JSON 路径（同目录会写出缩略图）' },
+      out: { type: 'string', description: '输出 brief JSON 路径；缩略图固定写在系统临时目录的 compile_thumb.png（不受 out 控制，要归档就自己挪）' },
     },
     async execute(args) {
       const r = run(scripts, 'compile_ops.py', ['brief', abs(args.plan), args.instruction, '--thumb', '--out', abs(args.out)])
@@ -127,11 +127,11 @@ export function apply(ctx, config) {
 
   tools.register(define({
     name: 'art_apply_ops',
-    description: '把 ops JSON 应用到绘画计划并渲染出图，返回改动像素数（与不应用 ops 的渲染逐像素比较）。ops 由 art_edit_brief 之后自己编写，或用 compile_ops.py compile 生成。',
+    description: '把 ops JSON 应用到绘画计划并渲染出图。返回 PNG 路径、字节数、秒数，以及引擎打印的 selected（被选中笔触数）与 dirty_rect（脏矩形）。注意：不落盘应用后的计划，也不返回 densify 之后的真实笔数；需要与 PNG 一一对应的最终 plan 时，用 ops.apply(doc, specs, selection=None) 自行 materialize 再渲染。另：一次调用里混用「带 layer 的算子」与全局算子时，全局算子会被限制在带 layer 算子提到的层上（selection 作用域）。',
     parameters: {
-      plan: { type: 'string', description: '计划文件路径' },
+      plan: { type: 'string', description: '计划文件路径；只读，不会被修改' },
       ops: { type: 'string', description: 'ops JSON 路径' },
-      out: { type: 'string', description: '输出 PNG 路径' },
+      out: { type: 'string', description: '输出 PNG 路径（只写图，不写 plan）' },
       gpu: { type: 'boolean', description: '可选，用 GPU 后端' },
     },
     async execute(args) {

@@ -58,12 +58,19 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 
 ## 2. 四个 host 工具
 
-| 工具 | 参数 | 背后命令 | 返回 |
-|---|---|---|---|
-| `art_vectorize` | `image`, `out`, `k?`, `ss?` | `vectorize.py <img> <out> --k K --ss S` | SVG 路径、path 条数、MB、秒 |
-| `art_paint` | `plan`, `out`, `ops?`, `gpu?` | `render_plan.py <plan> --out <png> [--ops] [--gpu]` | PNG 路径、KB、秒 |
-| `art_edit_brief` | `plan`, `instruction`, `out` | `compile_ops.py brief <plan> "<指令>" --thumb --out` | brief.json + 缩略图 + 给模型抄的 ops 模板 |
-| `art_apply_ops` | `plan`, `ops`, `out`, `gpu?` | `paint_cli.py edit <plan> --ops <ops> --out <png> --fast` | PNG、KB、秒；stdout 带 `selected`/`dirty_rect` |
+| 工具 | 参数 | 背后命令 | 落盘 | 返回 |
+|---|---|---|---|---|
+| `art_vectorize` | `image`, `out`, `k?`, `ss?` | `vectorize.py <img> <out> --k K --ss S` | 只有 `out` 的 SVG | SVG 路径、path 条数、MB、秒 |
+| `art_paint` | `plan`, `out`, `ops?`, `gpu?` | `render_plan.py <plan> --out <png> [--ops] [--gpu]` | 只有 `out` 的 PNG；plan 只读 | PNG 路径、KB、秒 |
+| `art_edit_brief` | `plan`, `instruction`, `out` | `compile_ops.py brief <plan> "<指令>" --thumb --out` | `out` 的 brief.json + 系统临时目录 `compile_thumb.png` | brief 路径、缩略图绝对路径、ops 模板 |
+| `art_apply_ops` | `plan`, `ops`, `out`, `gpu?` | `paint_cli.py edit <plan> --ops <ops> --out <png> --fast` | 只有 `out` 的 PNG；**不落盘改后的 plan** | PNG、KB、秒；`selected` / `dirty_rect` |
+
+**四个工具共同的契约**（写在这里，因为参数表只写"进去什么"，写不下"出来什么"）：
+
+- **plan 永远是只读输入**：没有一个工具会改写你给的 plan；要"改后的 plan"必须自己 materialize（`ops.apply(doc, specs, selection=None)` 再 `plan_io.dump_plan`）。
+- **图与 plan 的对应关系靠你自己维持**：PNG 是产物，plan 是源；想复现就保留 plan + ops。
+- **批量笔数变化不回报**：`densify` 之后真实笔数只能从 materialize 出来的 plan 里数。
+- 每个工具一个新进程跑脚本，所以**改 `scripts/*.py` 立即生效**；改插件的工具描述要重启 DSH。
 
 **坑（都踩过）**
 
@@ -349,6 +356,8 @@ python scripts/paint_video.py plan.json --edit-at 180 --groups 2 --out out.mp4  
 
 ## 6. 验收与取证
 
+交付时保留三样东西：`plan`（源）、由它渲染的 `png`、`ops`（细化过才有）——三者能复现同一张图；其余产物（过程图、视频、分层导出）随意附加。
+
 ```powershell
 python scripts/metric.py ref.png render.png
 # {"mean": 1.1554, "pct_le3": .., "pct_le5": .., "pct_le10": .., "pct_le20": .., "uncovered": 0, "pixels": N}
@@ -379,25 +388,7 @@ python scripts/metric.py ref.png render.png
 
 再加一次**自查图**：把最终 PNG 读进来，问自己三件事——(a) 主体轮廓是否成立；(b) 最亮处是否只有一个视觉焦点；(c) 缩小到 25% 看是否还读得懂构图。三条都过再交付。
 
-### 6.2 交付物的最小集合
-
-画法不限，交付时至少包含下面几样；有额外产物（过程图、视频、分层导出）就一并附上：
-
-| 交付物 | 要求 |
-|---|---|
-| `*.plan.json` | 唯一事实来源；层名都已在 `layers` 里声明；每笔 `points` 为三元组 |
-| `*.png` | 由该 plan 渲染；复渲一次逐像素差必须为 0 |
-| `*.ops.json` | 用于细化的算子，`compile_ops.py validate` 通过（没有细化可省略） |
-| 一行统计 | canvas / strokes / layers / presets / 渲染秒 / 字节数 / 复渲差 |
-
-报告建议用这个结构（数字优先，形容词尽量少）：
-
-```json
-{"canvas": [1280, 960], "strokes": 24964, "layers": 20, "presets": ["bristle", "chalk", "..."],
- "render_s": 1.42, "bytes": 747137, "rerender_maxdiff": 0, "refine_ops": 9}
-```
-
-### 6.3 接口与回路（这不是流程）
+### 6.2 接口与回路（这不是流程）
 
 这套东西**不规定画法**。它只给你一组接口，怎么串由你定。真正要记的只有两件事。
 
