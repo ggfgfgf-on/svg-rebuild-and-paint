@@ -85,7 +85,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 4. **一次 edit 里别混用「带 layer 的算子」和「全局算子」**：`paint_cli.py edit`（即 `art_apply_ops`）先取「带 layer 的算子提到的层」做 selection，再传给所有算子，全局 `tone_map`/`erase`/`redraw` 会被悄悄压到那几层上。实测同一组 ops：真全局 luma 52.894，走 CLI 49.555，约 95% 像素不同。要全局就单独跑一次，或用 `ops.apply(doc, specs, selection=None)` materialize 成新 plan 再 `render_plan.py`（这样 PNG 与 plan 一一对应）。`art_apply_ops` 只回 `selected`/`dirty_rect`，不落盘 plan；`art_edit_brief` 的缩略图固定在系统临时目录 `compile_thumb.png`。详见 docs/USAGE.md §5.3、§6.1。
 
-5. **`densify` 长不出新东西**：它只在既有笔触旁加子笔触，层集合不变。要补结构（新的一层光/雨/船/纹理）必须 `add_layer` / `draw_path`（或改计划重新生成）——两次冷启动对照里，走结构补充的成品 20 层，只走 densify+tone_map 的 15 层，天空笔径中位数 118 vs 38px。
+5. **`densify` 长不出新东西**：它只在既有笔触旁加子笔触，层集合不变。要**新加一层内容**（新的一层光/雨/船/纹理）必须 `add_layer` / `draw_path`（或改计划重新生成）；在既有层里改结构可用 `light_rig` / `set_light` / `redraw`。两次冷启动对照里 20 层 vs 15 层只是两种做法的实测差别，不是合格线。
 
 **已验证的凭空链路**：123 条 `draw_path`（天空/山脊/水面）→ `split_shading` → `relight_dir(azimuth=300, elevation=28)` → `densify(k=1.7)` → `set_light`，167 笔，0.07 s，出图 202 KB。它是「贴纸/海报」质感而不是厚涂——原因就是第 2 条：笔画太少、每条太长。
 

@@ -333,16 +333,16 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 
 法线模型（`relight_dir` 与 `light_rig` 共用，见 `scripts/ops.py`）：`dome` 把选区当椭球，法线由笔触质心相对中心的偏移解析算出（纯 plan 坐标，不碰像素）；`gradient` 把 shade 画到 bbox 栅格上求梯度，再按笔触质心采样（内部有栅格中间量，但结果写回笔触参数）。两者都只是「图像平面伪法线」，不是 3D 法线贴图。公共 helper：`_dome_frame` / `_dome_normal` / `_normal_fields` / `_normal_sample`；`pick_instance.fit_boundary` 里的法线是轮廓边缘法线，与光照无关。
 
-**「细化」有两种改法（20 层 vs 15 层是实测差别，不是合格线）**
+**「细化」的两种改法（实测描述，不是验收标准）**
 
-- **补结构**：新加一层光、一层雨、一条船、一层纹理——画面内容变了。走 `add_layer` + `draw_path`，或直接改计划重新生成。
-  走到这条路的成品是 20 层：`sun` / `sunglow` / `suncore` / `glow` / `veil` 各管一段光，另有 `boat` / `lights` / `birds` / `rain` / `texture` 专属小层。
-- **加密 / 调色**：`densify`、`tone_map`、`set_layer_*`——形状不变，只是更厚、更准。只走这条路的成品 15 层、层数没涨：
+- **补结构**：新加一层光、一层雨、一条船、一层纹理——画面内容变了。可以 `add_layer` + `draw_path`，也可以直接改计划重新生成。
+  走这条路的实测成品是 20 层：`sun` / `sunglow` / `suncore` / `glow` / `veil` 各管一段光，另有 `boat` / `lights` / `birds` / `rain` / `texture` 专属小层。
+- **加密 / 调色**：`densify`、`tone_map`、`set_layer_*`——形状不变，只是更厚、更准。只走这条路的实测成品 15 层、层数没涨：
   天空笔径中位数 38px（对照 118px）、塔不透明度 0.84（对照 0.15，薄涂叠体积）、大笔（≥60px）占比 8.0%（对照 17.1%）。
 
-判断方法：看这次改动里有没有 `add_layer` / `draw_path`——只有 `densify` / `tone_map` / `set_layer_*` 就是纯调；但层集合变没变只说明「有没有新建层」，不说明结构补没补：`draw_path` 可以往既有层里加内容，新增一个空层也不等于画面更好。验收看画面完成度与 §6.1 的可复现判据，层数、层集合都不是门槛。
+描述性区分：`add_layer` / `draw_path` 会动层集合或层内容，`densify` / `tone_map` / `set_layer_*` 只动已有笔触；但 `light_rig` / `set_light` / `redraw` 也能在既有层里改结构，所以这不是判据，只能事后说明改了什么。
 
-算子是按「改什么」分的：`add_layer` / `draw_path` 改层集合与内容，`densify` / `tone_map` / `set_layer_*` 只改已有笔触。计划摘要会给出 `layer_count`、`blend_counts`、`light_layers`、`shadow_layers` 这些事实；有没有 `screen` / `add` 光层是看得见的，但要不要补、补几层、怎么拆，由你对照缩略图判断——文档不规定步骤。
+计划摘要会给出 `layer_count`、`blend_counts`、`light_layers`、`shadow_layers`——这些是给你判断用的**事实**，不是门槛。要不要补、补几层、怎么拆，由你对照缩略图判断；文档不规定步骤，也不用算子名反推“有没有补结构”。
 
 **一个必须知道的隐藏作用域（`paint_cli.py edit`，即 `art_apply_ops` 走的路径）**
 
@@ -416,19 +416,27 @@ python scripts/metric.py ref.png render.png
 
 ### 6.1 没有参考图时怎么验收（凭空画专用）
 
-凭空画没有 `ref.png`，`metric.py` 用不了。用下面这套替代判据，逐条都能用命令或数字回答：
+分两类，别混。
+
+**一、机械不变量**（与画得好不好无关，能命令回答）
 
 | 判据 | 怎么看 | 合格线 |
 |---|---|---|
 | 确定性 | 同一 plan 渲染两次，逐像素比较 | `maxdiff = 0` |
-| 不露底 | 合成图 alpha 的最小值 / 纸白像素占比 | 无 alpha=0 区域 |
-| 规模到位 | `len(plan["strokes"])` | 上千笔；十几笔一条粗线 = 贴纸。层数由画法决定，单层厚涂也可以 |
-| 层可操作 | 层名与 blend | 每层都能被 ops 单独选中；不要求固定层数或 blend 组合 |
 | 计划合法 | `plan_io.py check` / `compile_ops.py validate` | 无非法 preset、无悬空 layer |
-| 细化有效 | 细化前后被选中/改变的像素数 | `selected > 0`，且画面确实更像目标 |
+| 不露底 | 合成图 alpha 最小值 / alpha=0 占比 | 无 alpha=0 区域 |
 | 可复现 | 重新 materialize + 渲染 | 与交付 PNG 逐像素一致 |
+| 改动生效 | 细化前后被选中/改变的像素数 | `selected > 0`；只证明执行了，不证明更好 |
 
-再加一次**自查图**：把最终 PNG 读进来，问自己三件事——(a) 主体轮廓是否成立；(b) 最亮处是否只有一个视觉焦点；(c) 缩小到 25% 看是否还读得懂构图。三条都过再交付。
+机械判据到此为止：它们只能否掉坏文件，不能证明画得好。
+
+**二、语义验收**（只能读图回答，不能用层数、笔数、算子名代替）
+
+- 主体轮廓成立吗？最亮处是否只有一个视觉焦点？
+- 缩到 25% 还读得懂构图吗？
+- 和你要画的意图一致吗？有参考图时再用 `metric.py` 的 `mean` / `pct_*` / `uncovered`。
+
+层数、`blend_counts`、`light_layers`、笔数、ops 里有没有 `add_layer` 都只是诊断量，不是合格线：单层可以画，二十层也可能空；`draw_path` 进了既有层也会改结构。验收以读图后的语义判断为准，机械判据只兜确定性、合法性和露底。
 
 ### 6.2 接口与回路（这不是流程）
 
