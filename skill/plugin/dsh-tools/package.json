@@ -1,0 +1,11 @@
+{
+  "name": "@dsh-ext/svg-paint-tools",
+  "version": "0.1.0",
+  "description": "DSH host tools that expose the svg-rebuild-and-paint skill as callable capabilities: bitmap -> vector SVG, deterministic thick-paint render, zero-key instruction -> ops brief, and ops apply.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "license": "MIT"
+}

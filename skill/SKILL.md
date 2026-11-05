@@ -1,22 +1,23 @@
----
-name: svg-rebuild-and-paint
 description: >-
-  Two things, both runnable and both measured. (1) Turn a bitmap (PNG/JPEG) into real vector SVG:
-  potrace curve reconstruction per colour mask with 2-3x supersampling, flat-colour <path> geometry
-  (no <image>, no base64, no gradients, no staircase when scaled), delivered as a static .svg or a
-  single-file HTML step player, with a renderer-consistent per-pixel error report (mean / <=5 /
-  <=10 / uncovered). The old pixel-run-length mode is DEPRECATED - kept only to reproduce historical
-  mean<2 numbers on flat art, never as a default or a deliverable. (2) A deterministic thick-paint
-  engine: 8-layer plans, brush-stamp rasterization (CPU + DirectCompute GPU backends), 30 fps video,
-  plan-level diff and tile-level incremental repaint (bit-identical to a full rebuild), per-stamp
-  colour dynamics, smudge / impasto lighting, PSD and KRA interop.
-  Use it whenever the job is "turn this picture into SVG" OR "paint / render / animate this artwork",
-  including plain "重绘这个 / 转成SVG / 画/渲染这个 / 出30fps视频" requests.
+  Three runnable layers, all measured. (1) Bitmap -> true vector SVG: potrace curves per colour mask,
+  pure flat <path> (no <image>/base64/gradients), no staircase at any zoom, plus a per-pixel error
+  report (mean / <=5 / <=10 / uncovered). (2) Deterministic thick-paint engine: 8-layer plans,
+  brush-stamp rasterization (CPU + DirectCompute GPU), 30fps video, plan diff, tile incremental repaint.
+  (3) Semantic ops layer, ZERO KEY: a plain natural-language instruction is compiled by the current
+  multimodal model itself (it reads a plan summary + a live thumbnail) into ops JSON - recolour by layer
+  or mask, resize, refine/detail, local repaint - which is validated and then applied; the same layer draws FROM SCRATCH
+  with draw ops on a blank canvas - no reference image needed. Everything is measured; the skill ships no
+  tuned thresholds. Triggers: 重绘/转SVG/矢量化, 按指令改图/改成蓝色/局部重画, 凭空画一张/从零画,
+  redraw as SVG, recolour this painting, edit artwork by instruction, paint from scratch.
 whenToUse: >-
   The default choice for image-to-SVG redraws - 重绘, 重绘这个, svg重绘, 矢量化, 转SVG, SVG 化,
   描摹, 去掉像素感, 生成可播放的分层绘制过程, 把图片做成纯 path 的单文件 HTML, 批量 PNG/GIF 转 SVG,
   or judging whether a redraw is faithful. English - redraw as SVG, vectorize, trace this image,
-  bitmap to SVG, rebuild this screenshot as paths, convert PNG to SVG. Prefer this over generic
+  bitmap to SVG, rebuild this screenshot as paths, convert PNG to SVG.
+  ALSO the default choice for instruction-driven edits of painted artwork - 指令改图 / 按描述改色 / 调光 /
+  细化 / 局部重画 / 按图层或掩膜改色 / 凭空画一张 / 从零画 / 空画布追加笔画 - and English: edit this
+  artwork by instruction, recolour by layer or mask, refine detail, local repaint,
+  paint something from scratch with no reference image. Prefer this over generic
   vision or OCR skills when the deliverable is SVG artwork (those are for UI restoration, text
   extraction and element location, not for faithful raster-to-path reproduction).
 ---
@@ -33,6 +34,19 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 实测约 **10.6 s**：位图→SVG（mean 1.16 / uncovered 0）、空画布 `draw`（2 paths）、计划→30fps 视频（60 帧 / 2.0 s）。
 三条全 OK 才说明 Python 依赖与 `scripts/native/*.dll` 都就绪；某条 FAIL 的最后一个字段就是原因。
+
+## 有 host 工具包时（先看这里）
+
+如果当前会话的工具列表里有 `art_vectorize` / `art_paint` / `art_edit_brief` / `art_apply_ops`（来自 `skill/plugin/dsh-tools`），**直接用工具**，不要自己拼命令行：工具已封装路径、超时与错误。
+
+| 工具 | 等价命令 |
+|---|---|
+| `art_vectorize` | `python scripts/vectorize.py <img> <out>` |
+| `art_paint` | `python scripts/render_plan.py <plan> --out <png>` |
+| `art_edit_brief` | `python scripts/compile_ops.py brief <plan> "<指令>" --thumb --out brief.json` |
+| `art_apply_ops` | `python scripts/paint_cli.py edit <plan> --ops <json> --out <png>` |
+
+工具只是命令行的薄包装，没有额外逻辑；没有工具的环境照旧走下面的命令行。
 
 ## 计划从哪来（绘画 / 改画的起点）
 
@@ -87,7 +101,7 @@ python scripts/render_plan.py plan.json --ops ops.json --out edited.png --gpu
 | 要一张 SVG 画（保真、可分层播放、带误差数字） | **本 skill**（`vectorize.py` / `build_svg.py`） |
 | 要 UI 还原、按钮/表单，或从截图生成前端代码 | `vision-skills` |
 | 要 OCR、元素定位、像素比对、取色 | `vision-skills` 或视觉工具 |
-| 要"凭空画一张图"（无参考图） | 都不适用，手写 SVG |
+| 要"凭空画一张图"（无参考图） | **本 skill 的绘画线**：`draw` 算子往空画布计划追加笔画（`iterate.py --blank` / ops 的 `draw_path`），再 `render_plan.py` 出图 |
 
 `vision-skills` 里的 SVG 描摹是**通用素材工具**；本 skill 多了三件事它没有：**可度量的误差闭环**（mean / ≤5 / uncovered）、**分层步骤播放器**、**批量巡检与回归测试**。同样一张图，先跑这里的 `metric.py` 再决定要不要换路线。
 
