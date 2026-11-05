@@ -3,6 +3,9 @@
 > 读者：第一次拿到这套 skill、手上没有上下文的模型。
 > 目标只有一个：知道**该走哪个入口、该改哪个参数**，而不是重新发明管线。
 > 算子细节见 [API.md](API.md)；坑位与清单见 [SKILL.md](../SKILL.md)；这里只讲操作。
+>
+> 验证过这份手册够用：一个**零上下文**的模型只读本目录文档，产出了 1280×960 / 24,964 笔 / 20 层 / 8 种笔刷的原创厚涂夜景，
+> 经 draft → refined → final 三轮细化（8,171 → 24,964 笔），渲染 1.42 s、复渲逐像素差 0。它卡住的四处已补进 §5.3 与 §6.1。
 
 ---
 
@@ -137,7 +140,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 2. 图层必须先声明后使用，顺序决定上下（后面的层压在前面上）。
 3. 生成视频/过程时按**生成顺序**画；按 layer 分组会把不同层的笔交错，先画后画全乱。
 4. 空画布 = alpha 0；渲染结果要和白纸合成（`alpha` 层叠到纸色上）才是"白底画"。
-5. 笔数上万是常态：960×680 的落日落日约 1.2 万笔、2.4 MB。别手写，用循环生成。
+5. 笔数上万是常态：960×680 的落日约 1.2 万笔、2.4 MB。别手写，用循环生成。
 
 ### 4.3 图层与混合模式
 
@@ -184,6 +187,32 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 1. **先大笔铺底**（不露底）→ 2. **中笔立形体**（天空/山/水各自成形）→ 3. **小笔做细节**（碎光、云缘）→ 4. **screen 层加光、softlight 层压角**。
 2. 每轮只改一类东西，渲一张看一眼；一次改十个参数，看不出是谁的作用。
 3. 不要"先逐像素造参考图再采样"——那是脚本在画，不是引擎在画，形体改不动；而 plan 改一行就能重渲。
+
+**从零造计划的代码骨架**（放在项目里跑，路径按自己的目录改）：
+
+```python
+import sys, math, random
+sys.path.insert(0, r"<skill>\scripts")
+import plan_io, render_util as RU
+
+W, H = 1280, 960
+strokes = []
+def S(layer, pts, size, color, opacity, preset="round_soft", hardness=0.3):
+    strokes.append({"layer": layer, "preset": preset, "size": float(size), "opacity": float(opacity),
+                    "color": [float(c) for c in color], "hardness": hardness, "region_id": 0,
+                    "points": [[float(x), float(y), 1.0] for x, y in pts]})   # pressure 必须在
+
+S("bed", [(-40, H * 0.5), (W + 40, H * 0.5)], size=H * 3, color=[20, 24, 46], opacity=1.0,
+  preset="round_hard", hardness=0.9)                                        # 先把底盖满
+# ……天空/主体/光/细节各写一段循环，参考第 4.5 节的参数带……
+
+blends = {"bed": "normal", "band": "normal", "glow": "screen", "vignette": "softlight"}
+plan_io.dump_plan("my.plan.json", W, H, strokes, layer_blends=blends)
+arr = RU.render_arr(plan_io.load_plan("my.plan.json")[0], gpu=False, nthreads=8)[..., :3]
+print("strokes", len(strokes), "shape", arr.shape)
+```
+
+关键：**层名要先在 `blends` 里声明**，笔画按 `bed → 主体 → glow(screen) → vignette(softlight)` 的顺序生成；每一段都是独立循环，改哪段只影响哪段。
 
 ---
 
@@ -268,6 +297,38 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 `guidance` 0–1 控制强度；`selection` 用 `--mask-file` / `--rect` / `--hard-mask` 限定作用范围。
 `draw_path` 一条 path = 一笔：要一片山就发上千条短笔，不要发十几条粗线。
 
+**一个必须知道的隐藏作用域（`paint_cli.py edit`，即 `art_apply_ops` 走的路径）**
+
+一次 edit 里如果同时有「带 `layer` 的算子」和「不带 layer 的全局算子」（如 `tone_map`、`erase`、`redraw`），
+CLI 会把**所有**算子的 selection 限制在「带 layer 那些算子提到的层集合」上（`paint_cli.py` 的 `cmd_edit`：
+先 `touched = {带 layer 的算子提到的层}`，再对每个层造 weights 合成一个 selection 传给 `ops.apply`）。
+也就是说：你以为的"全局 tone_map"只作用在那几层上。
+
+实测（同一 plan、同一组 ops，25k 笔夜景）：`ops.apply(selection=None)` 直算 luma 52.894；
+走 `paint_cli.py edit` 的选择 luma 49.555；1,167,357 / 1,228,800 像素不同（约 95.0%），max_delta=14。
+
+两种规避，按需选：
+
+1. **全局算子单独跑一次**：先执行只有全局算子的 ops，再执行层算子；两次都带 `--fast`。
+2. **要"最终 plan"时绕过 CLI**：用 `ops.apply(doc, specs, selection=None)` 直接 materialize 成新计划，再用
+   `render_plan.py` 渲染——这样 PNG 与 plan 一一对应，笔数也拿得到：
+
+```python
+import json, sys
+sys.path.insert(0, r"<skill>\scripts")
+import plan_io, ops
+doc, w, h = plan_io.load_plan("refined.plan.json")
+specs = json.load(open("refine_ops.json", encoding="utf-8"))
+out = ops.apply(doc, specs, selection=None)          # 真·全局
+plan_io.dump_plan("final.plan.json", w, h, out["strokes"],
+                  layer_blends={l["name"]: l["blend"] for l in out["layers"]})
+print("final strokes", len(out["strokes"]))
+```
+
+另外两个 `art_apply_ops` 的行为要知道：它**只返回** `selected` / `dirty_rect`（不返回 densify 后的总笔数），
+也**不落盘**应用后的 plan——需要"这张 PNG 对应的 plan"时按上面第 2 条自己做 materialize。
+`art_edit_brief` 的缩略图固定写在系统临时目录的 `compile_thumb.png`，不受 `out` 控制；要归档就自己挪走。
+
 ### 5.4 视频
 
 ```powershell
@@ -301,6 +362,22 @@ python scripts/metric.py ref.png render.png
 | `pixels` | 统计像素数 | 两份图尺寸必须一致 |
 
 原则：**数字优先于眼睛**。每条结论带命令和数字；眼睛只用来发现"数字没覆盖的东西"（构图、笔触走向）。
+
+### 6.1 没有参考图时怎么验收（凭空画专用）
+
+凭空画没有 `ref.png`，`metric.py` 用不了。用下面这套替代判据，逐条都能用命令或数字回答：
+
+| 判据 | 怎么看 | 合格线 |
+|---|---|---|
+| 确定性 | 同一 plan 渲染两次，逐像素比较 | `maxdiff = 0` |
+| 不露底 | 合成图 alpha 的最小值 / 纸白像素占比 | 无 alpha=0 区域 |
+| 规模到位 | `len(plan["strokes"])`、层数 | 上千笔、≥4 层；十几笔一条粗线 = 贴纸 |
+| 分层合理 | 层名与 blend | 有底（normal）、有光（screen）、有调色/暗角（softlight/multiply） |
+| 计划合法 | `plan_io.py check` / `compile_ops.py validate` | 无非法 preset、无悬空 layer |
+| 细化有效 | 细化前后被选中/改变的像素数 | `selected > 0`，且画面确实更像目标 |
+| 可复现 | 重新 materialize + 渲染 | 与交付 PNG 逐像素一致 |
+
+再加一次**自查图**：把最终 PNG 读进来，问自己三件事——(a) 主体轮廓是否成立；(b) 最亮处是否只有一个视觉焦点；(c) 缩小到 25% 看是否还读得懂构图。三条都过再交付。
 
 ---
 

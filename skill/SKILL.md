@@ -78,6 +78,8 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 2. **draw_path 是一条 path = 一笔**：给一条 1200px 的粗折线，画出来就是一根粗线，不是一片山。要厚涂得像落日那样发上千条短笔，不是发十几条粗线。
 3. **增量渲染看不见新笔画**：`paint_cli.py edit` 只重画「原有笔触」的脏矩形，凭空加笔画会得到空白图（4 KB）。新的 `paint_cli.py` 检测到笔画数变化会自动整幅重画，host 工具 `art_apply_ops` 也带上了 `--fast`；手工调 CLI 时记得加 `--fast`。
 
+4. **一次 edit 里别混用「带 layer 的算子」和「全局算子」**：`paint_cli.py edit`（即 `art_apply_ops`）先取「带 layer 的算子提到的层」做 selection，再传给所有算子，全局 `tone_map`/`erase`/`redraw` 会被悄悄压到那几层上。实测同一组 ops：真全局 luma 52.894，走 CLI 49.555，约 95% 像素不同。要全局就单独跑一次，或用 `ops.apply(doc, specs, selection=None)` materialize 成新 plan 再 `render_plan.py`（这样 PNG 与 plan 一一对应）。`art_apply_ops` 只回 `selected`/`dirty_rect`，不落盘 plan；`art_edit_brief` 的缩略图固定在系统临时目录 `compile_thumb.png`。详见 docs/USAGE.md §5.3、§6.1。
+
 **已验证的凭空链路**：123 条 `draw_path`（天空/山脊/水面）→ `split_shading` → `relight_dir(azimuth=300, elevation=28)` → `densify(k=1.7)` → `set_light`，167 笔，0.07 s，出图 202 KB。它是「贴纸/海报」质感而不是厚涂——原因就是第 2 条：笔画太少、每条太长。
 
 
@@ -104,7 +106,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 ```
 
 - `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，同时是 `canvas` / `layers` / `strokes` 的**格式样板**——照它改就是自己的计划。
-- **凭空画（无参考图）最可控的走法：直接写计划、交引擎渲染** —— `plan_io.dump_plan(path, W, H, strokes, layer_blends=...)` 落盘，`render_util.render_arr(plan, gpu=False, nthreads=8)` 出图；先大笔平涂形体，再叠明暗与细节笔，迭代时看图改笔触。**不要逐像素造一张参考图再采样**：那样是脚本在画，不是引擎在画，形体改不动。字段语义与调参见 **[docs/USAGE.md](docs/USAGE.md) 第 4 节**（plan 结构 / 层与 blend / 笔刷 / 参数经验值）；完整范例是一张 960×680、12,701 笔、5 层的落日计划。
+- **凭空画（无参考图）最可控的走法：直接写计划、交引擎渲染** —— `plan_io.dump_plan(path, W, H, strokes, layer_blends=...)` 落盘，`render_util.render_arr(plan, gpu=False, nthreads=8)` 出图；先大笔平涂形体，再叠明暗与细节笔，迭代时看图改笔触。**不要逐像素造一张参考图再采样**：那样是脚本在画，不是引擎在画，形体改不动。字段语义与调参见 **[docs/USAGE.md](docs/USAGE.md) 第 4 节**（plan 结构 / 层与 blend / 笔刷 / 参数经验值）；该节按七段（铺底/天空/太阳/云/山/水/暗角）给了一张 960×680、约 1.2 万笔、5 层落日的构造顺序与每段参数，照它逐段生成就是自己的计划。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
 - **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
 
