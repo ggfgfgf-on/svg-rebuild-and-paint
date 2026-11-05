@@ -814,14 +814,102 @@ def relight_dir(doc, azimuth=315.0, elevation=40.0, strength=0.8, blur=0, mode="
     return doc
 
 
-def _light_region_mask(doc, shape):
-    """把一盏灯的作用区域栅格化成 0..1 掩膜：circle / ellipse / rect / polygon 任选。"""
+def _place_mask(gray, w, h, rect=None, feather=0.0, invert=False):
+    """把一张灰度图缩放/贴到画布上，返回 0..1 的掩膜（rect 之外为 0）。"""
     import cv2
     import numpy as _np
 
+    x0, y0, x1, y1 = (0, 0, w, h) if rect is None else [float(v) for v in rect]
+    x0 = max(0, int(round(x0)))
+    y0 = max(0, int(round(y0)))
+    x1 = min(int(w), int(round(x1)))
+    y1 = min(int(h), int(round(y1)))
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError("light_rig mask/map rect is empty")
+    gray = _np.asarray(gray, _np.float64)
+    gray = _np.clip(gray, 0.0, 1.0)
+    resized = cv2.resize(gray, (x1 - x0, y1 - y0), interpolation=cv2.INTER_LINEAR)
+    full = _np.zeros((max(1, h), max(1, w)), _np.float64)
+    full[y0:y1, x0:x1] = _np.clip(resized, 0.0, 1.0)
+    if feather and float(feather) > 0:
+        k = max(3, int(feather) | 1)
+        full = cv2.GaussianBlur(full, (k, k), 0)
+    if invert:
+        full = 1.0 - full
+    return full
+
+
+def _read_image_rgb(path):
+    """读一张图，统一成 0..1 的 rgb + alpha（没有 alpha 时 alpha=1）。"""
+    import cv2
+    import numpy as _np
+
+    img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise ValueError("light_rig 读不到贴图/掩膜: %s" % path)
+    if img.ndim == 3 and img.shape[2] == 4:
+        alpha = img[..., 3].astype(_np.float64) / 255.0
+        rgb = img[..., :3][:, :, ::-1].astype(_np.float64) / 255.0
+    elif img.ndim == 3:
+        alpha = _np.ones(img.shape[:2], _np.float64)
+        rgb = img[..., ::-1].astype(_np.float64) / 255.0
+    else:
+        alpha = _np.ones(img.shape[:2], _np.float64)
+        rgb = _np.repeat((img.astype(_np.float64) / 255.0)[..., None], 3, axis=2)
+    return rgb, alpha
+
+
+def _load_light_map(path, w, h, rect=None, mode="luma", invert=False):
+    """贴图式光照的贴图：返回 (光强 0..1, 光色 rgb 或 None)。
+
+    luma 模式用亮度当光强；rgb 模式亮度当强度、贴图颜色当光色；alpha 模式用 alpha 当强度。
+    """
+    import numpy as _np
+
+    rgb, alpha = _read_image_rgb(path)
+    lum = 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
+    if mode == "alpha":
+        if (alpha >= 1.0).all():
+            raise ValueError("light_rig map_mode=alpha 需要带 alpha 通道的图")
+        lum = alpha
+    elif mode not in ("luma", "rgb"):
+        raise ValueError("light_rig map_mode must be luma / rgb / alpha")
+    if invert:
+        lum = 1.0 - lum
+    lum_full = _place_mask(lum, w, h, rect, 0.0, False)
+    rgb_full = None
+    if mode == "rgb":
+        resized = _np.zeros((max(1, h), max(1, w), 3), _np.float64)
+        x0, y0, x1, y1 = (0, 0, w, h) if rect is None else [float(v) for v in rect]
+        x0, y0 = max(0, int(round(x0))), max(0, int(round(y0)))
+        x1, y1 = min(int(w), int(round(x1))), min(int(h), int(round(y1)))
+        if x1 <= x0 or y1 <= y0:
+            raise ValueError("light_rig map rect is empty")
+        import cv2
+        r = cv2.resize(_np.clip(rgb, 0.0, 1.0), (x1 - x0, y1 - y0), interpolation=cv2.INTER_LINEAR)
+        resized[y0:y1, x0:x1] = _np.clip(r, 0.0, 1.0)
+        rgb_full = resized
+    return lum_full, rgb_full
+
+
+def _light_region_mask(doc, shape):
+    """把一盏灯的作用区域栅格化成 0..1 掩膜：circle / ellipse / rect / polygon，或一张任意形状掩膜图。"""
+    import cv2
+    import numpy as _np
+
+    if isinstance(shape, str):
+        shape = {"mask_file": shape}
     if not isinstance(shape, dict):
-        raise ValueError("light_rig region/shape must be a dict")
+        raise ValueError("light_rig region/shape must be a dict or a mask image path")
     w, h = _canvas(doc)
+    if "mask_file" in shape or "image" in shape or "mask" in shape:
+        path = shape.get("mask_file") or shape.get("image") or shape.get("mask")
+        rgb, alpha = _read_image_rgb(path)
+        lum = 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
+        if not (alpha >= 1.0).all():
+            lum = lum * alpha
+        return _place_mask(lum, w, h, shape.get("rect"), float(shape.get("feather", 0.0) or 0.0),
+                           bool(shape.get("invert", False)))
     m = _np.zeros((max(1, h), max(1, w)), _np.uint8)
     if "polygon" in shape:
         pts = _np.asarray(shape["polygon"], _np.int32).reshape(-1, 2)
@@ -868,7 +956,11 @@ def light_rig(doc, lights=None, ambient=1.0, mode="dome", preserve="strokes", bl
       at: [x, y]  灯的位置；radial 必需，directional 也可用来给 radius 当圆心
       radius: 距离衰减半径（px）；falloff: smooth（默认）/ linear / hard
       shape: {circle:[x,y,r]} | {ellipse:[x,y,rx,ry,angle?]} | {rect:[x0,y0,x1,y1]} |
-             {polygon:[[x,y],...]}，可加 feather（px）与 invert:true —— 灯只照这个形状里
+             {polygon:[[x,y],...]} | {mask_file:"path.png", rect?, feather?, invert?}
+             （也可直接写 shape:"path.png"）—— 灯只照这个形状/这张任意掩膜里
+      map: "gobo.png" 贴图式光照（gobo/窗户投影）：光强按贴图亮度分布
+      map_mode: luma（默认，亮度=强度）/ rgb（亮度=强度、贴图颜色=光色，彩色窗花用这个）/ alpha
+      map_rect: [x0,y0,x1,y1] 贴图贴到画布哪一块（默认整张）；map_invert: true 取反
     ambient: 环境光基线（默认 1.0；<1 压暗未照亮区，>1 提亮）
     mode: 伪法线来源，dome（椭球，relight_dir 同款）或 gradient（按 shade 场梯度）
     preserve: strokes（默认，笔画级亮度守恒）/ rendered（渲染级守恒，慢）/ none
@@ -970,8 +1062,15 @@ def light_rig(doc, lights=None, ambient=1.0, mode="dome", preserve="strokes", bl
         depth = float(light.get("depth", max(20.0, (radius or 80.0) * 0.5)) or 80.0)
         shape = light.get("shape") or light.get("region")
         mask = _light_region_mask(doc, shape) if shape else None
+        map_path = light.get("map")
+        map_mode = str(light.get("map_mode", "luma"))
+        map_lum = map_rgb = None
+        if map_path:
+            map_lum, map_rgb = _load_light_map(map_path, w, h, light.get("map_rect"), map_mode,
+                                               bool(light.get("map_invert", False)))
         parsed.append(dict(typ=typ, col=col, strength=strength, at=at, radius=radius,
-                           falloff=falloff, lvec=lvec, depth=depth, mask=mask))
+                           falloff=falloff, lvec=lvec, depth=depth, mask=mask,
+                           map=map_lum, map_rgb=map_rgb))
 
     pre_luma = _rendered_luma(targets, 1.0)
     sel_mask = None
@@ -1015,8 +1114,15 @@ def light_rig(doc, lights=None, ambient=1.0, mode="dome", preserve="strokes", bl
                 mj = min(w - 1, max(0, int(px)))
                 g *= float(lt["mask"][mi, mj])
             c = lt["strength"] * lam * g * float(st)
+            tcol = lt["col"]
+            if lt["map"] is not None:
+                mi = min(h - 1, max(0, int(py)))
+                mj = min(w - 1, max(0, int(px)))
+                c *= float(lt["map"][mi, mj])
+                if lt["map_rgb"] is not None:
+                    tcol = tcol * lt["map_rgb"][mi, mj]
             total += c
-            tacc += c * lt["col"]
+            tacc += c * tcol
         total = ambient + total
         tacc = ambient + tacc
         if total <= 1e-9:
@@ -1087,7 +1193,7 @@ REQUIRED = {
 ALLOWED = {
     "add_layer": {"name", "blend", "index", "guidance"},
     "light_rig": {"lights", "ambient", "mode", "preserve", "blur", "layer", "guidance",
-                  "render_iters", "render_tol"},
+                  "render_iters", "render_tol", "map", "map_mode", "map_rect", "map_invert"},
     "remove_layer": {"name", "guidance"},
     "rename_layer": {"name", "to", "guidance"},
     "move_layer": {"name", "index", "guidance"},

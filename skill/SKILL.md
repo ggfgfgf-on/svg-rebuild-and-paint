@@ -50,7 +50,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 ## ops 算子全表（20 个，确定性、可 diff、零随机）
 
-凭空画/改画都走这层：先把画面拆成 plan（layers + strokes），再用算子改；`draw_path` 让空画布长出笔画（层不存在会自动建层），`add_layer` 显式建层，`set_light` / `split_shading` / `relight_dir` / `light_rig` 给形体，`densify` / `redraw` 加细节——**这就是"从零画出一张画"的完整链路**，不是只有改色。
+凭空画/改画都走这层：先把画面拆成 plan（layers + strokes），再用算子改；`draw_path` 让空画布长出笔画（层不存在会自动建层），`add_layer` 显式建层，`set_light` / `split_shading` / `relight_dir` / `light_rig` 给形体（`light_rig` 还支持 `map` 贴图式光照与 `mask_file` 任意形状），`densify` / `redraw` 加细节——**这就是"从零画出一张画"的完整链路**，不是只有改色。
 
 | op | 作用 | 必填键 |
 |---|---|---|
@@ -60,7 +60,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 | `rename_layer` | 层改名（连笔触；目标已存在报错） | name, to |
 | `move_layer` | 重排合成顺序 | name, index |
 | `set_light` | 全局均匀改光照（scale/tint） | — |
-| `light_rig` | 多光源：方向/点光 × 颜色 × 强度 × 半径衰减 × 任意形状区域 | lights |
+| `light_rig` | 多光源：方向/点光 × 颜色 × 强度 × 半径衰减 × 任意形状/贴图（gobo） | lights |
 | `relight_dir` | 重算全局受光方向，阴影高光跟着走 | — |
 | `split_shading` | 明暗拆成独立层，便于单独调 | — |
 | `replan_region` | 按参考图重排某区域（需 ref 图） | ref |

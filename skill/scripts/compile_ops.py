@@ -40,7 +40,7 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
   {"op": "split_shading",                                        "guidance": 0..1}
   {"op": "set_light",          "scale": >0, "tint": [r,g,b]?, "layer": "<层名，可省>", "guidance": 0..1}
   {"op": "relight_dir",        "azimuth": 0..360, "elevation": 0..90, "strength": 0..2, "blur": >=0, "mode": "dome|gradient", "layer": "<层名，可省>"}
-  {"op": "light_rig",          "lights": [{"type": "directional|radial", "azimuth": 0..360, "elevation": 0..90, "strength": >0, "color": "#rrggbb", "at": [x,y]?, "radius": >0?, "shape": {"circle|ellipse|rect|polygon": [...], "feather": px}?}], "ambient": >0, "preserve": "strokes|rendered|none"}
+  {"op": "light_rig",          "lights": [{"type": "directional|radial", "azimuth": 0..360, "elevation": 0..90, "strength": >0, "color": "#rrggbb", "at": [x,y]?, "radius": >0?, "shape": {"circle|ellipse|rect|polygon": [...]}|{"mask_file": "<png>"}|"<png>", "feather": px?, "map": "<gobo.png>", "map_mode": "luma|rgb|alpha", "map_rect": [x0,y0,x1,y1]}], "ambient": >0, "preserve": "strokes|rendered|none"}
   {"op": "replan_region",      "ref": "<参考图路径>", "regions": [...], "layers": [...]}
   {"op": "add_layer",          "name": "<新层名>", "blend": "normal", "index": 0..N?, "guidance": 0..1}
   {"op": "remove_layer",       "name": "<层名>", "guidance": 0..1}

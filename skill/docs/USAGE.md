@@ -316,6 +316,18 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
    {"type":"radial","at":[900,300],"strength":0.9,"color":"#7fb4ff","radius":420,
     "shape":{"ellipse":[900,300,520,380],"feather":60}}]}]
 ```
+
+贴图式光照（gobo）：`map` 是一张要「投影」的图。`map_mode:"luma"` 用亮度当光强（窗口格栅、树影），
+`rgb` 连颜色一起投（彩色窗花），`alpha` 用透明通道当光强。`map_rect` 决定投到画布哪一块。
+任意形状的遮挡/光池还可以把 `shape` 写成 `{"mask_file":"path.png"}` 或直接给图片路径。
+投影的分辨率上限 = 笔触粒度（每笔一个颜色）：要更细的图案，就把长笔触拆短，别指望一条粗笔刷出窗格。
+
+```json
+[{"op":"split_shading"},
+ {"op":"light_rig","ambient":0.2,"preserve":"none","lights":[
+   {"type":"directional","azimuth":200,"elevation":25,"strength":2.6,
+    "map":"textures/rose_window.png","map_mode":"rgb","map_rect":[80,20,400,300]}]}]
+```
 层管理三件套：`remove_layer`（层与笔触一起删）、`rename_layer`（层与笔触一起改，目标名已存在会报错）、`move_layer`（只改顺序）。
 
 **「细化」有两种，别混（这是同一任务两次冷启动 20 层 vs 15 层的实测差别）**

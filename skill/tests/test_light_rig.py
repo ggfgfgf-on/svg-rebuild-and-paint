@@ -95,6 +95,48 @@ def main():
     assert len(r["strokes"]) == len(shaded["strokes"])
     print("preserve=rendered: ok")
 
+    # 6) 贴图式光照：彩色窗花 gobo（rgb 模式）+ 任意形状掩膜图
+    import os
+    import tempfile
+    import cv2
+
+    td = tempfile.mkdtemp()
+    glass = np.zeros((64, 128, 3), np.uint8)      # BGR
+    glass[:, :60] = (0, 0, 255)                  # 左：红玻璃
+    glass[:, 68:] = (255, 0, 0)                  # 右：蓝玻璃
+    glass[:, 60:68] = (0, 0, 0)                  # 中缝：黑铅条（不透光）
+    glass_path = os.path.join(td, "glass.png")
+    cv2.imwrite(glass_path, glass)
+
+    gobo = [{"type": "directional", "azimuth": 200, "elevation": 10, "strength": 1.8,
+             "map": glass_path, "map_mode": "rgb"}]
+    outg = ops.apply(shaded, [{"op": "light_rig", "lights": gobo, "preserve": "none"}])
+    lead = [i for i, (px, py) in enumerate(cen) if 0.49 * w <= px <= 0.51 * w]
+    if lead:
+        assert all(tuple(outg["strokes"][i]["color"]) == base[i] for i in lead), "铅条处应不透光"
+    assert warm_ratio(outg, left) > warm_ratio(shaded, left), "左窗格应投红光"
+    assert warm_ratio(outg, right) < warm_ratio(shaded, right), "右窗格应投蓝光"
+    print("stained-glass gobo (rgb): ok (lead band %d strokes unchanged)" % len(lead))
+
+    blob = np.zeros((320, 480), np.uint8)
+    cv2.circle(blob, (120, 160), 90, 255, -1)
+    blob_path = os.path.join(td, "blob.png")
+    cv2.imwrite(blob_path, blob)
+    ml = [{"type": "directional", "azimuth": 200, "elevation": 10, "strength": 1.2,
+           "shape": {"mask_file": blob_path, "feather": 6}}]
+    outm = ops.apply(shaded, [{"op": "light_rig", "lights": ml, "preserve": "none"}])
+    far = [i for i, (px, py) in enumerate(cen) if px > 320]
+    if far:
+        assert all(tuple(outm["strokes"][i]["color"]) == base[i] for i in far), "掩膜外不应受影响"
+    inside = [i for i, (px, py) in enumerate(cen) if (px - 120) ** 2 + (py - 160) ** 2 < 70 ** 2]
+    if inside:
+        assert any(tuple(outm["strokes"][i]["color"]) != base[i] for i in inside), "掩膜内应有变化"
+    print("arbitrary mask_file: ok (far %d unchanged)" % len(far))
+
+    g2 = ops.apply(shaded, [{"op": "light_rig", "lights": gobo, "preserve": "none"}])
+    assert ops.canonical(g2) == ops.canonical(outg)
+    print("gobo deterministic: ok")
+
     print("RESULT OK")
 
 

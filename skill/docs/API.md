@@ -69,7 +69,7 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 多光源光照：一段 lights 列表，每盏灯可带方向/位置、颜色、强度、距离衰减和任意形状作用区域。
 
 - 必填：（无）
-- 可选：`ambient`, `blur`, `guidance`, `layer`, `lights`, `mode`, `preserve`, `render_iters`, `render_tol`
+- 可选：`ambient`, `blur`, `guidance`, `layer`, `lights`, `map`, `map_invert`, `map_mode`, `map_rect`, `mode`, `preserve`, `render_iters`, `render_tol`
 
 ### `move_layer`(doc, name, index, guidance=1.0, **_)
 
