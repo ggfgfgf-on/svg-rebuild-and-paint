@@ -93,7 +93,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 校验：`python scripts/compile_ops.py validate plan.json --ops ops.json`（多余键会被拒——模型最容易在这里瞎编）。
 
-> 形状 helper（不是 op，不改上表）：`scripts/shape_ops.py` 的 `fill_polygon` / `tapered_stroke`；参数语义见 `docs/SHAPE_API.md`，快速调用见 `docs/EXAMPLES.md`。
+> 形状 helper（不是 op，不改上表）：`scripts/shape_ops.py` 的 `fill_polygon` / `tapered_stroke`；参数语义见 `docs/SHAPE_API.md`。
 
 **用 ops 凭空画的三个硬约束（踩过坑，写在这里）**
 

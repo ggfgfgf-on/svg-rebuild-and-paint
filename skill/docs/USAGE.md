@@ -499,4 +499,4 @@ python scripts/metric.py ref.png render.png
 
 `scripts/shape_ops.py` 新增两个 helper：`fill_polygon`（多边形块面/剪影）与 `tapered_stroke`（沿 path 的锥形笔，鹿角/枝干/毛流）。它们只往 plan 追加普通笔触，不是新算子、不是新笔刷；原有的 densify / relight_dir / light_rig / draw_path 等 20 个算子照旧。
 
-参数语义、约束、层序与组合方式见 [SHAPE_API.md](SHAPE_API.md)；快速调用见 [EXAMPLES.md](EXAMPLES.md)。示例只讲怎么调，不替代 §4.6/§6.1 的画面结构。
+参数语义、约束、层序与组合方式见 [SHAPE_API.md](SHAPE_API.md)。

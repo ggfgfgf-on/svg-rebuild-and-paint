@@ -125,17 +125,18 @@ opacity 是**单笔**不透明度，不是整层统一 alpha。
 - 凹角/尖角处是逐边平移，不做 miter 连接；极端尖角可能仍有缺口；
 - 要完全控制在剪影内，可 edge=False，自己用更小的 polygon 或后续收边。
 
-### 1.6 组合方式（不是固定配方）
+### 1.6 组合时看哪些参数（不是步骤）
 
-fill_polygon 是“一遍”。一个有体积的块面通常需要多遍，但遍数/颜色由题材定：
+一次 fill 只产生一遍笔触。要改变块面的外观，调这些维度：
 
-- 第一遍：大 polygon、大 size、低 jitter，铺底色；
-- 第二遍：内缩 polygon 或局部 polygon，深色/低 opacity，画暗面；
-- 第三遍：更小 polygon 或 edge 边圈，亮色，画受光/边缘；
-- 需要单独调颜色/透明度时，把不同遍写到不同 layer；
-- 只画剪影时，一遍就够，不要为了“层数”硬拆。
+- polygon：覆盖范围与轮廓；凹多边形可以，洞不支持。
+- color / color2 / gradient_angle：颜色与方向；color2 是逐笔插值，不是像素渐变。
+- size / spacing / jitter：笔触密度与规则性；spacing 越小越实、笔数越多。
+- hardness / edge / edge_inset：边缘软硬与边圈内缩。
+- opacity：单笔透明度；重叠会叠加，不是整层 alpha。
+- layer：需要独立调整时换层；只画剪影时一层就够。
 
-这些是参数组合的语义，不是必须遵守的步骤；按题材选择。
+遍数、顺序、颜色和层名都不固定；这些参数可以单独或组合使用，按题材决定。
 
 ## 2. tapered_stroke
 
@@ -188,25 +189,23 @@ w(t) = size + (size_end - size) × t
 
 ### 2.4 copies 与 spread 的真实语义
 
-- copies=1：一条中心线；
-- copies>1：沿每段法线偏移 off=(c-(copies-1)/2)×spread，复制整条锥形；
-- spread 是副本之间的法线距离，不是总宽度；
-- 要“有厚度的鹿角/枝干”，copies 2–3、spread≈当前笔径的 0.3–0.6 通常够；
+- copies=1：一条中心线。
+- copies>1：沿每段法线偏移 off=(c-(copies-1)/2)×spread，复制整条锥形。
+- spread 是副本之间的法线距离，不是总宽度；厚度由 copies、spread 与笔径共同决定，没有固定比例。
 - 副本同色同宽；要不同颜色/宽度，分多次调用，不要指望 copies 自动分层。
 
 ### 2.5 与 draw_path 的区别
 
 draw_path 是一条 path = 一笔，笔径恒定；tapered_stroke 是一条 path = 多段笔触，笔径变化。
-两者都往同一层追加普通笔触，可混用。要一条腿的“大腿粗、踝细”，用 tapered_stroke
-或分段 draw_path；要一个块面，用 fill_polygon。
+两者都往同一层追加普通笔触，可混用；选择取决于你要恒定笔径还是变化笔径。
 
 ## 3. 组合与分层（语义，不是配方）
 
-- fill_polygon 负责“面”，tapered_stroke 负责“线/枝/毛”；
-- 面要有体积：多次 fill，内缩 polygon、不同 color2/opacity；需要独立调就分 layer；
-- 线要有厚度：copies/spread，或同一条 path 多次偏移调用；
-- 主体和背景分开层，是为了后面能单独调；不是必须按固定层名；
-- 只画剪影时，一层 fill 就成立；不要把“层多”当质量。
+- fill_polygon 产生“面”的笔触；tapered_stroke 产生“有宽度变化的线”的笔触。
+- 块面的体积/颜色变化，通过 polygon、color、color2、gradient_angle、opacity、edge 等参数组合实现；遍数与顺序由题材决定。
+- 线的厚度，通过 copies/spread 或同一条 path 多次偏移调用实现；参数没有固定配方。
+- 需要独立调整颜色/透明度/位置时，把不同遍写到不同 layer；只画剪影时一层就可以。
+- 层数不是质量指标；不要为了“分层”硬拆。
 
 ## 4. 已知限制
 
