@@ -10,6 +10,14 @@ scripts/shape_ops.py 里的两个 helper，用来解决“主体块面”和“�
 风格不是固定的：下面所有颜色、尺寸、笔刷都是参数，示例只展示“怎么调”，不规定
 “必须这样画”。
 
+仓库里有一个可直接跑的最小演示：
+
+~~~powershell
+python examples/shape_demo.py
+~~~
+
+产物在 examples/out_shape_demo/（shape.plan.json / shape.png）。
+
 ## 1. 最小可运行：填一个块面 + 一条锥形笔
 
 ~~~python
