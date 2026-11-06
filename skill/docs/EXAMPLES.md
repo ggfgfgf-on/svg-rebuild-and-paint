@@ -172,9 +172,55 @@ plan_io.dump_plan("my.plan.json", W, H, strokes,
                   layer_order=["bed", "band", "ambient", "highlight"])
 ~~~
 
-## 5. shape_ops 接到这些层里
+## 5. shape_ops：最小调用与接到层里
 
 fill_polygon / tapered_stroke 只负责往某一层追加普通笔触；它们不决定层结构。
+
+### 5.1 最小调用（旧 EXAMPLES 保留）
+
+这段来自旧 EXAMPLES.md，只演示“一块 + 一枝”的调用，不是构图模板；把代码里的 `SKILL` / `OUT` 换成本机路径即可。
+
+~~~python
+import sys
+from pathlib import Path
+
+SKILL = Path(r"<skill>")
+OUT = Path(r"<out>")
+sys.path.insert(0, str(SKILL / "scripts"))
+
+import plan_io
+import render_util as RU
+import shape_ops
+from PIL import Image
+
+W, H = 400, 300
+doc = {"canvas": [W, H], "layers": [], "strokes": []}
+
+# 一个块面：点按顺序给，凹多边形也可以，不用闭合
+shape_ops.fill_polygon(doc, "block", [[90, 80], [300, 70], [320, 220], [80, 210]],
+                       color="#6b4f3f", size=22, opacity=1.0,
+                       preset="bristle", spacing=8, jitter=0.35)
+
+# 一条锥形笔：从粗到细；size_end 应小于 size
+shape_ops.tapered_stroke(doc, "branch", "M 250 120 C 265 80 290 55 315 40",
+                         color="#b9986a", size=14, size_end=1.5,
+                         steps=28, preset="round_hard")
+
+OUT.mkdir(parents=True, exist_ok=True)
+plan_io.dump_plan(str(OUT / "shape.plan.json"), W, H, doc["strokes"],
+                  layer_blends={"block": "normal", "branch": "normal"})
+arr = RU.render_arr(plan_io.load_plan(str(OUT / "shape.plan.json"))[0],
+                    gpu=False, nthreads=8)[..., :3]
+Image.fromarray(arr.astype("uint8")).save(OUT / "shape.png")
+~~~
+
+要点：
+
+- 这只是“一块 + 一枝”的调用演示，不是一张画的构图；层怎么分按第 4 节。
+- spacing 默认是 size 的 0.45 倍；想更实就减小，想更透就增大。
+- fill_polygon 默认 edge=True，沿多边形边补一圈，减少圆笔触锯齿。
+
+### 5.2 接到这些层里
 
 ~~~python
 import shape_ops
