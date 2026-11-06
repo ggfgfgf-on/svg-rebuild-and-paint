@@ -200,89 +200,16 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 | 水面碎光 | 1.5–5 | 0.1–0.5 | 默认 | 500–1000 |
 | 暗角 | 70–150 | 0.03–0.08 | 默认 | 150–250 |
 
-### 4.6 凭空画：先选路线，再写循环
+### 4.6 凭空画：先填结构单，再过结构门
 
-凭空画要处理的是几类事：铺底/盖满、立形体、做细节、加光与压暗角。顺序与遍数按题材定；每轮只改一类东西，渲一张看一眼。**但在写循环之前，要先选路线**——两条路的写实上限和可改性完全不同：
+先读 [STRUCTURE.md](STRUCTURE.md)。这一节只保留入口，不重复结构单字段和参数：
 
-| 路线 | 谁决定形体 | 写实上限 | plan 可改性 | 可跑例子 |
-|---|---|---|---|---|
-| A 解析场 | 你的循环 | 中（厚涂插画） | 高：改哪段只影响那段 | `examples/realistic_sky_sea.py`（示例，不是入口） |
-| B 目标图采样 | 目标图（解析场或照片） | 高（受目标图限制） | 低：改一笔只是改一笔，改不动整体形体 | `examples/target_sampling.py`（示例，不是入口） |
+- 在 STRUCTURE.md 里填结构单：pose / 主体 bbox / 接地线 / parts / landmarks / 主光；
+- 用这些 parts 生成**结构-only** plan（可用 shape_ops.assemble_parts，见 [SHAPE_API.md](SHAPE_API.md) §2.6）；
+- 结构门：有参考用 structure_metric --ref；没有参考用自己填的 spec 或 structure_candidates 联系表；
+- 结构通过后才进完成门；完成门后再看一次结构是否被细化改坏。
 
-两条不互斥：常见做法是 B 打底、A 补光与局部；也可以在采样结果上再手写笔画。
-
-**路线 A 骨架**（每段一个循环）：
-
-```python
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path("<skill>") / "scripts"))
-import plan_io, render_util as RU
-
-W, H = 960, 640
-strokes = []
-def S(layer, pts, size, color, opacity, preset="round_soft", hardness=0.3):
-    strokes.append({"layer": layer, "preset": preset, "size": float(size), "opacity": float(opacity),
-                    "color": [float(c) for c in color], "hardness": hardness, "region_id": 0,
-                    "points": [[float(x), float(y), 1.0] for x, y in pts]})   # pressure 必须在
-
-S("base", [(-40, H * 0.5), (W + 40, H * 0.5)], size=H * 3, color=[20, 24, 46],
-  opacity=1.0, preset="round_hard", hardness=0.9)                     # 先把底盖满
-# ……天空 / 主体 / 光 / 细节各写一段循环；参数带见 4.5
-plan_io.dump_plan("my.plan.json", W, H, strokes,
-                  layer_blends={"base": "normal", "subject": "normal", "light": "screen"},
-                  layer_order=["base", "subject", "light"])
-arr = RU.render_arr(plan_io.load_plan("my.plan.json")[0], gpu=False, nthreads=8)
-```
-
-**路线 B 骨架**（从目标图采样；目标图换成 `cv2.imread(照片)` 就是照片采样）：
-
-```python
-import numpy as np, cv2, plan_io
-target = cv2.cvtColor(cv2.imread("ref.png"), cv2.COLOR_BGR2RGB).astype(np.float32)   # 或自己算解析场
-H, W = target.shape[:2]
-YH = int(H * 0.62)
-lum = cv2.cvtColor(target.astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32) / 255
-lum = cv2.GaussianBlur(lum, (0, 0), 2)
-gx = cv2.Sobel(lum, cv2.CV_32F, 1, 0, ksize=3); gy = cv2.Sobel(lum, cv2.CV_32F, 0, 1, ksize=3)
-ang = np.arctan2(gy, gx) + np.pi / 2                 # 沿等值线走笔
-strokes = []
-
-# 先铺底：大笔盖满（完整版见 examples/target_sampling.py 3a）
-for y in range(0, H, 7):
-    for x in range(0, W, 22):
-        yi, xi = int(np.clip(y, 0, H - 1)), int(np.clip(x, 0, W - 1))
-        strokes.append({"layer": "base", "preset": "flat", "size": 20.0,
-                        "opacity": 0.9, "color": [float(c) for c in target[yi, xi]],
-                        "hardness": 0.4, "region_id": 0,
-                        "points": [[x, y, 1.0], [x + 60, y, 1.0]]})
-
-for y in range(0, H, 4):
-    for x in range(0, W, 4):
-        g = float(np.hypot(gx[y, x], gy[y, x]))
-        ln = float(np.clip(2.4 / (g + 0.05), 6, 28))          # 细节处笔短
-        a = float(ang[y, x]) if y < YH else 0.0              # 水面只走横笔
-        hx, hy = np.cos(a) * ln / 2, np.sin(a) * ln / 2
-        strokes.append({"layer": "water" if y >= YH else "base", "preset": "flat",
-                        "size": float(np.clip(ln * 0.3, 3, 9)), "opacity": 0.55,
-                        "color": [float(c) for c in target[y, x]], "hardness": 0.45,
-                        "region_id": 0,
-                        "points": [[x - hx, y - hy, 1.0], [x + hx, y + hy, 1.0]]})
-plan_io.dump_plan("sampled.plan.json", W, H, strokes,
-                  layer_blends={"base": "normal", "water": "normal"})
-```
-
-**取舍（必须知道）**
-
-- 采样路线的 plan 仍然可 diff、可改单笔、可走 ops；但**形体已经由目标图定死**，改构图要重建 plan。
-- 采样前必须先铺底：大笔铺底 → 采样笔罩上去，否则细笔之间露纸。
-- 目标图不能直接当交付图（那是贴图）；plan 的意义是笔触**可再编辑**。
-- 水面强制横笔、天空笔不要竖直过头，否则出现"雨丝/拉链"。
-
-可跑版本、实测数字与验收方式见 [EXAMPLES.md](EXAMPLES.md) 第 7、9 节。
-
-
----
+路线 A/B 的代码骨架、示例数字属于可选案例，见 [EXAMPLES.md](EXAMPLES.md) §7；参数带见 §4.5，plan 字段见 §4.1–4.4。
 
 ## 5. 调参手册（按阶段）
 

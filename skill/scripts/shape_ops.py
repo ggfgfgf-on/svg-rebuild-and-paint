@@ -1,8 +1,9 @@
 """形状能力（新增，不改原有 20 个算子）。
 
-这两个函数是 **plan 生成 helper**，不是 ops 算子，也不改渲染器：
+这些函数是 **plan 生成 helper**，不是 ops 算子，也不改渲染器：
   * fill_polygon   —— 在多边形内撒普通笔触，做块面/剪影/岩台。
   * tapered_stroke —— 沿 SVG path 生成由粗到细的普通笔触，做枝干/鹿角/毛流。
+  * assemble_parts —— 把调用方写的一组任意 polygon 按 z 填充，不规定身体部件。
 
 产物就是 plan["strokes"] 里的普通笔触，所以能被 densify / relight_dir /
 light_rig / tone_map 等原有算子继续处理；不是新笔刷，也不是像素填充。
@@ -186,6 +187,75 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
                 if tag:
                     s["tag"] = str(tag)
                 doc["strokes"].append(s)
+    return doc
+
+
+def assemble_parts(doc, layer, parts, color=(217, 180, 90), color2=None,
+                   size=8.0, opacity=1.0, preset="round_soft", spacing=None,
+                   jitter=0.35, angle=0.0, gradient_angle=0.0, hardness=0.7,
+                   blend="normal", guidance=1.0, seed=0, edge=True,
+                   edge_inset=0.0, far_near_delta=0.0):
+    """Fill a model-authored list of parts in z order; no body-part schema.
+
+    parts: list of dicts. Each dict may contain:
+      polygon  required [[x,y], ...]
+      name     optional string, used for tag when no tag is given
+      z        draw order within this call (default 0; lower first)
+      value    -1..1, multiplied by far_near_delta for a simple near/far shift
+      color / color2 / size / opacity / spacing / preset / hardness /
+      edge / edge_inset / holes / tag / pressure
+    Missing keys fall back to the function arguments.
+
+    This helper only fills the parts the caller wrote. It does not know
+    body/head/leg names, proportions, or occlusion semantics; those are the
+    caller's geometry. The same layer is used for all parts, so z controls
+    brush order, not layer order.
+    """
+    g = max(0.0, min(1.0, float(guidance)))
+    if g <= 0.0:
+        return doc
+    ordered = sorted(enumerate(parts or []),
+                     key=lambda kv: (float(kv[1].get("z", 0.0)), kv[0]))
+    base_color = O._to_rgb(color)
+    base_color2 = None if color2 is None else O._to_rgb(color2)
+    for seq, (_, part) in enumerate(ordered):
+        poly = part.get("polygon")
+        if not poly:
+            continue
+        val = max(-1.0, min(1.0, float(part.get("value", 0.0))))
+        shift = float(far_near_delta) * val
+
+        def shifted(c):
+            if c is None:
+                return None
+            rgb = O._to_rgb(c)
+            return [max(0.0, min(255.0, float(x) + shift)) for x in rgb]
+
+        part_name = part.get("name")
+        tag = part.get("tag")
+        if tag is None and part_name:
+            tag = "part:" + str(part_name)
+        fill_polygon(
+            doc, layer, poly,
+            color=shifted(part.get("color", base_color)),
+            color2=shifted(part.get("color2", base_color2)),
+            size=part.get("size", size),
+            opacity=part.get("opacity", opacity),
+            preset=part.get("preset", preset),
+            spacing=part.get("spacing", spacing),
+            jitter=part.get("jitter", jitter),
+            angle=part.get("angle", angle),
+            gradient_angle=part.get("gradient_angle", gradient_angle),
+            hardness=part.get("hardness", hardness),
+            blend=blend,
+            tag=tag,
+            guidance=g,
+            seed=int(part.get("seed", seed + seq)),
+            edge=part.get("edge", edge),
+            edge_inset=part.get("edge_inset", edge_inset),
+            pressure=part.get("pressure", 1.0),
+            holes=part.get("holes"),
+        )
     return doc
 
 

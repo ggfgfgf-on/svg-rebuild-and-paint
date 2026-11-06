@@ -1,6 +1,6 @@
 # 示例：格式样板、起手顺序与层堆栈
 
-> 读法：这是**案例集**，不是规范模板。参数语义见 [SHAPE_API.md](SHAPE_API.md)；入口与调参见 [USAGE.md](USAGE.md) 第 4 节。示例可以直接跑，但层名、层数、顺序、颜色都应按题材换——不要因为示例是 4 层就画 4 层。
+> 读法：这是**可选案例集**，不是默认阅读路径，也不是规范模板。默认先读 [STRUCTURE.md](STRUCTURE.md)、[USAGE.md](USAGE.md) 第 4 节和 [SHAPE_API.md](SHAPE_API.md)；本文件的层名、层数、顺序、颜色都按题材换。
 
 ## 1. 最小格式样板：examples/demo.plan.json
 

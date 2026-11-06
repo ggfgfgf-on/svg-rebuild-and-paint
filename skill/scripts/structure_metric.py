@@ -5,7 +5,7 @@ never contains subject geometry; a candidate plan supplies the silhouette/landma
 
 Examples:
     python scripts/structure_metric.py cand.plan.json --layers stag --ref ref.plan.json --out report.json
-    python scripts/structure_metric.py cand.plan.json --layers stag --spec specs/stag.example.json --out report.json
+    python scripts/structure_metric.py cand.plan.json --layers stag --spec my-spec.json --out report.json
     python scripts/structure_metric.py cand.plan.json --layers stag --spec specs/stag.example.json --landmarks lm.json --guide guide.png
 """
 import argparse
@@ -83,7 +83,8 @@ def check_shape_metrics(metrics, spec):
         checks[key] = {"candidate": round(got, 4), "target": round(float(target), 4),
                        "error": round(err, 4), "tolerance": tol,
                        "pass": bool(err <= tol)}
-    return {"available": bool(checks), "pass": all(v["pass"] for v in checks.values()),
+    return {"available": bool(checks),
+            "pass": all(v["pass"] for v in checks.values()) if checks else None,
             "checks": checks}
 
 
@@ -167,7 +168,15 @@ def load_landmarks(path_or_none, doc):
 
 def check_landmarks(pred, spec, cand_bbox):
     """Return landmark and segment errors; pass is theirs, not an aesthetic score."""
-    target = spec.get("landmarks_bbox") or {}
+    raw_target = spec.get("landmarks_bbox") or {}
+    target = {}
+    for name, val in raw_target.items():
+        try:
+            if len(val) == 2:
+                float(val[0]); float(val[1])
+                target[name] = val
+        except (TypeError, ValueError):
+            continue
     if not pred or not target:
         return {"available": False}
     rows = []
@@ -231,15 +240,20 @@ def draw_guide(mask, spec, out_path, bbox=None):
     if bbox:
         x0, y0, x1, y1 = bbox
         cv2.rectangle(canvas, (x0, y0), (x1 - 1, y1 - 1), (30, 120, 220), 2)
-    sb = spec.get("subject_bbox") or [0.2, 0.2, 0.8, 0.8]
-    sx0, sy0, sx1, sy1 = [int(sb[0] * w), int(sb[1] * h), int(sb[2] * w), int(sb[3] * h)]
-    cv2.rectangle(canvas, (sx0, sy0), (sx1, sy1), (220, 120, 30), 2)
-    lm = spec.get("landmarks_bbox") or {}
-    for name, (u, v) in lm.items():
-        x = int(sx0 + float(u) * (sx1 - sx0))
-        y = int(sy0 + float(v) * (sy1 - sy0))
-        cv2.drawMarker(canvas, (x, y), (20, 20, 20), cv2.MARKER_CROSS, 14, 2)
-        cv2.putText(canvas, name, (x + 6, y - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (40, 40, 40), 1, cv2.LINE_AA)
+    sb = spec.get("subject_bbox")
+    if isinstance(sb, (list, tuple)) and len(sb) == 4:
+        sx0, sy0, sx1, sy1 = [int(sb[0] * w), int(sb[1] * h), int(sb[2] * w), int(sb[3] * h)]
+        cv2.rectangle(canvas, (sx0, sy0), (sx1, sy1), (220, 120, 30), 2)
+        lm = spec.get("landmarks_bbox") or {}
+        for name, val in lm.items():
+            try:
+                u, v = float(val[0]), float(val[1])
+            except (TypeError, ValueError):
+                continue
+            x = int(sx0 + u * (sx1 - sx0))
+            y = int(sy0 + v * (sy1 - sy0))
+            cv2.drawMarker(canvas, (x, y), (20, 20, 20), cv2.MARKER_CROSS, 14, 2)
+            cv2.putText(canvas, name, (x + 6, y - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (40, 40, 40), 1, cv2.LINE_AA)
     gy = spec.get("ground_y")
     if gy is not None:
         cv2.line(canvas, (0, int(float(gy) * h)), (w, int(float(gy) * h)), (30, 180, 80), 1)

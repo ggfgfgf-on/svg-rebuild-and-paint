@@ -145,6 +145,25 @@ def test_dump_layer_order():
     print("PASS dump_plan explicit layer_order + empty layer")
 
 
+def test_assemble_parts():
+    parts = [
+        {"name": "near", "z": 2, "polygon": [[110, 40], [160, 40], [160, 120], [110, 120]],
+         "color": [220, 80, 60]},
+        {"name": "far", "z": 0, "polygon": [[30, 50], [80, 50], [80, 130], [30, 130]],
+         "color": [60, 90, 220], "value": -1},
+    ]
+    doc = shape_ops.assemble_parts(empty_doc(), "parts", parts, size=8.0,
+                                   spacing=6.0, jitter=0.0, edge=False,
+                                   far_near_delta=15.0)
+    assert doc["strokes"]
+    assert all(s["layer"] == "parts" for s in doc["strokes"])
+    names = [s.get("tag") for s in doc["strokes"]]
+    assert names[0] == "part:far" and names[-1] == "part:near", (names[0], names[-1])
+    first = next(s for s in doc["strokes"] if s.get("tag") == "part:far")
+    assert first["color"][2] > first["color"][0], first["color"]  # blue-ish far part
+    print("PASS assemble_parts z-order + value shift + tags, %d strokes" % len(doc["strokes"]))
+
+
 def test_taper_copies_and_hardness():
     doc = shape_ops.tapered_stroke(empty_doc(), "antler", "M 80 170 L 180 30",
                                    size=12.0, size_end=2.0, steps=10,
@@ -166,4 +185,5 @@ if __name__ == "__main__":
     test_taper_pressure()
     test_taper_copies_and_hardness()
     test_dump_layer_order()
+    test_assemble_parts()
     print("all shape_ops tests passed")

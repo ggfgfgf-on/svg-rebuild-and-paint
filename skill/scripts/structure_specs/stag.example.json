@@ -1,51 +1,19 @@
 {
-  "name": "stag_side_profile",
-  "notes": "Example schema only: a normalized ruler for a side-profile stag. It is not a default gate and carries no canonical bbox_aspect/fill_ratio; supply those in your own spec when needed.",
-  "subject_bbox": [
-    0.16,
-    0.18,
-    0.62,
-    0.9
-  ],
-  "ground_y": 0.9,
+  "name": "example_subject_schema",
+  "notes": "Pure schema example. All target numbers are null placeholders; fill your own values or use --ref. This file is not a runnable structure gate.",
+  "subject_bbox": null,
+  "ground_y": null,
+  "bbox_aspect": null,
+  "fill_ratio": null,
   "landmarks_bbox": {
-    "nose": [
-      0.98,
-      0.06
-    ],
-    "poll": [
-      0.82,
-      0.1
-    ],
-    "shoulder": [
-      0.68,
-      0.42
-    ],
-    "hip": [
-      0.3,
-      0.48
-    ],
-    "front_hoof": [
-      0.82,
-      1
-    ],
-    "hind_hoof": [
-      0.22,
-      1
-    ],
-    "tail": [
-      0.04,
-      0.44
-    ],
-    "antler_tip": [
-      0.74,
-      0
-    ]
-  },
-  "tolerances": {
-    "landmark": 0.08,
-    "ground": 0.03,
-    "segment": 0.1
+    "nose": null,
+    "poll": null,
+    "shoulder": null,
+    "hip": null,
+    "front_hoof": null,
+    "hind_hoof": null,
+    "tail": null,
+    "antler_tip": null
   },
   "segments": {
     "head": [
@@ -68,5 +36,12 @@
       "hind_hoof",
       "front_hoof"
     ]
+  },
+  "tolerances": {
+    "landmark": null,
+    "segment": null,
+    "ground": null,
+    "bbox_aspect": null,
+    "fill_ratio": null
   }
 }
