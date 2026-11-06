@@ -93,6 +93,8 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 校验：`python scripts/compile_ops.py validate plan.json --ops ops.json`（多余键会被拒——模型最容易在这里瞎编）。
 
+> 形状 helper（不是 op，不改上表）：`scripts/shape_ops.py` 的 `fill_polygon` / `tapered_stroke`；调用示例见 `docs/EXAMPLES.md`。
+
 **用 ops 凭空画的三个硬约束（踩过坑，写在这里）**
 
 1. **顺序**：`split_shading` 必须在 `relight_dir` / `light_rig` 之前，否则直接抛 `ValueError: 笔触缺少 albedo/shade`。`set_light` 同样依赖它。

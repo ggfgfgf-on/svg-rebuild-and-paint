@@ -492,3 +492,11 @@ python scripts/metric.py ref.png render.png
 - `requirements.txt` / `install.ps1` 属于 DSH 本地安装，不是 skill 内容；skill 只保证脚本自洽。
 - `__pycache__` / `*.pyc` 是运行时缓存（自动重建），已在 `.gitignore`，不要入库。
 - 文档是中文；脚本输出是 ASCII JSON（任何 locale 都能读）。
+
+---
+
+## 9. 形状能力（新增，不改原有 20 个算子）
+
+`scripts/shape_ops.py` 新增两个 helper：`fill_polygon`（多边形块面/剪影）与 `tapered_stroke`（沿 path 的锥形笔，鹿角/枝干/毛流）。它们只往 plan 追加普通笔触，不是新算子、不是新笔刷；原有的 densify / relight_dir / light_rig / draw_path 等 20 个算子照旧。
+
+完整可运行示例、宿主工具调用、三组风格参数和常见错误见 [EXAMPLES.md](EXAMPLES.md)。

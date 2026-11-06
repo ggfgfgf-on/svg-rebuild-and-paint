@@ -1,0 +1,83 @@
+"""shape_ops（新增 fill_polygon / tapered_stroke）的契约测试。
+
+    python tests/test_shape_ops.py
+
+断言：
+  * fill_polygon 只在多边形内撒点，产物是普通笔触，可渲染且不露底
+  * fill_polygon 同输入两次逐字节相同，guidance=0 不改 doc
+  * tapered_stroke 的笔径从 size 单调收到 size_end，沿 path 落笔
+  * 两个 helper 都不改原有 20 个算子；只往 doc 追加笔触
+"""
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import numpy as np
+import ops
+import plan_io
+import render_util as RU
+import shape_ops
+
+
+def empty_doc():
+    return {"canvas": [200, 200], "layers": [], "strokes": []}
+
+
+def test_fill_polygon():
+    poly = [[40, 40], [160, 40], [160, 160], [40, 160]]
+    doc = shape_ops.fill_polygon(empty_doc(), "body", poly, color="#c08060",
+                                 size=12.0, opacity=1.0, preset="round_hard",
+                                 spacing=5.0, jitter=0.2)
+    assert len(doc["strokes"]) > 100, len(doc["strokes"])
+    assert [l["name"] for l in doc["layers"]] == ["body"]
+    for s in doc["strokes"]:
+        assert s["layer"] == "body"
+        for x, y, p in s["points"]:
+            assert 30 <= x <= 170 and 30 <= y <= 170, (x, y)
+    # 可渲染、不露底（中心 alpha 必须满）
+    with tempfile.TemporaryDirectory() as td:
+        plan = Path(td) / "fill.plan.json"
+        plan_io.dump_plan(str(plan), 200, 200, doc["strokes"], layer_blends={"body": "normal"})
+        arr = RU.render_arr(plan_io.load_plan(str(plan))[0], gpu=False, nthreads=4)
+        assert arr.shape[:2] == (200, 200)
+        assert float(arr[100, 100, 3]) >= 254, float(arr[100, 100, 3])
+    # 确定性
+    doc2 = shape_ops.fill_polygon(empty_doc(), "body", poly, color="#c08060",
+                                  size=12.0, opacity=1.0, preset="round_hard",
+                                  spacing=5.0, jitter=0.2)
+    assert ops.canonical(doc) == ops.canonical(doc2)
+    print("PASS fill_polygon %d strokes, deterministic, opaque center" % len(doc["strokes"]))
+
+
+def test_fill_guidance_zero():
+    doc = empty_doc()
+    before = ops.canonical(doc)
+    shape_ops.fill_polygon(doc, "body", [[40, 40], [160, 40], [160, 160]], guidance=0.0)
+    assert ops.canonical(doc) == before
+    print("PASS fill_polygon guidance=0 keeps doc unchanged")
+
+
+def test_tapered_stroke():
+    doc = shape_ops.tapered_stroke(empty_doc(), "antler", "M 80 170 C 100 110 150 70 180 30",
+                                   color="#d8c090", size=14.0, size_end=1.0,
+                                   steps=24, preset="round_hard")
+    assert len(doc["strokes"]) == 24, len(doc["strokes"])
+    sizes = [s["size"] for s in doc["strokes"]]
+    assert abs(sizes[0] - 14.0) < 0.8, sizes[0]
+    assert sizes[-1] < 3.0, sizes[-1]
+    assert all(a >= b for a, b in zip(sizes, sizes[1:])), sizes
+    assert [l["name"] for l in doc["layers"]] == ["antler"]
+    doc2 = shape_ops.tapered_stroke(empty_doc(), "antler", "M 80 170 C 100 110 150 70 180 30",
+                                    color="#d8c090", size=14.0, size_end=1.0,
+                                    steps=24, preset="round_hard")
+    assert ops.canonical(doc) == ops.canonical(doc2)
+    print("PASS tapered_stroke %d segments, size %.2f -> %.2f, deterministic" % (len(sizes), sizes[0], sizes[-1]))
+
+
+if __name__ == "__main__":
+    test_fill_polygon()
+    test_fill_guidance_zero()
+    test_tapered_stroke()
+    print("all shape_ops tests passed")
