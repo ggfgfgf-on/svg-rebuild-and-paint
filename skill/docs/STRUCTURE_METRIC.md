@@ -22,6 +22,23 @@ python scripts/structure_metric.py out/cand.plan.json --layers stag --spec scrip
 
 注意：**shape_iou** 是归一化形状比较，先消除位置/大小；位置和大小看 placement。不要拿原始像素 IoU 判结构。
 
+## 1.1 --ref 的语义（关键）
+
+--ref 是**结构参考 plan**，不是渲染图、不是绘制模板，也不是硬编码结构。
+
+- 取参考 plan 的主体层 alpha 作为剪影；
+- 候选和参考各自按主体 bbox 归一化，再算 shape_iou / dice / chamfer；
+- 所以位置和大小会被消掉，shape_iou 只看轮廓形状：
+  - 1.0 = 归一化轮廓相同；
+  - 越高越接近参考；
+  - shape_chamfer_px 越低越好；
+  - 位置/大小另看 placement。
+- 候选阶段就应该用同一个 --ref 跑所有候选，由 structure_candidates.py 按 shape_iou 排序；不要等完成门才第一次用参考。
+- 完成门后也要对 final 再跑一次同一个 --ref。如果 shape_iou 明显下降，说明完成层的笔触改变了/撑大了主体轮廓，不是“更细化”。
+- 没有 --ref 时，spec 只验 landmark / segment / 接地；它能抓“点标错”，不能抓“剪影不像鹿”。**spec pass 不等于结构 pass。**
+
+冷测里 A 的 spec max_error=0.029、segment 全过，但和 V2 的 shape_iou 只有 0.156、面积比 3.9；原因就是没有 --ref，landmark 对了，轮廓没对。
+
 ## 2. 多候选：structure_candidates.py
 
 同一个 prompt 先生成 2–3 个**结构-only** plan（只画剪影、接地、遮挡，不画毛/鹿角/高光），然后：
