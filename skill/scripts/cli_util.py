@@ -45,6 +45,20 @@ def load_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def cache_dir(sub="ops_demo"):
+    """默认输出目录：<主目录>/.cache/<sub>。
+
+    服务/沙箱/CI 里常常没有 HOME/USERPROFILE，此时 pathlib 的 expanduser 会抛
+    RuntimeError("Could not determine home directory")，整条命令直接崩。这里退到
+    系统临时目录，保证脚本在任何环境下都能跑。
+    """
+    import os
+    import tempfile
+    home = os.environ.get("USERPROFILE") or os.environ.get("HOME")
+    base = Path(home) if home else Path(tempfile.gettempdir())
+    return base / ".cache" / sub
+
+
 def log_unless_quiet(args, msg):
     if not getattr(args, "quiet", False):
         print(msg, flush=True)

@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
 
+import cli_util as CU
 import compile_ops
 import masks
 import ops
@@ -72,7 +73,7 @@ def main():
     ap.add_argument("--k", type=float, default=1.2)
     ap.add_argument("--rect", default=None)
     ap.add_argument("--feather", type=float, default=32.0)
-    ap.add_argument("--out-dir", default=str(Path.home() / ".cache" / "ops_demo"))
+    ap.add_argument("--out-dir", default=str(CU.cache_dir()))
     a = ap.parse_args()
 
     t0 = time.perf_counter()

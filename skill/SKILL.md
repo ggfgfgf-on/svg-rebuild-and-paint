@@ -122,6 +122,8 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 工具只是命令行的薄包装，没有额外逻辑；没有工具的环境照旧走下面的命令行。
 
+**两条渲染入口的默认 look 不同**：`render_plan.py` / `art_paint` 会套 `scripts/native/look.json`（`--look` 可换，profile 恒等=不套），而 `plan_io.render_plan()` 直接出图、不套 profile。所以同一份计划跨入口复渲可能差 1 个色阶（实测 maxdiff=1）；要逐位一致就固定走同一个入口，或把 look 显式指定成同一份。
+
 ## 计划从哪来（绘画 / 改画的起点）
 
 `paint_cli.py edit|video`、`paint_video.py` 都要一个 **`plan.json`**。技能里自带最小可运行小样：

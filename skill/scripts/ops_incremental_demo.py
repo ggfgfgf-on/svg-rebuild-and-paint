@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
 
+import cli_util as CU
 import compile_ops
 import masks
 import ops
@@ -89,7 +90,7 @@ def main():
     ap.add_argument("--gpu", action="store_true")
     ap.add_argument("--tiles", type=int, default=1,
                     help="把脏矩形切成 N×N 块分别重算（N=1 表示整块）")
-    ap.add_argument("--out", default=str(Path.home() / ".cache" / "ops_demo" / "inc.png"))
+    ap.add_argument("--out", default=str(CU.cache_dir() / "inc.png"))
     a = ap.parse_args()
 
     t0 = time.perf_counter()

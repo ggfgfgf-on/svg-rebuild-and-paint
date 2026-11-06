@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
 
+import cli_util as CU
 import compile_ops
 import masks
 import ops
@@ -56,7 +57,7 @@ def main():
     ap.add_argument("--groups", type=int, default=60)
     ap.add_argument("--edit-at", type=float, default=0.85)
     ap.add_argument("--draw-until", type=float, default=0.8)
-    ap.add_argument("--out", default=str(Path.home() / ".cache" / "ops_demo" / "edit.mp4"))
+    ap.add_argument("--out", default=str(CU.cache_dir() / "edit.mp4"))
     ap.add_argument("--gpu", action="store_true")
     a = ap.parse_args()
 

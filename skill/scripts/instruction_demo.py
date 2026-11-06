@@ -42,7 +42,7 @@ def main():
                     help="any=笔触碰到掩膜即选中（默认）；all=整笔在掩膜内才选中")
     ap.add_argument("--no-check", action="store_true", help="跳过与整份重画的逐位对比")
     CU.add_common_args(ap, quiet=False)       # --gpu / --threads 与其他脚本同形（本脚本只输出报告，无需 --quiet）
-    ap.add_argument("--out", default=str(Path.home() / ".cache" / "ops_demo" / "instruction.png"))
+    ap.add_argument("--out", default=str(CU.cache_dir() / "instruction.png"))
     a = ap.parse_args()
 
     t0 = time.perf_counter()
