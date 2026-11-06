@@ -130,8 +130,8 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 只出静帧
 ```
 
-- `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，同时是 `canvas` / `layers` / `strokes` 的**格式样板**——照它改就是自己的计划。
-- **凭空画（无参考图）最可控的走法：直接写计划、交引擎渲染** —— `plan_io.dump_plan(path, W, H, strokes, layer_blends=...)` 落盘，`render_util.render_arr(plan, gpu=False, nthreads=8)` 出图；先大笔平涂形体，再叠明暗与细节笔，迭代时看图改笔触。**不要逐像素造一张参考图再采样**：那样是脚本在画，不是引擎在画，形体改不动。字段语义与调参见 **[docs/USAGE.md](docs/USAGE.md) 第 4 节**（plan 结构 / 层与 blend / 笔刷 / 参数经验值）；该节按七段（铺底/天空/太阳/云/山/水/暗角）给了一张 960×680、约 1.2 万笔、5 层落日的构造顺序与每段参数，照它逐段生成就是自己的计划。
+- `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状，层数、层名、配色都不是模板，按 §6.1 拆你题目的层。
+- **凭空画（无参考图）最可控的走法：直接写计划、交引擎渲染** —— `plan_io.dump_plan(path, W, H, strokes, layer_blends=...)` 落盘，`render_util.render_arr(plan, gpu=False, nthreads=8)` 出图；先大笔平涂形体，再叠明暗与细节笔，迭代时看图改笔触。**不要逐像素造一张参考图再采样**：那样是脚本在画，不是引擎在画，形体改不动。字段语义与调参见 **[docs/USAGE.md](docs/USAGE.md) 第 4 节**（plan 结构 / 层与 blend / 笔刷 / 参数经验值）；该节讲字段与参数带，不提供“照抄某张画”的逐段构造。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
 - **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
 

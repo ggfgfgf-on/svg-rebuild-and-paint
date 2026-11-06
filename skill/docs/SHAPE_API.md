@@ -226,4 +226,13 @@ arr = RU.render_arr(plan_io.load_plan(path)[0], gpu=False, nthreads=8)
 ~~~
 
 契约测试：python tests/test_shape_ops.py
-（填充不露底、确定性、gradient/hardness、copies/spread）
+
+| 契约 | 测试 |
+|---|---|
+| 填充不露底、确定性 | `test_fill_polygon` |
+| guidance=0 不改 doc | `test_fill_guidance_zero` |
+| 锥形笔径、确定性 | `test_tapered_stroke` |
+| color2 渐变 + hardness | `test_fill_gradient_and_hardness` |
+| copies/spread 副本数、笔径 | `test_taper_copies_and_hardness` |
+
+不另设“画法示例”文档：参数行为由这些测试执行验证；需要看调用方式，读函数签名与 docstring，不要复制某个题材的完整构图。

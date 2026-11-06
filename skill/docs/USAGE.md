@@ -6,6 +6,7 @@
 >
 > 验证过这份手册够用：一个**零上下文**的模型只读本目录文档，产出了 1280×960 / 24,964 笔 / 20 层 / 8 种笔刷的原创厚涂夜景，
 > 经 draft → refined → final 三轮细化（8,171 → 24,964 笔），渲染 1.42 s、复渲逐像素差 0。它卡住的四处已补进 §5.3 与 §6.3。
+> 这是历史实测，用来证明手册够用，不是层数/规模目标。
 
 ---
 
@@ -102,10 +103,12 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 
 ### 4.1 顶层结构
 
+下面 JSON 只示例字段形状；层名、层数、canvas 尺寸都按题材换。
+
 ```json
 {
   "canvas": [960, 680],
-  "layers": [{"name": "bed", "blend": "normal"}, {"name": "band", "blend": "screen"}],
+  "layers": [{"name": "base", "blend": "normal"}, {"name": "subject", "blend": "screen"}],
   "strokes": [ { ...一笔... } ],
   "count": 12701,
   "regions": [],
@@ -125,7 +128,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 ### 4.2 一笔长什么样
 
 ```json
-{"layer": "band", "preset": "round_soft", "size": 46.0, "opacity": 0.18,
+{"layer": "subject", "preset": "round_soft", "size": 46.0, "opacity": 0.18,
  "color": [250.0, 176.0, 112.0], "hardness": 0.25, "region_id": 0,
  "points": [[120.0, 340.5, 1.0], [480.0, 345.2, 1.0]]}
 ```
@@ -147,7 +150,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 2. 图层必须先声明后使用，顺序决定上下（后面的层压在前面上）。
 3. 生成视频/过程时按**生成顺序**画；按 layer 分组会把不同层的笔交错，先画后画全乱。
 4. 空画布 = alpha 0；渲染结果要和白纸合成（`alpha` 层叠到纸色上）才是"白底画"。
-5. 笔数上万是常态：960×680 的落日约 1.2 万笔、2.4 MB。别手写，用循环生成。
+5. 笔数上万是常态：960×680 的厚涂约 1.2 万笔、2.4 MB。别手写，用循环生成。
 
 ### 4.3 图层与混合模式
 
@@ -161,7 +164,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 
 引擎另有 dodge / subtract / add / darken / lighten / colorburn / hardlight / vividlight / linearlight / pinlight / difference / exclusion / divide（`paint_native.BLENDS`）。画画常用前五个，其余留给实验。
 
-**层序经验**：`bed`（不透明底）→ `band`（主体）→ `ambient`（screen 光晕）→ `highlight`（screen 细节光）→ `glaze`（softlight 暗角）。这个顺序保证：底永远盖满、光永远在形体之上、暗角最后收视线。
+**层序经验（按角色，不是固定层名）**：不透明底层 → 主体层 → 光晕（screen）→ 细节光（screen）→ 暗角（softlight）。这样排的好处是：底盖满、光在形体之上、暗角最后收视线；层名、层数、顺序按题材定，能独立调即可。
 
 ### 4.4 笔刷预设
 
@@ -191,13 +194,13 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 
 ### 4.6 凭空画的起手姿态（示例，可按题材改）
 
-这是一条验证过的「正确姿态」示例：先立结构，再谈风格。题材不同可以改层和顺序，但“先整体、后细节”这条别倒：
+这是一条起手示例：先立结构，再谈风格。题材不同可以改层和顺序，但“先整体、后细节”这条别倒：
 
 1. **先大笔铺底**（不露底）→ 2. **中笔立形体**（天空/山/水各自成形）→ 3. **小笔做细节**（碎光、云缘）→ 4. **screen 层加光、softlight 层压角**。
 2. 每轮只改一类东西，渲一张看一眼；一次改十个参数，看不出是谁的作用。
 3. 不要"先逐像素造参考图再采样"——那是脚本在画，不是引擎在画，形体改不动；而 plan 改一行就能重渲。
 
-**从零造计划的代码骨架**（放在项目里跑，路径按自己的目录改）：
+**从零造计划的代码骨架**（放在项目里跑，路径按自己的目录改；层名只是骨架示例，按题材换）：
 
 ```python
 import sys, math, random
@@ -211,17 +214,18 @@ def S(layer, pts, size, color, opacity, preset="round_soft", hardness=0.3):
                     "color": [float(c) for c in color], "hardness": hardness, "region_id": 0,
                     "points": [[float(x), float(y), 1.0] for x, y in pts]})   # pressure 必须在
 
-S("bed", [(-40, H * 0.5), (W + 40, H * 0.5)], size=H * 3, color=[20, 24, 46], opacity=1.0,
+S("base", [(-40, H * 0.5), (W + 40, H * 0.5)], size=H * 3, color=[20, 24, 46], opacity=1.0,
   preset="round_hard", hardness=0.9)                                        # 先把底盖满
 # ……天空/主体/光/细节各写一段循环，参考第 4.5 节的参数带……
 
-blends = {"bed": "normal", "band": "normal", "glow": "screen", "vignette": "softlight"}
+blends = {"base": "normal", "subject": "normal", "light": "screen", "tone": "softlight"}
 plan_io.dump_plan("my.plan.json", W, H, strokes, layer_blends=blends)
 arr = RU.render_arr(plan_io.load_plan("my.plan.json")[0], gpu=False, nthreads=8)[..., :3]
 print("strokes", len(strokes), "shape", arr.shape)
 ```
 
-关键：**层名要先在 `blends` 里声明**，笔画按 `bed → 主体 → glow(screen) → vignette(softlight)` 的顺序生成；每一段都是独立循环，改哪段只影响哪段。
+关键：**层名要先在 `blends` 里声明**；这里只是最小骨架，实际层名、层数、顺序按题材定；每一段都是独立循环，改哪段只影响哪段。
+
 
 ---
 
