@@ -5,9 +5,9 @@ This does not generate candidates. Generate them first with the same prompt, the
         --layers stag --ref ref.plan.json --ref-layers stag,stag_detail,rim \
         --thumb 320 --sheet out/candidates.png --out out/ranking.json
 
-Without --ref, use --spec scripts/structure_specs/stag.json and put landmark:<name>
-tags in each candidate; otherwise no automatic ranking is claimed, and the contact
-sheet is for human/vision selection.
+Without --ref, --spec can gate bbox_aspect / fill_ratio / landmarks / segments; if no
+candidate passes, best is null. Without either, no automatic ranking is claimed and
+the contact sheet is for human/vision selection.
 """
 import argparse
 import json
@@ -65,6 +65,7 @@ def main():
             doc, _, _ = plan_io.load_plan(plan)
             pred = SM.load_landmarks(None, doc)
             bbox = row["mask"].get("bbox")
+            row["shape"] = SM.check_shape_metrics(row["mask"], spec)
             row["landmarks"] = SM.check_landmarks(pred, spec, bbox) if bbox else {"available": False}
         rows.append(row)
 
@@ -72,10 +73,26 @@ def main():
         rows.sort(key=lambda r: (-r["comparison"].get("shape_iou", 0.0), r["comparison"].get("shape_chamfer_px", 1e9)))
     elif spec:
         def key(r):
+            sh = r.get("shape") or {}
             lm = r.get("landmarks") or {}
-            return (0 if lm.get("pass") else 1, float(lm.get("max_error") if lm.get("max_error") is not None else 9))
+            shape_ok = sh.get("pass") if sh.get("available") else True
+            lm_ok = lm.get("pass") if lm.get("available") else True
+            maxe = lm.get("max_error") if lm.get("max_error") is not None else 9
+            return (0 if (shape_ok and lm_ok) else 1, float(maxe))
         rows.sort(key=key)
-    best = rows[0]["plan"] if (ref_mask is not None or (spec and rows and rows[0].get("landmarks", {}).get("available"))) else None
+    best = None
+    if ref_mask is not None and rows:
+        best = rows[0]["plan"]
+    elif spec:
+        passing = []
+        for r in rows:
+            sh = r.get("shape") or {}
+            lm = r.get("landmarks") or {}
+            ok_shape = sh.get("pass") if sh.get("available") else True
+            ok_lm = lm.get("pass") if lm.get("available") else True
+            if ok_shape and ok_lm and (sh.get("available") or lm.get("available")):
+                passing.append(r)
+        best = passing[0]["plan"] if passing else None
 
     if a.sheet:
         ims = []
@@ -108,7 +125,7 @@ def main():
             Path(a.sheet).parent.mkdir(parents=True, exist_ok=True)
             sheet.save(a.sheet)
 
-    report = {"candidates": rows, "best": best, "mode": "reference" if ref_mask is not None else ("landmark_spec" if spec else "manual")}
+    report = {"candidates": rows, "best": best, "mode": "reference" if ref_mask is not None else ("spec" if spec else "manual")}
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")

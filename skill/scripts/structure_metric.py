@@ -70,6 +70,23 @@ def mask_metrics(mask):
     }
 
 
+def check_shape_metrics(metrics, spec):
+    """Optional bbox_aspect / fill_ratio gates. Fields absent = not checked."""
+    checks = {}
+    for key in ("bbox_aspect", "fill_ratio"):
+        target = spec.get(key)
+        if target is None:
+            continue
+        tol = float((spec.get("tolerances") or {}).get(key, 0.0))
+        got = float(metrics.get(key, 0.0))
+        err = abs(got - float(target))
+        checks[key] = {"candidate": round(got, 4), "target": round(float(target), 4),
+                       "error": round(err, 4), "tolerance": tol,
+                       "pass": bool(err <= tol)}
+    return {"available": bool(checks), "pass": all(v["pass"] for v in checks.values()),
+            "checks": checks}
+
+
 def _resize(mask, shape):
     if mask.shape == shape:
         return mask
@@ -235,7 +252,7 @@ def main():
     ap.add_argument("--layers", help="comma-separated subject layer names; default plan.subject_layers")
     ap.add_argument("--ref", help="reference plan silhouette (not a bitmap); shape_iou is bbox-normalized")
     ap.add_argument("--ref-layers", help="reference subject layers; default --layers")
-    ap.add_argument("--spec", help="normalized landmark/segment ruler; not a shape approval")
+    ap.add_argument("--spec", help="normalized shape/landmark/segment ruler")
     ap.add_argument("--landmarks", help="candidate landmark JSON; default: strokes tagged landmark:<name>")
     ap.add_argument("--alpha-thresh", type=int, default=8)
     ap.add_argument("--out", help="write report JSON")
@@ -254,6 +271,7 @@ def main():
     if a.spec:
         spec = json.loads(Path(a.spec).read_text(encoding="utf-8"))
         report["spec"] = a.spec
+        report["shape"] = check_shape_metrics(report["mask"], spec)
         pred = load_landmarks(a.landmarks, doc)
         bbox = report["mask"].get("bbox")
         report["landmarks"] = check_landmarks(pred, spec, bbox) if bbox else {"available": False}
@@ -266,6 +284,12 @@ def main():
                                 "target_y": round(float(gy), 4),
                                 "error": round(gerr, 4), "tolerance": gtol,
                                 "pass": bool(gerr <= gtol)}
+        parts = []
+        for key in ("shape", "landmarks", "ground"):
+            node = report.get(key) or {}
+            if node.get("available", key == "ground") and "pass" in node:
+                parts.append(bool(node["pass"]))
+        report["structure_pass"] = all(parts) if parts else None
         if a.guide:
             draw_guide(mask, spec, a.guide, bbox)
     elif a.guide:

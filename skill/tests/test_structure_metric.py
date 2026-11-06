@@ -63,7 +63,14 @@ def main():
         lm3 = SM.check_landmarks({"nose": [50, 50], "poll": [60, 40]}, spec2, [0, 0, 100, 100])
         assert lm3["available"] and lm3["pass"] and lm3["segment_pass"], lm3
 
-        print("PASS structure_metric bbox/metrics, aligned shape compare, tags, landmarks, segments")
+        shape_spec = {"bbox_aspect": 1.0, "fill_ratio": 0.5,
+                      "tolerances": {"bbox_aspect": 0.05, "fill_ratio": 0.05}}
+        sh = SM.check_shape_metrics({"bbox_aspect": 1.02, "fill_ratio": 0.52}, shape_spec)
+        assert sh["available"] and sh["pass"], sh
+        sh2 = SM.check_shape_metrics({"bbox_aspect": 1.30, "fill_ratio": 0.80}, shape_spec)
+        assert sh2["available"] and not sh2["pass"], sh2
+
+        print("PASS structure_metric bbox/metrics, aligned shape compare, tags, landmarks, segments, shape gates")
 
 
 if __name__ == "__main__":

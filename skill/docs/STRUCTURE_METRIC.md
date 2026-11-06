@@ -45,7 +45,7 @@ python scripts/structure_metric.py out/cand.plan.json --layers stag --spec scrip
 | --layers | plan.subject_layers | 逗号分隔的主体层；没有 subject_layers 时必须给 |
 | --ref | 无 | 可选参考 plan；提供时输出 comparison |
 | --ref-layers | 同 --layers | 参考 plan 的主体层 |
-| --spec | 无 | 归一化 landmark/segment/ground 尺子 |
+| --spec | 无 | 归一化 shape/landmark/segment/ground 尺子 |
 | --landmarks | 无 | 候选 landmark JSON；不给则从 landmark: 标签取 |
 | --alpha-thresh | 8 | alpha 大于该值算主体像素 |
 | --out | 无 | 写完整 JSON |
@@ -59,7 +59,7 @@ structure_candidates.py 接收多个结构-only 候选 plan（只画剪影、接
 python scripts/structure_candidates.py out/cand_*.plan.json --layers stag --ref ref.plan.json --ref-layers stag,stag_detail --thumb 320 --cols 3 --sheet out/structure_candidates.png --out out/structure_ranking.json
 ~~~
 
-有参考时按 shape_iou 排序并标出 best；没有参考但有 spec/landmark 时按 landmark 最大误差排序；两者都没有时 best=null，只生成联系表供人或视觉模型选择，不假装自动排名。
+有参考时按 shape_iou 排序并标出 best；没有参考但有 spec 时先过 spec 的 shape/landmark gate，再按 landmark 最大误差排序，所有候选都不过时 best=null；两者都没有时 best=null，只生成联系表，不假装自动排名。
 
 ### 2.1 CLI 参数
 
@@ -100,15 +100,19 @@ spec 是归一化尺子：landmarks_bbox 的坐标相对主体 bbox，0..1；seg
 
 | 字段 | 说明 |
 |---|---|
+| bbox_aspect | 目标主体宽高比；给定时参与 shape gate |
+| fill_ratio | 目标主体填充率（面积 / bbox 面积）；给定时参与 shape gate |
 | subject_bbox | 归一化画布 bbox；只用于 --guide 的示意框 |
 | ground_y | 归一化接地线；参与 ground 检查 |
 | landmarks_bbox | landmark 目标点，坐标相对主体 bbox，0..1 |
 | segments | 关键点对（head/body/front_leg/hind_leg/stance）；按 bbox 归一化长度比较 |
+| tolerances.bbox_aspect | 宽高比绝对容差；例如 0.12 |
+| tolerances.fill_ratio | 填充率绝对容差；例如 0.05 |
 | tolerances.landmark | landmark 最大误差容差，默认 0.06 |
 | tolerances.segment | 段长误差容差，默认 0.10 |
 | tolerances.ground | 接地线误差容差，默认 0.03 |
 
-未列出的字段不会被执行；spec 是尺子，不是绘制模板。
+未列出的字段不会被执行；bbox_aspect/fill_ratio 只有给了目标和容差才参与 gate，不是硬编码结构。spec 是尺子，不是绘制模板。
 
 
 ## 4. 一种组合方式（不是要求）
@@ -130,15 +134,16 @@ spec 是归一化尺子：landmarks_bbox 的坐标相对主体 bbox，0..1；seg
 | load_mask | (mask, width, height, layers)；mask 是 uint8 0/1 |
 | mask_metrics | dict：empty / bbox / bbox_wh / bbox_aspect / area / fill_ratio / centroid / bottom_y / bottom_width |
 | compare_masks | dict：ref / candidate / shape_iou / shape_dice / shape_chamfer_px / placement |
+| check_shape_metrics | dict：available / pass / checks（bbox_aspect、fill_ratio 的 candidate/target/error/tolerance/pass） |
 | check_landmarks | dict：available / tolerance / mean_error / max_error / landmark_pass / segment_pass / segments / landmarks / pass |
 
-CLI 的 JSON 顶层：plan / canvas / layers / mask；有 ref 时多 ref / ref_layers / comparison；有 spec 时多 spec / landmarks / ground。
+CLI 的 JSON 顶层：plan / canvas / layers / mask；有 ref 时多 ref / ref_layers / comparison；有 spec 时多 spec / shape / landmarks / ground；多个 gate 都可用时多 structure_pass。
 
 ### structure_candidates.py
 
 stdout 只有一行 JSON：{best, mode, n, sheet}。
 --out 写完整候选数组：candidates[] / best / mode。
-mode：reference / landmark_spec / manual。manual 时 best=null，这是故意的，不猜。
+mode：reference / spec / manual。manual 或 spec 无候选全过时 best=null，这是故意的，不猜。
 
 ### ops 边界
 

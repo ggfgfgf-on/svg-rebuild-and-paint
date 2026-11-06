@@ -45,7 +45,9 @@
   "tolerances": {
     "landmark": 0.08,
     "ground": 0.03,
-    "segment": 0.1
+    "segment": 0.1,
+    "bbox_aspect": 0.12,
+    "fill_ratio": 0.05
   },
   "segments": {
     "head": [
@@ -68,5 +70,7 @@
       "hind_hoof",
       "front_hoof"
     ]
-  }
+  },
+  "bbox_aspect": 0.97,
+  "fill_ratio": 0.21
 }
