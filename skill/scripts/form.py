@@ -56,7 +56,7 @@ def hex_rgb(s):
     return np.array([int(s[i:i + 2], 16) for i in (0, 2, 4)], dtype=np.int16)
 
 
-def measure(svg, png, parts, tol, w, h, guides=None):
+def measure(svg, png, parts, tol, w, h, guides=None, rules=None):
     img = render(svg, png, w, h)
     arr = np.asarray(img, dtype=np.int16)
     out, masks = {}, {}
@@ -86,8 +86,9 @@ def measure(svg, png, parts, tol, w, h, guides=None):
     head_h = (head[3] - head[1]) if head else None
     head_w = (head[2] - head[0]) if head else None
     hh, hwd = head_h or 1, head_w or 1
-    rules = []
-    for rname, target, tor, note in RULES:
+    rule_list = rules or RULES
+    verdicts = []
+    for rname, target, tor, note in rule_list:
         val = None
         if rname == "head_w_over_h":
             val = (head_w / head_h) if (head_h and head_w) else None
@@ -107,14 +108,14 @@ def measure(svg, png, parts, tol, w, h, guides=None):
         elif rname == "hair_over_face":
             val = (out["hair"]["px"] / out["face"]["px"]) if out["face"]["px"] else None
         ok = None if val is None else (abs(val - target) <= tor)
-        rules.append({"rule": rname, "value": None if val is None else round(val, 3),
-                      "target": target, "tol": tor, "ok": ok, "note": note})
+        verdicts.append({"rule": rname, "value": None if val is None else round(val, 3),
+                         "target": target, "tol": tor, "ok": ok, "note": note})
     if guides:
         draw_guides(img, out, W, H).save(guides)
     return {"svg": svg, "size": [w, h], "parts": out,
-            "ratios": {r["rule"]: r["value"] for r in rules},
-            "verdicts": rules,
-            "failed": [r["rule"] for r in rules if r["ok"] is False],
+            "ratios": {r["rule"]: r["value"] for r in verdicts},
+            "verdicts": verdicts,
+            "failed": [r["rule"] for r in verdicts if r["ok"] is False],
             "guides_png": guides}
 
 
@@ -149,6 +150,7 @@ def main():
     ap.add_argument("--size", default="", help="WxH，缺省从 svg 读")
     ap.add_argument("--tol", type=int, default=2, help="颜色容差；默认 2（平涂取纯色，避免抗锯齿噪声把包围盒放大）")
     ap.add_argument("--parts", default="", help="JSON 覆盖 {name: '#rrggbb'}")
+    ap.add_argument("--rules", default="", help="JSON 规则列表 [[name,target,tol,note], ...]；缺省用内置人像规则")
     a = ap.parse_args()
     if a.size:
         w, h = [int(v) for v in a.size.lower().split("x")]
@@ -159,9 +161,10 @@ def main():
         w, h = (int(m.group(1)), int(m.group(2))) if m else (400, 600)
     parts = dict(DEFAULT_PARTS)
     if a.parts:
-        parts.update(json.load(open(a.parts, encoding="utf-8")))
+        parts.update(json.load(open(a.parts, encoding="utf-8-sig")))
     png = os.path.splitext(a.svg)[0] + ".form-render.png"
-    res = measure(a.svg, png, parts, a.tol, w, h, a.guides or None)
+    rules = json.load(open(a.rules, encoding="utf-8-sig")) if a.rules else None
+    res = measure(a.svg, png, parts, a.tol, w, h, a.guides or None, rules=rules)
     if a.out:
         with open(a.out, "w", encoding="utf-8") as fh:
             json.dump(res, fh, ensure_ascii=False, indent=2)

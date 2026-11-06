@@ -74,7 +74,8 @@ shape_ops.assemble_parts(doc, "stag", parts, size=12, spacing=5,
 
 ## 6. 谁决定
 
-- 结构单、parts：模型填；它可以在改结构时重填。当前没有默认比例字段；比例由 parts/landmarks 加独立 ref/spec 检查，不要把它当成默认答案。
+- 结构单、parts：模型填；它可以在改结构时重填。本轮新增的 structure sheet 没有默认比例字段；比例由 parts/landmarks 加独立 ref/spec 检查，不要把它当成默认答案。
+- 现有的 scripts/form.py 是 SVG 人像的独立比例量表，使用它自己的 RULES 或 --rules，不消费 paint plan 的 structure sheet；两者不要混用。
 - 独立参考/目标：由调用方提供。可以是认可的 plan，也可以是调用方审过的 spec；模型不应自己编一个目标再宣布通过。
 - metric：只执行确定性计算，返回指标/pass/exit code；它不生成结构，也不做审美判断。
 - 循环：模型可以改结构再跑；不能改 pass 字段。要通过，只能改几何或改用调用方认可的目标。
