@@ -197,12 +197,18 @@ def cmd_compile(a):
 
 
 def cmd_video(a):
-    specs = json.loads(Path(a.ops).read_text(encoding="utf-8"))
+    # --ops 是可选的：没有 ops 就是「从零画到完成」的过程片。
+    # 旧版这里直接 Path(a.ops)，不给 --ops 会 TypeError（Path(None)）。
+    ops_path = a.ops or None
+    specs = json.loads(Path(ops_path).read_text(encoding="utf-8")) if ops_path else []
     doc, w, h = plan_io.load_plan(a.plan)
-    compile_ops.validate_ops(doc, specs)
-    cmd = [sys.executable, str(HERE / "paint_video.py"), a.plan, "--ops", a.ops,
+    if specs:
+        compile_ops.validate_ops(doc, specs)
+    cmd = [sys.executable, str(HERE / "paint_video.py"), a.plan,
            "--frames", str(a.frames), "--fps", str(a.fps), "--out", a.out,
            "--feather", str(a.feather)]
+    if ops_path:
+        cmd += ["--ops", ops_path]
     if a.mask_file:
         cmd += ["--mask-file", a.mask_file]
     elif a.rect:

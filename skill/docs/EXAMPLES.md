@@ -251,3 +251,37 @@ print("alpha min/max", arr[..., 3].min(), arr[..., 3].max())
 ~~~
 
 像不像由参考图、形体和调参决定；示例不替代 [USAGE.md](USAGE.md) 第 5 节的调参手册。
+
+## 7. 凭空画：两条路线（可跑）
+
+| 路线 | 文件 | 实测（本机） |
+|---|---|---|
+| A 解析场 | `examples/realistic_sky_sea.py` | 9,199 笔 / 4 层 / 960×640 / plan 1.50 MB / 出图 0.24 s |
+| B 目标图采样 | `examples/target_sampling.py` | 29,351 笔 / 2 层 / 900×620 / plan 4.79 MB / 出图 0.62 s |
+
+```powershell
+python examples/realistic_sky_sea.py sky_sea.png sky_sea.plan.json
+python examples/target_sampling.py sampled.png sampled.plan.json
+```
+
+两个脚本都打印一行 JSON（笔数 / 层数 / 画布 / plan 字节 / 耗时）。这些数字是自查基线：同参数复跑应在同一量级，plan 字节数应稳定；耗时不稳多半是机器负载，不是脚本。
+
+选路线的取舍见 [USAGE.md](USAGE.md) §4.6：A 的形体可改，B 更接近参考图但形体由目标图定死。
+
+## 8. 增量出片（30fps 过程片）
+
+```powershell
+python examples/incremental_video.py sky_sea.plan.json sky_sea.mp4 600 30
+# {"frames":600,"fps":30,"duration_s":20.0,"size_mb":0.32,"strokes":9199,"render_s":5.97}
+```
+
+原则：每笔全片只画一次（`Painter.stroke_batch`），每帧只 `composite` 一次。逐帧用 `render_arr` 重画前 k 笔是 Σk 次落笔，同一量级计划实测 94.1 s（12,701 笔）。API 与参数见 [USAGE.md](USAGE.md) §5.4。
+
+## 9. 返回值自查（不设硬门槛）
+
+- `plan_io.dump_plan` → 只写文件；写完 `load_plan` 再渲一次，应逐像素一致（`maxdiff=0`）。
+- `render_util.render_arr` → `(H,W,4)`；**alpha=0 处没落笔**，要白纸底就自己按纸色合成。
+- `paint_video.py` → JSON 含 `last_frame_vs_full_render_diff_px`，非 0 会直接非零退出。
+- `selfcheck.py` → 每条 `[OK/FAIL] 名称 秒 详情`，末行 `RESULT OK|FAIL`。
+
+字段清单见 [USAGE.md](USAGE.md) 附录 B。

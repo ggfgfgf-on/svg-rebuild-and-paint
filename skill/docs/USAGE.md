@@ -137,12 +137,13 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 |---|---|---|
 | `layer` | 已在 `layers` 里声明 | 拼错 = 静默不画 |
 | `preset` | 10 个之一或 `tip:<名>` | 见 4.4 |
-| `size` | 1–300 px | 笔头直径 |
+| `size` | 下限 1；1–300 是手感带，**引擎不校验上限** | 笔头直径（像素）。实测 329.84、1600 都能渲染，大笔用来铺底 |
 | `opacity` | 0–1 | 单笔不透明度；叠 20 笔 0.1 比 1 笔 0.9 更柔 |
-| `color` | `[r,g,b]` 0–255，可为浮点 | 不是 0–1，也不是 `#rrggbb` |
+| `color` | `[r,g,b]` 0–255（浮点可以）或 `#rrggbb` | 两种都收：`plan_io._color` 把 `#rrggbb` 转成 0–255。不是 0–1 |
 | `hardness` | 0–1 | 0 = 全软边（雾），1 = 硬边（剪影/平涂） |
 | `region_id` | int | 有 `regions` 时才生效 |
-| `points` | `[[x, y, pressure], ...]` | **pressure 必须在**；两点以上连成笔道 |
+| `points` | `[[x, y, pressure], ...]` | **pressure 必须在**；**单点也合法**（当一个 dab）；两点以上连成笔道 |
+| `spacing` | 不在 plan 契约里 | plan→渲染固定 1.0；要调只能在引擎 API 里传（见 §5.4） |
 
 **硬规则**
 
@@ -151,6 +152,14 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 3. 生成视频/过程时按**生成顺序**画；按 layer 分组会把不同层的笔交错，先画后画全乱。
 4. 空画布 = alpha 0；渲染结果要和白纸合成（`alpha` 层叠到纸色上）才是"白底画"。
 5. 笔数上万是常态：960×680 的厚涂约 1.2 万笔、2.4 MB。别手写，用循环生成。
+
+**参数契约之外的实测语义**（按实测理解，别猜）：
+
+- `pressure` 参与该笔 alpha：实测 `alpha ≈ opacity × (0.15 + 0.85·p)`。p=1 满值，**p=0 仍有约 15%**（不是 0）；同一条笔里可以逐点变压力。
+- `size` 上限不校验：1–300 只是手感带，实测 329.84 / 1600 都能正常渲染。
+- `color` 两种写法都收：`[r,g,b]`（0–255，浮点可以）与 `#rrggbb`（`plan_io._color` 转换）。
+- `spacing` 只在引擎 API 里（`stroke` / `stroke_batch(..., spacing=)`），plan JSON 不传；渲染按 1.0。
+- 单点 `points` 合法：当一个 dab 落一次。
 
 ### 4.3 图层与混合模式
 
@@ -192,37 +201,74 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 | 水面碎光 | 1.5–5 | 0.1–0.5 | 默认 | 500–1000 |
 | 暗角 | 70–150 | 0.03–0.08 | 默认 | 150–250 |
 
-### 4.6 凭空画的起手姿态（示例，可按题材改）
+### 4.6 凭空画：先选路线，再写循环
 
-起手要处理的是几类事，不是几条固定步骤：铺底/盖满、立形体、做细节、加光与压暗角。顺序、遍数、层数都按题材定；每轮只改一类东西，渲一张看一眼，才看得出是谁的作用。
+凭空画要处理的是几类事：铺底/盖满、立形体、做细节、加光与压暗角。顺序与遍数按题材定；每轮只改一类东西，渲一张看一眼。**但在写循环之前，要先选路线**——两条路的写实上限和可改性完全不同：
 
-不要"先逐像素造参考图再采样"——那是脚本在画，不是引擎在画，形体改不动；而 plan 改一行就能重渲。
+| 路线 | 谁决定形体 | 写实上限 | plan 可改性 | 可跑例子 |
+|---|---|---|---|---|
+| A 解析场 | 你的循环 | 中（厚涂插画） | 高：改哪段只影响那段 | `examples/realistic_sky_sea.py` |
+| B 目标图采样 | 目标图（解析场或照片） | 高（受目标图限制） | 低：改一笔只是改一笔，改不动整体形体 | `examples/target_sampling.py` |
 
-**从零造计划的代码骨架**（放在项目里跑，路径按自己的目录改；层名只是骨架示例，按题材换）：
+两条不互斥：常见做法是 B 打底、A 补光与局部；也可以在采样结果上再手写笔画。
+
+**路线 A 骨架**（每段一个循环）：
 
 ```python
-import sys, math, random
-sys.path.insert(0, r"<skill>\scripts")
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path("<skill>") / "scripts"))
 import plan_io, render_util as RU
 
-W, H = 1280, 960
+W, H = 960, 640
 strokes = []
 def S(layer, pts, size, color, opacity, preset="round_soft", hardness=0.3):
     strokes.append({"layer": layer, "preset": preset, "size": float(size), "opacity": float(opacity),
                     "color": [float(c) for c in color], "hardness": hardness, "region_id": 0,
                     "points": [[float(x), float(y), 1.0] for x, y in pts]})   # pressure 必须在
 
-S("base", [(-40, H * 0.5), (W + 40, H * 0.5)], size=H * 3, color=[20, 24, 46], opacity=1.0,
-  preset="round_hard", hardness=0.9)                                        # 先把底盖满
-# ……天空/主体/光/细节各写一段循环，参考第 4.5 节的参数带……
-
-blends = {"base": "normal", "subject": "normal", "light": "screen", "tone": "softlight"}
-plan_io.dump_plan("my.plan.json", W, H, strokes, layer_blends=blends)
-arr = RU.render_arr(plan_io.load_plan("my.plan.json")[0], gpu=False, nthreads=8)[..., :3]
-print("strokes", len(strokes), "shape", arr.shape)
+S("base", [(-40, H * 0.5), (W + 40, H * 0.5)], size=H * 3, color=[20, 24, 46],
+  opacity=1.0, preset="round_hard", hardness=0.9)                     # 先把底盖满
+# ……天空 / 主体 / 光 / 细节各写一段循环；参数带见 4.5
+plan_io.dump_plan("my.plan.json", W, H, strokes,
+                  layer_blends={"base": "normal", "subject": "normal", "light": "screen"},
+                  layer_order=["base", "subject", "light"])
+arr = RU.render_arr(plan_io.load_plan("my.plan.json")[0], gpu=False, nthreads=8)
 ```
 
-关键：**层名要先在 `blends` 里声明**；这里只是最小骨架，实际层名、层数、顺序按题材定；每一段都是独立循环，改哪段只影响哪段。
+**路线 B 骨架**（从目标图采样；目标图换成 `cv2.imread(照片)` 就是照片采样）：
+
+```python
+import numpy as np, cv2, plan_io
+target = cv2.cvtColor(cv2.imread("ref.png"), cv2.COLOR_BGR2RGB).astype(np.float32)   # 或自己算解析场
+lum = cv2.cvtColor(target.astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32) / 255
+lum = cv2.GaussianBlur(lum, (0, 0), 2)
+gx = cv2.Sobel(lum, cv2.CV_32F, 1, 0, ksize=3); gy = cv2.Sobel(lum, cv2.CV_32F, 0, 1, ksize=3)
+ang = np.arctan2(gy, gx) + np.pi / 2                 # 沿等值线走笔
+strokes = []
+for y in range(0, H, 4):
+    for x in range(0, W, 4):
+        g = float(np.hypot(gx[y, x], gy[y, x]))
+        ln = float(np.clip(2.4 / (g + 0.05), 6, 28))          # 细节处笔短
+        a = float(ang[y, x]) if y < YH else 0.0              # 水面只走横笔
+        hx, hy = np.cos(a) * ln / 2, np.sin(a) * ln / 2
+        strokes.append({"layer": "water" if y >= YH else "base", "preset": "flat",
+                        "size": float(np.clip(ln * 0.3, 3, 9)), "opacity": 0.55,
+                        "color": [float(c) for c in target[y, x]], "hardness": 0.45,
+                        "region_id": 0,
+                        "points": [[x - hx, y - hy, 1.0], [x + hx, y + hy, 1.0]]})
+plan_io.dump_plan("sampled.plan.json", W, H, strokes,
+                  layer_blends={"base": "normal", "water": "normal"})
+```
+
+**取舍（必须知道）**
+
+- 采样路线的 plan 仍然可 diff、可改单笔、可走 ops；但**形体已经由目标图定死**，改构图要重建 plan。
+- 采样前必须先铺底：大笔铺底 → 采样笔罩上去，否则细笔之间露纸。
+- 目标图不能直接当交付图（那是贴图）；plan 的意义是笔触**可再编辑**。
+- 水面强制横笔、天空笔不要竖直过头，否则出现"雨丝/拉链"。
+
+可跑版本、实测数字与验收方式见 [EXAMPLES.md](EXAMPLES.md) 第 7、9 节。
 
 
 ---
@@ -375,18 +421,35 @@ print("final strokes", len(out["strokes"]))
 ### 5.4 视频
 
 ```powershell
+# A) 从零画到完成的过程片：--ops 可省（旧版省略会 TypeError，已修）
+python scripts/paint_cli.py video plan.json --out out.mp4 --frames 600 --fps 30
+
+# B) 画到一半再施改画
 python scripts/paint_cli.py video plan.json --ops ops.json --out out.mp4 --frames 600 --fps 30
-python scripts/paint_video.py plan.json --edit-at 180 --groups 2 --out out.mp4   # 画到一半再施改画
+python scripts/paint_video.py plan.json --edit-at 180 --groups 2 --out out.mp4
 ```
 
 | 参数 | 作用 |
 |---|---|
 | `--frames` / `--fps` | 总帧数 / 帧率（600 帧 @30 = 20 s） |
+| `--ops` | 可选：没有就是纯绘制过程 |
 | `--groups` | 把改画分批到第几段 |
 | `--edit-at` | 第几帧开始改画 |
 | `--draw-until` | 画到第几帧停 |
 
-实测：**增量渲染** 600 帧 20 s 视频 7.3 s；同一计划逐帧重渲 94.1 s（12.7× 差距）。h264 `-crf 20 -preset veryfast` 后 0.28–0.50 MB。
+**要自己控制每帧切多少笔**（加计数水印、换编码参数、只画一部分）就直接驱动引擎：
+
+```python
+import paint_native as PN
+p = PN.Painter(W, H)
+p.clear_layer(0, (250, 247, 240), 1.0)                   # 白纸底
+for i, spec in enumerate(plan["layers"]):
+    p.add_layer(spec.get("blend", "normal"))             # 层号 = i + 1
+p.stroke_batch(layer_idx, strokes[j:k], nthreads=8)      # 每笔全片只画一次；返回落笔数
+frame = p.composite()                                    # (H, W, 4) uint8
+```
+
+完整可跑：`examples/incremental_video.py`。实测（9,199 笔 / 960×640 / 600 帧 30fps）：增量 **5.97 s**、0.32 MB；同一量级计划逐帧用 `render_arr` 重画前 k 笔是 Σk 次落笔，实测 **94.1 s**（12,701 笔）。h264 `-crf 20 -preset veryfast` 后 0.28–0.50 MB。
 
 ---
 
@@ -467,6 +530,23 @@ python scripts/metric.py ref.png render.png
 | 编译 | `compile_ops.py brief` | plan + 一句话指令 | 缩略图 + 提示词（ops 由你写） |
 | 校验 | `compile_ops.py validate` / `plan_io.py check` / `selfcheck.py` | plan / ops / 环境 | `ok`，或具体错误 |
 | 度量 | `metric.py`（有参考图）；§6.3（无参考图） | 两张图，或一张图 + 判据 | 一组可比较的数字 |
+
+### 附录 B. 返回值（自己判定，不设硬门槛）
+
+| 入口 | 返回什么 |
+|---|---|
+| `render_plan.py` | 打印 JSON：`{plan, ops, out, size:[w,h], luma}` |
+| host `art_paint` | 一行文本：PNG 路径、KB、秒（与上面同一渲染器） |
+| `plan_io.load_plan(path)` | `(doc, w, h)`；doc 里 `strokes/count/layers` 可直接改 |
+| `plan_io.dump_plan(...)` | `None`，唯一产物是文件；写完应再 `load_plan` 验一遍 |
+| `render_util.render_arr(doc)` | `(H, W, 4) uint8`；**alpha=0 处没落笔**，纸色要自己合成 |
+| `paint_native.Painter.stroke_batch(...)` | `int`：本次落笔数 |
+| `paint_native.Painter.composite()` | `(H, W, 4) uint8`：当前整幅 |
+| `paint_video.py` | JSON：`frames/fps/duration_s/render_and_save_s/encode_s/total_s/mb/last_frame_vs_full_render_diff_px`；末帧与整份重画不一致会非零退出 |
+| `selfcheck.py` | 每条 `[OK/FAIL] 名称 秒 详情`，末行 `RESULT OK|FAIL`，退出码同步 |
+| `metric.py` | JSON：`mean / pct_le3 / pct_le5 / pct_le10 / pct_le20 / uncovered / pixels` |
+
+判定用这些返回值自己比（同参数复跑逐像素一致；`luma` 变化说明改到了；`diff_px` 应为 0），不加"合格线"。
 
 ## 7. 症状 → 参数 速查（总表）
 
