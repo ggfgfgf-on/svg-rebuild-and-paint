@@ -1,6 +1,6 @@
 # 形状能力调用示例（新增）
 
-这份文档只讲 **shape_ops 两个 helper 怎么调用**，不是画面结构模板。
+这份文档只讲 **shape_ops 两个 helper 怎么快速调用**，不是画面结构模板；参数语义、约束与层序见 [SHAPE_API.md](SHAPE_API.md)。
 原有示例（examples/demo.plan.json 的 bed / band / ambient / highlight）和
 USAGE §4.6 / §6.1 的结构都不动；这里不提供“照着拆层”的替代结构。
 

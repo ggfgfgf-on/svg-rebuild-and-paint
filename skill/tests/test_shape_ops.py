@@ -76,8 +76,35 @@ def test_tapered_stroke():
     print("PASS tapered_stroke %d segments, size %.2f -> %.2f, deterministic" % (len(sizes), sizes[0], sizes[-1]))
 
 
+def test_fill_gradient_and_hardness():
+    doc = shape_ops.fill_polygon(empty_doc(), "body", [[40, 40], [160, 40], [160, 160], [40, 160]],
+                                 color="#ff0000", color2="#0000ff", size=10.0,
+                                 opacity=1.0, preset="round_hard", spacing=6.0,
+                                 jitter=0.0, edge=False, hardness=0.2)
+    assert len(doc["strokes"]) > 100
+    assert all(s["hardness"] == 0.2 for s in doc["strokes"])
+    colors = [s["color"] for s in doc["strokes"]]
+    assert colors[0] != colors[-1], (colors[0], colors[-1])
+    assert colors[0][0] > colors[-1][0], (colors[0], colors[-1])
+    print("PASS fill_polygon color2 gradient + hardness, %d strokes" % len(doc["strokes"]))
+
+
+def test_taper_copies_and_hardness():
+    doc = shape_ops.tapered_stroke(empty_doc(), "antler", "M 80 170 L 180 30",
+                                   size=12.0, size_end=2.0, steps=10,
+                                   copies=3, spread=2.0, hardness=0.3)
+    assert len(doc["strokes"]) == 30, len(doc["strokes"])
+    assert all(s["hardness"] == 0.3 for s in doc["strokes"])
+    # 三个副本的同一段应互相偏移
+    xs = [s["points"][0][0] for s in doc["strokes"][:10]]
+    assert max(xs) - min(xs) > 2.5, (min(xs), max(xs))
+    print("PASS tapered_stroke copies=3 spread=2, %d strokes" % len(doc["strokes"]))
+
+
 if __name__ == "__main__":
     test_fill_polygon()
     test_fill_guidance_zero()
     test_tapered_stroke()
+    test_fill_gradient_and_hardness()
+    test_taper_copies_and_hardness()
     print("all shape_ops tests passed")
