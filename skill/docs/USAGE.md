@@ -142,6 +142,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 | `color` | `[r,g,b]` 0–255（浮点可以）；手写 plan 也可写 `#rrggbb` | 渲染器（`plan_io._color`）两种都收；**`dump_plan` 写盘仍要求 `[r,g,b]`**，不能直接传 hex。不是 0–1 |
 | `hardness` | 0–1 | 0 = 全软边（雾），1 = 硬边（剪影/平涂） |
 | `region_id` | int | 有 `regions` 时才生效 |
+| `tag` | str，可选 | 笔触标签；select_tag 可用；`landmark:<name>` 供结构度量 |
 | `points` | `[[x, y, pressure], ...]` | **pressure 必须在**；**单点也合法**（当一个 dab）；两点以上连成笔道 |
 | `spacing` | 不在 plan 契约里 | plan→渲染固定 1.0；要调只能在引擎 API 里传（见 §5.4） |
 
@@ -499,6 +500,8 @@ frame = p.composite()                                    # (H, W, 4) uint8
 ```
 
 ### 6.3 验收
+
+结构度量与多候选见 [STRUCTURE_METRIC.md](STRUCTURE_METRIC.md)；不要只凭 25% 眼判。
 
 先过机械不变量，再用语义判断；表里的数字是参考值，不是合格线。
 

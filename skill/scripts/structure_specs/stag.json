@@ -1,0 +1,74 @@
+{
+  "name": "stag_side_profile",
+  "notes": "Normalized ruler for a side-profile stag; this is measurement data, not a drawing template. Replace for other subjects.",
+  "subject_bbox": [
+    0.16,
+    0.18,
+    0.62,
+    0.9
+  ],
+  "ground_y": 0.9,
+  "landmarks_bbox": {
+    "nose": [
+      0.98,
+      0.06
+    ],
+    "poll": [
+      0.82,
+      0.1
+    ],
+    "shoulder": [
+      0.68,
+      0.42
+    ],
+    "hip": [
+      0.3,
+      0.48
+    ],
+    "front_hoof": [
+      0.82,
+      1
+    ],
+    "hind_hoof": [
+      0.22,
+      1
+    ],
+    "tail": [
+      0.04,
+      0.44
+    ],
+    "antler_tip": [
+      0.74,
+      0
+    ]
+  },
+  "tolerances": {
+    "landmark": 0.08,
+    "bbox_aspect": 0.25,
+    "fill_ratio": 0.2,
+    "ground": 0.03,
+    "segment": 0.1
+  },
+  "segments": {
+    "head": [
+      "poll",
+      "nose"
+    ],
+    "body": [
+      "shoulder",
+      "hip"
+    ],
+    "front_leg": [
+      "shoulder",
+      "front_hoof"
+    ],
+    "hind_leg": [
+      "hip",
+      "hind_hoof"
+    ],
+    "stance": [
+      "hind_hoof",
+      "front_hoof"
+    ]
+  }
+}

@@ -73,11 +73,14 @@ def dump_plan(path, w, h, strokes, layer_blends=None, regions=None, subject_laye
     for s in strokes:
         p = s["preset"]
         name = id2name.get(p, str(p)) if isinstance(p, (int, np.integer)) else str(p)
-        out.append({"layer": s["layer"], "preset": name, "size": float(s["size"]),
-                    "opacity": float(s["opacity"]), "color": [round(float(x), 2) for x in s["color"]],
-                    "hardness": float(s.get("hardness", 0.7)),
-                    "region_id": int(s.get("region_id", 0)),
-                    "points": [[round(float(v), 2) for v in pt] for pt in np.asarray(s["points"]).tolist()]})
+        entry = {"layer": s["layer"], "preset": name, "size": float(s["size"]),
+                 "opacity": float(s["opacity"]), "color": [round(float(x), 2) for x in s["color"]],
+                 "hardness": float(s.get("hardness", 0.7)),
+                 "region_id": int(s.get("region_id", 0)),
+                 "points": [[round(float(v), 2) for v in pt] for pt in np.asarray(s["points"]).tolist()]}
+        if s.get("tag"):
+            entry["tag"] = str(s["tag"])
+        out.append(entry)
     doc = {"canvas": [int(w), int(h)],
            "layers": [{"name": n, "blend": layer_blends.get(n, "normal")} for n in order],
            "strokes": out, "count": len(out)}
