@@ -9,7 +9,7 @@
 python scripts/structure_metric.py out/cand.plan.json --layers stag --ref ref.plan.json --ref-layers stag,stag_detail --out out/cand.structure.json
 
 # 没有参考图：用归一化 landmark 表 + 候选里的 landmark 标签
-python scripts/structure_metric.py out/cand.plan.json --layers stag --spec scripts/structure_specs/stag.example.json --guide out/structure_guide.png --out out/cand.structure.json
+python scripts/structure_metric.py out/cand.plan.json --layers stag --spec my-spec.json --guide out/structure_guide.png --out out/cand.structure.json
 ~~~
 
 输出包括：
@@ -34,6 +34,7 @@ python scripts/structure_metric.py out/cand.plan.json --layers stag --spec scrip
   - shape_chamfer_px 越低越好；
   - 位置/大小另看 placement。
 - 如果要对多个候选做形状比较，可以给它们传同一份 --ref；这样 shape_iou 在同一参考下可比。是否使用由调用方决定。
+- ref 必须是独立/认可的结构，shape_iou 才是质量指标；如果 ref 就是候选自己的结构，它只测“final 有没有漂移”，不能说明结构对不对。
 - 完成门后也可以再对 final 跑同一份 --ref，观察 shape_iou 是否变化；这是可选的复查，不是强制步骤。
 - 没有 --ref 时，spec 只验 landmark / segment / 接地；它不提供轮廓判断。spec pass 不等于结构 pass。
 
