@@ -279,7 +279,7 @@ python examples/incremental_video.py sky_sea.plan.json sky_sea.mp4 600 30
 
 ## 9. 返回值自查（不设硬门槛）
 
-- `plan_io.dump_plan` → 只写文件；写完 `load_plan` 再渲一次，应逐像素一致（`maxdiff=0`）。
+- `plan_io.dump_plan` → 写文件并返回笔数；写完 `load_plan` 再渲一次，应逐像素一致（`maxdiff=0`）。
 - `render_util.render_arr` → `(H,W,4)`；**alpha=0 处没落笔**，要白纸底就自己按纸色合成。
 - `paint_video.py` → JSON 含 `last_frame_vs_full_render_diff_px`，非 0 会直接非零退出。
 - `selfcheck.py` → 每条 `[OK/FAIL] 名称 秒 详情`，末行 `RESULT OK|FAIL`。

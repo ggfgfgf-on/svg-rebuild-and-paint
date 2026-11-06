@@ -139,7 +139,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 | `preset` | 10 个之一或 `tip:<名>` | 见 4.4 |
 | `size` | 下限 1；1–300 是手感带，**引擎不校验上限** | 笔头直径（像素）。实测 329.84、1600 都能渲染，大笔用来铺底 |
 | `opacity` | 0–1 | 单笔不透明度；叠 20 笔 0.1 比 1 笔 0.9 更柔 |
-| `color` | `[r,g,b]` 0–255（浮点可以）或 `#rrggbb` | 两种都收：`plan_io._color` 把 `#rrggbb` 转成 0–255。不是 0–1 |
+| `color` | `[r,g,b]` 0–255（浮点可以）；手写 plan 也可写 `#rrggbb` | 渲染器（`plan_io._color`）两种都收；**`dump_plan` 写盘仍要求 `[r,g,b]`**，不能直接传 hex。不是 0–1 |
 | `hardness` | 0–1 | 0 = 全软边（雾），1 = 硬边（剪影/平涂） |
 | `region_id` | int | 有 `regions` 时才生效 |
 | `points` | `[[x, y, pressure], ...]` | **pressure 必须在**；**单点也合法**（当一个 dab）；两点以上连成笔道 |
@@ -157,7 +157,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 
 - `pressure` 参与该笔 alpha：实测 `alpha ≈ opacity × (0.15 + 0.85·p)`。p=1 满值，**p=0 仍有约 15%**（不是 0）；同一条笔里可以逐点变压力。
 - `size` 上限不校验：1–300 只是手感带，实测 329.84 / 1600 都能正常渲染。
-- `color` 两种写法都收：`[r,g,b]`（0–255，浮点可以）与 `#rrggbb`（`plan_io._color` 转换）。
+- `color`：手写 plan/渲染器接受 `[r,g,b]`（0–255，浮点可以）与 `#rrggbb`（`plan_io._color` 转换）；但 `dump_plan` 生成 JSON 时只接受 `[r,g,b]`。
 - `spacing` 只在引擎 API 里（`stroke` / `stroke_batch(..., spacing=)`），plan JSON 不传；渲染按 1.0。
 - 单点 `points` 合法：当一个 dab 落一次。
 
@@ -241,6 +241,8 @@ arr = RU.render_arr(plan_io.load_plan("my.plan.json")[0], gpu=False, nthreads=8)
 ```python
 import numpy as np, cv2, plan_io
 target = cv2.cvtColor(cv2.imread("ref.png"), cv2.COLOR_BGR2RGB).astype(np.float32)   # 或自己算解析场
+H, W = target.shape[:2]
+YH = int(H * 0.62)
 lum = cv2.cvtColor(target.astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32) / 255
 lum = cv2.GaussianBlur(lum, (0, 0), 2)
 gx = cv2.Sobel(lum, cv2.CV_32F, 1, 0, ksize=3); gy = cv2.Sobel(lum, cv2.CV_32F, 0, 1, ksize=3)
@@ -538,7 +540,7 @@ python scripts/metric.py ref.png render.png
 | `render_plan.py` | 打印 JSON：`{plan, ops, out, size:[w,h], luma}` |
 | host `art_paint` | 一行文本：PNG 路径、KB、秒（与上面同一渲染器） |
 | `plan_io.load_plan(path)` | `(doc, w, h)`；doc 里 `strokes/count/layers` 可直接改 |
-| `plan_io.dump_plan(...)` | `None`，唯一产物是文件；写完应再 `load_plan` 验一遍 |
+| `plan_io.dump_plan(...)` | `int`：写入的笔数；唯一产物是文件；写完应再 `load_plan` 验一遍 |
 | `render_util.render_arr(doc)` | `(H, W, 4) uint8`；**alpha=0 处没落笔**，纸色要自己合成 |
 | `paint_native.Painter.stroke_batch(...)` | `int`：本次落笔数 |
 | `paint_native.Painter.composite()` | `(H, W, 4) uint8`：当前整幅 |
