@@ -61,6 +61,23 @@ parts 的名称、数量和 z 都由你定。assemble_parts 只按 z 填充你�
 - scripts/structure_candidates.py：多候选联系表/排序；
 - scripts/structure_specs/stag.example.json：纯 schema，目标值全是 null；填自己的值或用 --ref。
 
+## 6. 谁决定
+
+- 结构单、parts、空白比例字段：模型填；它可以在改结构时重填。
+- 独立参考/目标：由调用方提供。可以是认可的 plan，也可以是调用方审过的 spec；模型不应自己编一个目标再宣布通过。
+- metric：只执行确定性计算，返回指标/pass/exit code；它不生成结构，也不做审美判断。
+- 循环：模型可以改结构再跑；不能改 pass 字段。要通过，只能改几何或改用调用方认可的目标。
+
+一种 loop 写法：
+
+~~~powershell
+python scripts/render_plan.py out/structure.plan.json --out out/structure.png
+python scripts/structure_metric.py out/structure.plan.json --layers stag --spec my-spec.json --require-pass
+# exit 2 -> 改结构单/parts，重渲，再跑；exit 0 -> 进完成层
+~~~
+
+自身结构当 ref 只能证明“完成层没有漂移”，不能证明结构正确；独立 ref 才做质量门。
+
 ## 5. 不要做
 
 - 不要用示例里的 null/占位值直接当 gate；
