@@ -12,9 +12,10 @@ light_rig / tone_map 等原有算子继续处理；不是新笔刷，也不是�
   * 只往 doc 追加笔触；doc 里没有目标层时自动 add_layer，已有层不改 blend。
   * 同 (doc, 参数, seed) 逐字节确定；guidance=0 时 doc 不变。
 
-层序注意：plan_io.dump_plan 的层顺序按“首笔出现顺序”生成。helper 会按调用
-顺序建层；如果合成顺序重要，按最终层序调用 helper，或在 dump_plan 之后检查
-layers 顺序。不要依赖 dict 顺序或脚本里的变量名。
+层序注意：plan_io.dump_plan 默认按“首笔出现顺序”生成 layers；可传
+layer_order=[...] 显式指定（可含空层）。helper 会按调用顺序建层；如果合成
+顺序重要，按最终层序调用 helper，或 dump 时传 layer_order。不要依赖 dict
+顺序或脚本里的变量名。
 
 参数含义的完整说明见 docs/SHAPE_API.md；这里只保留签名与最短契约。
 """

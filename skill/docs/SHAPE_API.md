@@ -36,12 +36,11 @@ shape_ops.tapered_stroke(doc, ...)
 ### 0.3 层与合成顺序
 
 - helper 按调用顺序建层；层的混合模式只在建层时生效。
-- plan_io.dump_plan 的 layers 顺序按“首笔出现顺序”生成，不按 doc["layers"] 的数组顺序。
-- 所以：**先画底层，再画上层**；如果顺序重要，按最终合成顺序调用 helper。
-- 不要依赖变量名、dict 顺序或 add_layer 的调用顺序；要显式控制层序时，
-  在 dump_plan 之后检查 layers，或按顺序重新 materialize。
-- 已知限制：plan_io.dump_plan 目前没有显式 layer_order 参数；这是接口缺口，
-  不是 helper 能单独修的。
+- `dump_plan` 默认按“首笔出现顺序”生成 layers，不读取 `doc["layers"]` 的数组顺序；
+  可传 `layer_order=[...]` 显式指定（可含没有笔画的空层）。
+- `render_plan` 严格按 `doc["layers"]` 合成；所以要么按最终合成顺序调用 helper，
+  要么 dump 时传 `layer_order`。
+- 不要依赖变量名、dict 顺序或 `add_layer` 的调用顺序。
 
 ### 0.4 确定性
 
@@ -207,15 +206,20 @@ draw_path 是一条 path = 一笔，笔径恒定；tapered_stroke 是一条 path
 - 需要独立调整颜色/透明度/位置时，把不同遍写到不同 layer；只画剪影时一层就可以。
 - 层数不是质量指标；不要为了“分层”硬拆。
 
-## 4. 已知限制
+## 4. helper 的边界（不是引擎缺陷）
 
-- 不支持带洞多边形；复杂剪影请拆成多个 polygon 或多个层。
-- 不是像素级渐变；color2 是逐笔颜色，spacing 大时会有色带。
-- 不产生真实颜料厚度/光照；体积感靠颜色、笔触重叠和原有光照算子。
-- 不支持压力曲线/倾斜笔尖；taper 是线性的。
-- 层序由首笔出现顺序决定；dump_plan 没有显式 layer_order 参数。
-- 凹角边圈的逐边内缩不是 miter；尖角可能仍有缺口。
-- 目标层已存在时，blend 参数不生效；要改 blend 用原有层算子或重建。
+shape_ops 只把普通笔触追加进 plan，不改变渲染器，也不替代原有 20 个算子。下面几条是 helper 的刻意边界或接口约定；其中层序已经补了显式入口：
+
+- **单环**：fill_polygon 用单个 ring 做“点在多边形内”；带洞/多环剪影拆成多个 polygon 或多个层。引擎没有“路径布尔填充”这一步。
+- **color2 逐笔**：plan 里一笔只有一个 color；像素级渐变要靠更密的 spacing/更多笔触近似，不是一次 fill 的像素插值。
+- **体积/光**：helper 不生成 height/normal；要光照用原有 relight_dir / light_rig / tone_map 叠在产物上。2D 合成没有真实颜料厚度，这是引擎模型，不是 helper 漏做。
+- **压力**：渲染器会读 points 的 pressure（实测 0.2 vs 1.0 会改变 alpha）；helper 当前固定写 1.0，所以它本身不生成压力曲线。tapered_stroke 的宽度锥形用 size 插值，不依赖 pressure；要压力曲线直接写 points，或扩展 helper。
+- **倾斜**：plan 没有倾斜笔尖字段，渲染器是 2D stamp，没有这个参数；这是引擎边界，不是 helper。
+- **层序**：dump_plan 不给 layer_order 时按首笔；传 layer_order 可显式指定（可含空层）；render_plan 严格按 doc["layers"] 合成。helper 建层仍按调用顺序。
+- **边圈**：edge 是沿多边形边逐段 stamping，不是 miter 路径偏移；凹角/尖角可能留缺口。复杂轮廓用 edge=False + 多 polygon，或自己补边。
+- **blend**：helper 只在新建层时使用 blend；已有层不会被改。要改已有层，直接改 doc["layers"] 里该层的 "blend" 再 dump/load；没有 set_layer_blend 算子，也不需要重建。
+
+这些不是 20 个算子的缺陷；算子的完整能力见 [API.md](API.md)。
 
 ## 5. 验证方式
 

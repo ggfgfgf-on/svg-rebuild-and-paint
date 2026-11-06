@@ -7,6 +7,7 @@
   * fill_polygon 同输入两次逐字节相同，guidance=0 不改 doc
   * tapered_stroke 的笔径从 size 单调收到 size_end，沿 path 落笔
   * 两个 helper 都不改原有 20 个算子；只往 doc 追加笔触
+  * dump_plan 可用 layer_order 显式层序（含空层）
 """
 import json
 import sys
@@ -89,6 +90,24 @@ def test_fill_gradient_and_hardness():
     print("PASS fill_polygon color2 gradient + hardness, %d strokes" % len(doc["strokes"]))
 
 
+def test_dump_layer_order():
+    strokes = [
+        {"layer": "top", "preset": "round_hard", "size": 4.0, "opacity": 1.0,
+         "color": [255, 0, 0], "hardness": 1.0, "points": [[5, 5, 1.0]]},
+        {"layer": "bottom", "preset": "round_hard", "size": 4.0, "opacity": 1.0,
+         "color": [0, 0, 255], "hardness": 1.0, "points": [[5, 5, 1.0]]},
+    ]
+    with tempfile.TemporaryDirectory() as td:
+        plan = Path(td) / "order.plan.json"
+        plan_io.dump_plan(str(plan), 10, 10, strokes,
+                          layer_blends={"empty": "screen"},
+                          layer_order=["empty", "bottom", "top"])
+        doc = json.loads(plan.read_text(encoding="utf-8"))
+        assert [l["name"] for l in doc["layers"]] == ["empty", "bottom", "top"]
+        assert doc["layers"][0]["blend"] == "screen"
+    print("PASS dump_plan explicit layer_order + empty layer")
+
+
 def test_taper_copies_and_hardness():
     doc = shape_ops.tapered_stroke(empty_doc(), "antler", "M 80 170 L 180 30",
                                    size=12.0, size_end=2.0, steps=10,
@@ -107,4 +126,5 @@ if __name__ == "__main__":
     test_tapered_stroke()
     test_fill_gradient_and_hardness()
     test_taper_copies_and_hardness()
+    test_dump_layer_order()
     print("all shape_ops tests passed")

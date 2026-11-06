@@ -3,7 +3,7 @@
 契约（与 daub 的 plan 同构，字段略宽）：
 {
   "canvas": [w, h],
-  "layers": [{"name": "bed", "blend": "normal"}, ...],   // 首次出现顺序
+  "layers": [{"name": "bed", "blend": "normal"}, ...],   // 默认首次出现顺序；layer_order 可显式
   "strokes": [
     {"layer": "bed", "preset": "round_hard", "size": 12, "opacity": 0.9,
      "color": "#2244cc" 或 [r,g,b], "hardness": 0.7,
@@ -50,10 +50,19 @@ def _color(c):
     return [float(x) for x in c]
 
 
-def dump_plan(path, w, h, strokes, layer_blends=None, regions=None, subject_layers=None, tip_names=None):
-    """strokes: [{layer,preset,size,opacity,color,hardness,points}]（preset 可为 id 或名字）。"""
+def dump_plan(path, w, h, strokes, layer_blends=None, regions=None, subject_layers=None, tip_names=None, layer_order=None):
+    """strokes: [{layer,preset,size,opacity,color,hardness,points}]（preset 可为 id 或名字）。
+
+    layer_order: 可选层序（如 ["bed","subject","light"]）。不给时按首笔出现顺序；
+    给定时先按它排，未列出的笔画层按首笔追加。显式层序可包含没有笔画的空层。
+    """
     layer_blends = layer_blends or {}
     order = []
+    if layer_order:
+        for name in layer_order:
+            name = str(name)
+            if name not in order:
+                order.append(name)
     for s in strokes:
         if s["layer"] not in order:
             order.append(s["layer"])
