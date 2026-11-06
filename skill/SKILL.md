@@ -583,20 +583,11 @@ iterate.py - yy1.svg --blank 420x600 --patch spec.json
 iterate.py - yy2.svg --from-svg yy1.svg --patch fix.json
 ```
 
-**定形 + 量比例**（没有参考图时唯一的"尺子"）：
+**定形 + 量比例**：
 
-```bash
-python scripts/form.py yy4.svg --out form.json --guides preview.png
-# ratios: head_w_over_h / eye_line / neck_over_head / shoulder_over_head
-#         head_on_canvas / head_over_canvas_w / hair_over_face
-# failed: 哪几条超出容差
-# --parts parts.json 覆盖默认颜色分区
-# --rules rules.json 覆盖内置人像规则（[[name,target,tol,note], ...]）
-```
+scripts/form.py 是 **SVG 人像**的定形量表。参数、返回、--parts / --rules 格式见 [docs/FORM.md](docs/FORM.md)；人像默认配色/规则只是示例，放在 [docs/EXAMPLES.md](docs/EXAMPLES.md) §10。
 
-`--guides` 写一张带「头高刻度尺 + 中轴 + 脸框 + 眼线」的预览图，只用于看，不进成品。比例不对时用 `scale` / `move` 补丁整体调形体，而不是重画每个点。
-
-`form.py` 是 **SVG 人像**的定形量表，不是 paint plan 的结构 metric；`--parts` / `--rules` 可以换配色与比例规则，默认规则只是人像示例。
+它不是 paint plan 的结构 metric；paint plan 的结构度量见 docs/STRUCTURE_METRIC.md。
 
 ask 在有参考和无参考两种情况下都会停住，输出 `preview_png`、路径数、颜色数，以及下一轮命令；`--base` 可省。想回到脚本自己挑块（无模型），加 `--mode auto`。
 

@@ -38,6 +38,19 @@ RULES = [
 ]
 
 
+def load_rules(path):
+    raw = json.load(open(path, encoding="utf-8-sig"))
+    if not isinstance(raw, list):
+        raise ValueError("rules must be a JSON list of [name, target, tol, note]")
+    out = []
+    for i, row in enumerate(raw):
+        if not isinstance(row, (list, tuple)) or len(row) < 3:
+            raise ValueError("rules[%d] must be [name, target, tol, note]" % i)
+        out.append((str(row[0]), float(row[1]), float(row[2]),
+                    str(row[3]) if len(row) > 3 else ""))
+    return out
+
+
 def render(svg, png, w, h):
     subprocess.run([sys.executable, os.path.join(HERE, "render.py"), svg, png, str(w), str(h)],
                    check=True, capture_output=True)
@@ -163,7 +176,10 @@ def main():
     if a.parts:
         parts.update(json.load(open(a.parts, encoding="utf-8-sig")))
     png = os.path.splitext(a.svg)[0] + ".form-render.png"
-    rules = json.load(open(a.rules, encoding="utf-8-sig")) if a.rules else None
+    try:
+        rules = load_rules(a.rules) if a.rules else None
+    except (ValueError, OSError) as ex:
+        raise SystemExit("form: bad --rules: %s" % ex)
     res = measure(a.svg, png, parts, a.tol, w, h, a.guides or None, rules=rules)
     if a.out:
         with open(a.out, "w", encoding="utf-8") as fh:

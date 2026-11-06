@@ -287,3 +287,63 @@ python examples/incremental_video.py sky_sea.plan.json sky_sea.mp4 600 30
 - `selfcheck.py` → 每条 `[OK/FAIL] 名称 秒 详情`，末行 `RESULT OK|FAIL`。
 
 字段清单见 [USAGE.md](USAGE.md) 附录 B。
+
+## 10. form.py 人像比例示例
+
+这是一个**人像示例**；接口与参数见 [FORM.md](FORM.md)。默认配色和默认规则只适合类似的人像 SVG。
+
+~~~powershell
+python scripts/form.py portrait.svg --out form.json --guides preview.png
+~~~
+
+默认配色（可在自己的 --parts 里覆盖）：
+
+~~~json
+{
+  "face": "#f7d8bc",
+  "hair": "#2f1d19",
+  "outfit": "#b8382c",
+  "inner": "#f4efe6",
+  "gold": "#d8a94a",
+  "skin_dark": "#ecc0a0",
+  "iris": "#a8442a"
+}
+~~~
+
+默认规则（可在自己的 --rules 里覆盖）：
+
+~~~json
+[
+  ["head_w_over_h", 0.82, 0.13, "头宽/头高"],
+  ["eye_line", 0.58, 0.10, "眼线位置"],
+  ["neck_over_head", 0.42, 0.12, "颈宽/头宽"],
+  ["shoulder_over_head", 1.80, 0.40, "肩宽/头宽"],
+  ["head_on_canvas", 0.26, 0.12, "头中心纵向位置"],
+  ["head_over_canvas_w", 0.34, 0.08, "头宽/画布宽"],
+  ["hair_over_face", 1.80, 1.20, "发量/脸面积"]
+]
+~~~
+
+注意：--rules 是 form.py 专用格式，不是 structure_specs/*.json。
+
+## 11. structure_metric / candidates 命令示例
+
+接口与返回值见 [STRUCTURE_METRIC.md](STRUCTURE_METRIC.md)。
+
+~~~powershell
+# 参考剪影比较
+python scripts/structure_metric.py out/cand.plan.json --layers stag --ref ref.plan.json --ref-layers stag,stag_detail --out out/cand.structure.json
+
+# 自己的 spec + landmark 标签；没有 ref 时使用
+python scripts/structure_metric.py out/cand.plan.json --layers stag --spec my-spec.json --guide out/guide.png --out out/cand.structure.json
+
+# 多候选联系表/排序
+python scripts/structure_candidates.py out/cand_*.plan.json --layers stag --ref ref.plan.json --ref-layers stag,stag_detail --thumb 320 --cols 3 --sheet out/candidates.png --out out/ranking.json
+~~~
+
+loop 退出码：
+
+~~~powershell
+python scripts/structure_metric.py out/cand.plan.json --layers stag --spec my-spec.json --require-pass
+python scripts/structure_candidates.py out/cand_*.plan.json --layers stag --ref ref.plan.json --require-best
+~~~

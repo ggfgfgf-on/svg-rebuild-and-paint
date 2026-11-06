@@ -4,13 +4,7 @@
 
 ## 1. 单个候选：structure_metric.py
 
-~~~powershell
-# 有结构参考：比较主体剪影的形状、比例、位置
-python scripts/structure_metric.py out/cand.plan.json --layers stag --ref ref.plan.json --ref-layers stag,stag_detail --out out/cand.structure.json
-
-# 没有参考图：用归一化 landmark 表 + 候选里的 landmark 标签
-python scripts/structure_metric.py out/cand.plan.json --layers stag --spec my-spec.json --guide out/structure_guide.png --out out/cand.structure.json
-~~~
+命令示例见 [EXAMPLES.md](EXAMPLES.md) §11；这里只讲参数、语义和返回值。
 
 输出包括：
 
@@ -130,15 +124,7 @@ spec 是归一化尺子：landmarks_bbox 的坐标相对主体 bbox，0..1；seg
 
 ## 4.1 用返回值做循环
 
-CLI 默认总是打印 JSON 并退出 0；如果要把它放进循环，用：
-
-~~~powershell
-python scripts/structure_metric.py cand.plan.json --layers stag --spec my-spec.json --require-pass --out report.json
-# structure_pass 不为 true -> exit 2
-
-python scripts/structure_candidates.py cand_*.plan.json --layers stag --ref ref.plan.json --require-best --sheet sheet.png
-# 没有候选过 gate -> exit 2
-~~~
+CLI 默认总是打印 JSON 并退出 0；放进循环时的命令示例见 [EXAMPLES.md](EXAMPLES.md) §11。
 
 --require-pass 只在 spec 提供可用 gate 时有意义；只给 --ref 时 metric 只返回比较数据，不定义绝对通过阈值。
 
