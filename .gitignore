@@ -5,5 +5,5 @@ __pycache__/
 
 # 视频/中间产物目录
 _kf/
-# pytest ����
+# pytest 缓存
 .pytest_cache/

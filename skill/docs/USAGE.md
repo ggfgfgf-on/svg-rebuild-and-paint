@@ -15,7 +15,7 @@
 | 层 | 干什么 | 入口 | 产出 | 实测 |
 |---|---|---|---|---|
 | A 位图 → 真矢量 SVG | 逐色掩膜 + 曲线重建，纯 `<path>`，无 `<image>`/base64/渐变 | `art_vectorize` / `scripts/auto.py` | `.svg` + 误差报告 | 320×180 K=96：91 path / 0.11 MB / 0.6 s |
-| B 厚涂绘画 | plan（canvas+layers+strokes）确定性渲染 | `art_paint` / `scripts/render_plan.py` | `.png`（同计划逐像素一致） | 480×320 / 359 笔：0.26 s / 26 KB |
+| B 厚涂绘画 | plan（canvas+layers+strokes）确定性渲染 | `art_paint` / `scripts/render_plan.py` | `.png`（同计划、同后端逐像素一致） | 480×320 / 359 笔：0.26 s / 26 KB |
 | C 语义改画 | 一句指令 → ops JSON → 作用在 plan 上 | `art_edit_brief` → 自己写 ops → `art_apply_ops` | 改后 `.png` + `ops.json` | 0.34 s（引擎内 0.13 s，129 笔被选中） |
 | D 过程视频 | 按笔画顺序逐帧出片（30 fps） | `scripts/paint_cli.py video` | `.mp4` | 60 帧 1.2 s；600 帧 20 s 视频 7.3 s |
 
@@ -274,7 +274,7 @@ print("strokes", len(strokes), "shape", arr.shape)
 | 笔触太碎 | size 太小、密度太高 | 放大 size、降笔数；先形体后细节 |
 | 画面平 | 缺明暗层 | `split_shading` 拆层或补 multiply/screen 层 |
 
-性能：480×320/359 笔 0.26 s；960×680/1.2 万笔 0.3 s 级；37k 笔 0.35 s。**同一 plan 每次逐像素一致**，可放心当回归基准。
+性能：480×320/359 笔 0.26 s；960×680/1.2 万笔 0.3 s 级；37k 笔 0.35 s。**同一 plan、同一后端每次逐像素一致**，可放心当回归基准；GPU/CPU 跨后端可能有 1 级舍入差。
 
 ### 5.3 改画（ops）
 
@@ -462,8 +462,8 @@ python scripts/metric.py ref.png render.png
 | 接口 | 形态 | 给什么 | 得到什么 |
 |---|---|---|---|
 | 计划 | JSON：`canvas` / `layers` / `strokes` | 笔画数据 | 可渲染、可 diff 的唯一事实来源 |
-| 渲染 | `render_plan.py` / `art_paint` | plan（+ 可选 ops） | PNG；同一 plan 逐像素一致 |
-| 算子 | ops JSON（20 个） | 一组算子 | 改后的 plan，或直接渲染成 PNG |
+| 渲染 | `render_plan.py` / `art_paint` | plan（+ 可选 ops） | PNG；同一 plan、同后端逐像素一致 |
+| 算子 | ops JSON（21 个） | 一组算子 | 改后的 plan，或直接渲染成 PNG |
 | 编译 | `compile_ops.py brief` | plan + 一句话指令 | 缩略图 + 提示词（ops 由你写） |
 | 校验 | `compile_ops.py validate` / `plan_io.py check` / `selfcheck.py` | plan / ops / 环境 | `ok`，或具体错误 |
 | 度量 | `metric.py`（有参考图）；§6.3（无参考图） | 两张图，或一张图 + 判据 | 一组可比较的数字 |
