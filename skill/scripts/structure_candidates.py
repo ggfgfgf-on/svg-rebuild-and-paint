@@ -48,6 +48,8 @@ def main():
     ap.add_argument("--cols", type=int, default=3)
     ap.add_argument("--sheet", help="contact sheet PNG")
     ap.add_argument("--out", help="ranking JSON")
+    ap.add_argument("--require-best", action="store_true",
+                    help="exit 2 when no candidate passes the available gates")
     a = ap.parse_args()
 
     ref_mask = None
@@ -130,6 +132,8 @@ def main():
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps({"best": best, "mode": report["mode"], "n": len(rows), "sheet": a.sheet}, ensure_ascii=False))
+    if a.require_best and best is None:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

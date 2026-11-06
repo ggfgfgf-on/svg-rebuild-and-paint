@@ -51,6 +51,7 @@ python scripts/structure_metric.py out/cand.plan.json --layers stag --spec my-sp
 | --alpha-thresh | 8 | alpha 大于该值算主体像素 |
 | --out | 无 | 写完整 JSON |
 | --guide | 无 | 写结构参考图；需要 --spec |
+| --require-pass | 关 | structure_pass 不为 true 时退出码 2；只在有可用 spec gate 时有意义 |
 
 ## 2. 多候选：structure_candidates.py
 
@@ -75,6 +76,7 @@ python scripts/structure_candidates.py out/cand_*.plan.json --layers stag --ref 
 | --cols | 3 | 联系表列数 |
 | --sheet | 无 | 写联系表 PNG |
 | --out | 无 | 写完整 ranking JSON |
+| --require-best | 关 | best 为 null 时退出码 2 |
 
 
 输出是排序和联系表；是否选择、选哪个，由调用方决定。
@@ -124,6 +126,20 @@ spec 是归一化尺子：landmarks_bbox 的坐标相对主体 bbox，0..1；seg
 3. 由调用方选择候选（有 ref/spec 看指标，没有就人工/视觉看联系表）；
 4. 对选中的结构做完成门：base/fur/rim/hoof + tapered 鹿角；
 5. 完成门后仍可看 25%；它是复查，不是结构判据。
+
+## 4.1 用返回值做循环
+
+CLI 默认总是打印 JSON 并退出 0；如果要把它放进循环，用：
+
+~~~powershell
+python scripts/structure_metric.py cand.plan.json --layers stag --spec my-spec.json --require-pass --out report.json
+# structure_pass 不为 true -> exit 2
+
+python scripts/structure_candidates.py cand_*.plan.json --layers stag --ref ref.plan.json --require-best --sheet sheet.png
+# 没有候选过 gate -> exit 2
+~~~
+
+--require-pass 只在 spec 提供可用 gate 时有意义；只给 --ref 时 metric 只返回比较数据，不定义绝对通过阈值。
 
 ## 5. 返回值与 ops 边界
 

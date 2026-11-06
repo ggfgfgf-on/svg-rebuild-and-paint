@@ -271,6 +271,8 @@ def main():
     ap.add_argument("--alpha-thresh", type=int, default=8)
     ap.add_argument("--out", help="write report JSON")
     ap.add_argument("--guide", help="write guide PNG")
+    ap.add_argument("--require-pass", action="store_true",
+                    help="exit 2 unless structure_pass is true (requires available spec gates)")
     a = ap.parse_args()
 
     doc, w, h = plan_io.load_plan(a.plan)
@@ -311,6 +313,8 @@ def main():
     if a.out:
         Path(a.out).write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=1))
+    if a.require_pass and report.get("structure_pass") is not True:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
