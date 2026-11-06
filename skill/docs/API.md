@@ -127,6 +127,13 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 - 必填：`layer`, `k`
 - 可选：`guidance`
 
+### `set_layer_blend`(doc, layer, blend, guidance=1.0, **_)
+
+把已有层的混合模式改为 blend（guidance=0 不变；层不存在报错）。
+
+- 必填：`layer`, `blend`
+- 可选：`guidance`
+
 ### `set_layer_brightness`(doc, layer, factor, guidance=1.0, selection=None, weights=None, seed=0, **_)
 
 明度乘因子（factor=1 不变，guidance=1 时精确乘 factor）。

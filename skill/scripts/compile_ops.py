@@ -43,6 +43,7 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
   {"op": "light_rig",          "lights": [{"type": "directional|radial", "azimuth": 0..360, "elevation": 0..90, "strength": >0, "color": "#rrggbb", "at": [x,y]?, "radius": >0?, "shape": {"circle|ellipse|rect|polygon": [...]}|{"mask_file": "<png>"}|"<png>", "feather": px?, "map": "<gobo.png>", "map_mode": "luma|rgb|alpha", "map_rect": [x0,y0,x1,y1]}], "ambient": >0, "preserve": "strokes|rendered|none"}
   {"op": "replan_region",      "ref": "<参考图路径>", "regions": [...], "layers": [...]}
   {"op": "add_layer",          "name": "<新层名>", "blend": "normal", "index": 0..N?, "guidance": 0..1}
+  {"op": "set_layer_blend",    "layer": "<已有层名>", "blend": "normal|multiply|screen|overlay|softlight|...", "guidance": 0..1}
   {"op": "remove_layer",       "name": "<层名>", "guidance": 0..1}
   {"op": "rename_layer",       "name": "<旧层名>", "to": "<新层名>", "guidance": 0..1}
   {"op": "move_layer",         "name": "<层名>", "index": 0..N, "guidance": 0..1}
@@ -54,13 +55,14 @@ SCHEMA_NOTE = """输出必须是一个 JSON 数组（不要 markdown 包裹、�
   * draw_path 是「从零加笔」：d 用 canvas 坐标写 SVG path（M/L/H/V/C/Q/T/Z），不需要 mask，
     只需要层名；想加在别处就把坐标写到那里。它和别的算子一样受 guidance 控制。
   * add_layer 建新层（幂等，重复调用不重复建），index 指定插入位置（0=垫底，不给=追加到最上）；
-    draw_path 指向不存在的层也会自动建层。remove_layer / rename_layer / move_layer 管理已有层。
+    draw_path 指向不存在的层也会自动建层。remove_layer / rename_layer / move_layer 管理已有层；
+    set_layer_blend 只改已有层的混合模式（不新建、不删层）。
     add_layer / draw_path 改层集合或层内容；densify 只加密已有笔触，不改变画面内容。
   * tone_map 是整体明暗的通用修法（专门对付 shadow/texture 两层 multiply 压暗）：
     gain 乘亮度（1.5~2.0 通常明显提亮），lift 加白（0.03~0.08 抬黑场），gamma<1 提中间调，
     layer 不给 = 所有层；不动颜色关系，只改明暗。
   * light_rig 的 map / shape.mask_file / shape 路径：相对路径按 plan 文件所在目录解析。
-  * 只允许上面 20 个算子，不要发明新字段；除 add_layer / draw_path 新建的层、以及 rename_layer 改出的新名外，层名必须是下面列出的层。
+  * 只允许上面 21 个算子，不要发明新字段；除 add_layer / draw_path 新建的层、以及 rename_layer 改出的新名外，层名必须是下面列出的层。
 """
 
 
@@ -217,6 +219,10 @@ def validate_ops(doc, specs, allow_layers=None):
                     raise ValueError("rename_layer target %r already exists" % (new,))
                 names.discard(old)
                 names.add(new)
+            elif opn == "set_layer_blend":
+                b = str(spec.get("blend") or "").strip().lower()
+                if b not in paint_native.BLENDS:
+                    raise ValueError("unknown blend %r; known: %s" % (b, ", ".join(sorted(paint_native.BLENDS))))
             elif opn == "move_layer":
                 nm = str(spec.get("name") or "").strip()
                 if not nm:

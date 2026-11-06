@@ -35,6 +35,22 @@ def main():
     assert names(top)[-1] == "over"
     print("add_layer index: ok")
 
+    # 2) set_layer_blend：改已有层的 blend；guidance=0 不动
+    sb = ops.apply(doc, [{"op": "set_layer_blend", "layer": "band", "blend": "screen"}])
+    assert next(l["blend"] for l in sb["layers"] if l["name"] == "band") == "screen"
+    assert [s for s in sb["strokes"]] == [s for s in doc["strokes"]]
+    sb0 = ops.apply(doc, [{"op": "set_layer_blend", "layer": "band", "blend": "screen", "guidance": 0.0}])
+    assert ops.canonical(sb0) == ops.canonical(doc)
+    try:
+        ops.apply(doc, [{"op": "set_layer_blend", "layer": "band", "blend": "nope"}])
+    except ValueError as ex:
+        assert "unknown blend" in str(ex)
+    else:
+        raise AssertionError("unknown blend should fail")
+    import compile_ops
+    compile_ops.validate_ops(doc, [{"op": "set_layer_blend", "layer": "band", "blend": "screen"}])
+    print("set_layer_blend: ok")
+
     # 2) move_layer：把最后一层移到最底；幂等位置不变
     mv = ops.apply(doc, [{"op": "move_layer", "name": base_names[-1], "index": 0}])
     assert names(mv)[0] == base_names[-1] and names(mv)[1:] == base_names[:-1]

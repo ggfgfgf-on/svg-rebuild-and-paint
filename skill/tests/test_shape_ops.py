@@ -77,6 +77,43 @@ def test_tapered_stroke():
     print("PASS tapered_stroke %d segments, size %.2f -> %.2f, deterministic" % (len(sizes), sizes[0], sizes[-1]))
 
 
+def test_fill_holes_and_pressure():
+    outer = [[20, 20], [180, 20], [180, 180], [20, 180]]
+    hole = [[80, 80], [120, 80], [120, 120], [80, 120]]
+    doc = shape_ops.fill_polygon(empty_doc(), "body", outer, holes=[hole],
+                                 color="#c08060", size=5.0, spacing=5.0,
+                                 jitter=0.0, edge=False, pressure=0.4,
+                                 preset="round_hard")
+    assert doc["strokes"]
+    for s in doc["strokes"]:
+        assert all(abs(p - 0.4) < 1e-9 for _, _, p in s["points"]), s["points"]
+        x, y = s["points"][0][:2]
+        assert not (80 < x < 120 and 80 < y < 120), (x, y)
+    with tempfile.TemporaryDirectory() as td:
+        plan = Path(td) / "holes.plan.json"
+        plan_io.dump_plan(str(plan), 200, 200, doc["strokes"], layer_blends={"body": "normal"})
+        arr = RU.render_arr(plan_io.load_plan(str(plan))[0], gpu=False, nthreads=4)
+        assert float(arr[100, 100, 3]) < 16, float(arr[100, 100, 3])
+        x, y = doc["strokes"][0]["points"][0][:2]
+        assert float(arr[int(y), int(x), 3]) > 50, float(arr[int(y), int(x), 3])
+    print("PASS fill_polygon holes + pressure, %d strokes" % len(doc["strokes"]))
+
+
+def test_taper_pressure():
+    doc = shape_ops.tapered_stroke(empty_doc(), "antler", "M 80 170 L 180 30",
+                                   size=10.0, size_end=2.0, steps=12,
+                                   pressure=1.0, pressure_end=0.2)
+    ps = [s["points"][0][2] for s in doc["strokes"]]
+    assert abs(ps[0] - 1.0) < 0.15, ps
+    assert ps[-1] < ps[0], ps
+    assert all(a >= b for a, b in zip(ps, ps[1:])), ps
+    doc2 = shape_ops.tapered_stroke(empty_doc(), "antler", "M 80 170 L 180 30",
+                                    size=10.0, size_end=2.0, steps=12,
+                                    pressure=1.0, pressure_end=0.2)
+    assert ops.canonical(doc) == ops.canonical(doc2)
+    print("PASS tapered_stroke pressure %.2f -> %.2f, deterministic" % (ps[0], ps[-1]))
+
+
 def test_fill_gradient_and_hardness():
     doc = shape_ops.fill_polygon(empty_doc(), "body", [[40, 40], [160, 40], [160, 160], [40, 160]],
                                  color="#ff0000", color2="#0000ff", size=10.0,
@@ -125,6 +162,8 @@ if __name__ == "__main__":
     test_fill_guidance_zero()
     test_tapered_stroke()
     test_fill_gradient_and_hardness()
+    test_fill_holes_and_pressure()
+    test_taper_pressure()
     test_taper_copies_and_hardness()
     test_dump_layer_order()
     print("all shape_ops tests passed")

@@ -43,7 +43,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 - **四层能力与两个入口**：`art_vectorize` / `art_paint` / `art_edit_brief` / `art_apply_ops` 各自背后是哪条命令、传什么、返回什么、坑在哪；
 - **一句话 → 走哪条**：转 SVG、画一张、改色调光、出视频、验收，各自的第一条命令；
-- **调参手册**：SVG 的 `K/ss/turd/dil/blur/区域预算`，绘画的层/笔刷/size/opacity/hardness，改画的 20 个算子与顺序约束，视频的帧数与增量渲染；
+- **调参手册**：SVG 的 `K/ss/turd/dil/blur/区域预算`，绘画的层/笔刷/size/opacity/hardness，改画的 21 个算子与顺序约束，视频的帧数与增量渲染；
 - **症状 → 参数速查**：露白、发灰、太阳成环、天空横带、云像药丸、水面竖条、改画没反应，各自先改哪个参数。
 
 先读它，再回这份文件查具体坑位与实测数据。
@@ -72,6 +72,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 |---|---|---|
 | `draw_path` | 按 SVG path 往图层加笔画（空画布起手；新层自动建） | layer, d |
 | `add_layer` | 新增空图层（幂等，可指定 blend / 插入位置） | name |
+| `set_layer_blend` | 改已有层的混合模式（不新建/不删层） | layer, blend |
 | `remove_layer` | 删层（连它的笔触） | name |
 | `rename_layer` | 层改名（连笔触；目标已存在报错） | name, to |
 | `move_layer` | 重排合成顺序 | name, index |

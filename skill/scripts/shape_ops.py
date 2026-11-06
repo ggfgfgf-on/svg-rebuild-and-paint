@@ -61,13 +61,16 @@ def _signed_area(pts):
 def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.0,
                  opacity=1.0, preset="round_soft", spacing=None, jitter=0.35,
                  angle=0.0, gradient_angle=0.0, hardness=0.7, blend="normal",
-                 tag=None, guidance=1.0, seed=0, edge=True, edge_inset=0.0):
+                 tag=None, guidance=1.0, seed=0, edge=True, edge_inset=0.0,
+                 pressure=1.0, holes=None):
     """在多边形内用笔触撒点填充；只在多边形内的点落笔。
 
     Args:
         doc: plan dict（canvas/layers/strokes）。会被原地追加笔触。
         layer: 目标层名；不存在时自动建层，blend 只在建层时生效。
-        polygon: [[x,y], ...]，>=3 个点；可凹；自动闭合；不支持洞。
+        polygon: [[x,y], ...]，>=3 个点；可凹；自动闭合；外环。
+        holes: 可选 [[x,y], ...] 列表，每个是洞/内环；填充时这些区域被挖掉。
+            边圈 edge 目前只补外环；洞缘要干净可另调用 fill/taper。
         color: 起始颜色，[r,g,b] 0..255 或 "#rrggbb"。
         color2: 可选终点颜色；给定时按 gradient_angle 做逐笔线性插值，
             不是像素渐变，颜色分辨率由 spacing 决定。
@@ -86,12 +89,14 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
         edge: 是否沿多边形边补一圈；True 减少圆笔触锯齿边。
         edge_inset: 边圈向多边形内缩的像素；0 表示边笔中心仍在边界上。
             想避免笔尖越过剪影，可设 edge_inset≈size*0.5，但轮廓会略缩。
+        pressure: 0..1，写入每笔点的压力；默认 1.0。
 
     Returns:
         同一个 doc（已追加笔触）。
 
     Notes:
         * 这是“笔刷堆叠填充”，不是矢量填充；边缘由笔刷半径决定。
+        * holes 是挖洞，不做路径布尔；多个不相交的块面请多次调用。
         * 要颜色/体积分层，调用多次、每次换 polygon/color/color2/opacity，
           或把不同遍写到不同 layer；不要指望一次 fill 产生体积。
         * 超过 250000 个撒点会报错；先增大 spacing 或 size。
@@ -100,6 +105,7 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
     if g <= 0.0:
         return doc
     pts = _polygon_points(polygon)
+    hole_pts = [_polygon_points(h) for h in (holes or [])]
     names = [l.get("name") for l in (doc.get("layers") or [])]
     if layer not in names:
         O.add_layer(doc, layer, blend=blend)
@@ -110,6 +116,7 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
     spacing = max(0.5, float(spacing)) if spacing is not None else max(1.0, size * 0.45)
     jitter = max(0.0, min(1.0, float(jitter)))
     hard = max(0.0, min(1.0, float(hardness)))
+    pr = max(0.0, min(1.0, float(pressure)))
     inset = max(0.0, float(edge_inset))
     x0, y0 = pts.min(axis=0)
     x1, y1 = pts.max(axis=0)
@@ -142,13 +149,15 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
             py = y + (v - 0.5) * spacing * jitter
             if not _point_in_polygon(px, py, pts):
                 continue
+            if any(_point_in_polygon(px, py, h) for h in hole_pts):
+                continue
             a = th + (O._u(layer, ix, iy, seed, "a") - 0.5) * math.pi * 2.0 * jitter
             ln = max(0.5, size * 0.20)
             qx, qy = px + math.cos(a) * ln, py + math.sin(a) * ln
             s = {"layer": layer, "preset": preset,
                  "size": float(size * (0.85 + 0.30 * O._u(layer, ix, iy, seed, "s"))),
                  "opacity": op, "color": color_at(px, py), "hardness": hard,
-                 "points": [[float(px), float(py), 1.0], [float(qx), float(qy), 1.0]]}
+                 "points": [[float(px), float(py), pr], [float(qx), float(qy), pr]]}
             if tag:
                 s["tag"] = str(tag)
             doc["strokes"].append(s)
@@ -173,7 +182,7 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
                 s = {"layer": layer, "preset": preset, "size": float(size * 0.9),
                      "opacity": op, "color": color_at((x0e + x1e) * 0.5, (y0e + y1e) * 0.5),
                      "hardness": hard,
-                     "points": [[float(x0e), float(y0e), 1.0], [float(x1e), float(y1e), 1.0]]}
+                     "points": [[float(x0e), float(y0e), pr], [float(x1e), float(y1e), pr]]}
                 if tag:
                     s["tag"] = str(tag)
                 doc["strokes"].append(s)
@@ -183,7 +192,7 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
 def tapered_stroke(doc, layer, d, color=(217, 180, 90), size=10.0, size_end=1.0,
                   steps=24, opacity=1.0, preset="round_soft", blend="normal",
                   tag=None, guidance=1.0, seed=0, copies=1, spread=0.0,
-                  hardness=0.7):
+                  hardness=0.7, pressure=1.0, pressure_end=None):
     """沿 SVG path 生成由粗到细的笔触，用于枝干/鹿角/毛流。
 
     Args:
@@ -203,6 +212,8 @@ def tapered_stroke(doc, layer, d, color=(217, 180, 90), size=10.0, size_end=1.0,
         copies: >=1；沿法线并行复制几笔，用于鹿角/枝干的厚度。
         spread: copies>1 时相邻副本的法线间距（像素）；0 则重叠。
         hardness: 笔刷硬度 0..1；写入每笔。
+        pressure: 起点压力 0..1；写入每段点的压力（渲染器会读）。
+        pressure_end: 终点压力 0..1；缺省 = pressure（等压）。给定时沿路径线性插值。
 
     Returns:
         同一个 doc（已追加笔触）。
@@ -210,6 +221,7 @@ def tapered_stroke(doc, layer, d, color=(217, 180, 90), size=10.0, size_end=1.0,
     Notes:
         * 每小段是一笔普通笔触，圆头；相邻段重叠形成连续锥形。
         * 单笔径 taper 不会自动产生体积；copies/spread 并行多笔才有厚度。
+        * pressure 与 size 是两套变化：size 改笔宽，pressure 改渲染压力。
         * 路径太长/太弯时，增大 steps 改善连续性，代价是笔数。
     """
     g = max(0.0, min(1.0, float(guidance)))
@@ -228,6 +240,8 @@ def tapered_stroke(doc, layer, d, color=(217, 180, 90), size=10.0, size_end=1.0,
     cnum = max(1, min(64, int(copies)))
     gap = float(spread)
     hard = max(0.0, min(1.0, float(hardness)))
+    p0 = max(0.0, min(1.0, float(pressure)))
+    p1 = p0 if pressure_end is None else max(0.0, min(1.0, float(pressure_end)))
     for poly in polys:
         pts = np.asarray(poly, np.float64)
         if len(pts) < 2:
@@ -262,9 +276,10 @@ def tapered_stroke(doc, layer, d, color=(217, 180, 90), size=10.0, size_end=1.0,
                     nxv, nyv = 0.0, 0.0
                 x0, y0 = x0 + nxv * off, y0 + nyv * off
                 x1, y1 = x1 + nxv * off, y1 + nyv * off
+                pr = p0 + (p1 - p0) * t
                 s = {"layer": layer, "preset": preset, "size": float(max(0.5, w)),
                      "opacity": op, "color": rgb, "hardness": hard,
-                     "points": [[float(x0), float(y0), 1.0], [float(x1), float(y1), 1.0]]}
+                     "points": [[float(x0), float(y0), pr], [float(x1), float(y1), pr]]}
                 if tag:
                     s["tag"] = str(tag)
                 doc["strokes"].append(s)

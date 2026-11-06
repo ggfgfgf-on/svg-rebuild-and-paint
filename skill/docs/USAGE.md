@@ -287,7 +287,7 @@ python scripts/compile_ops.py validate plan.json --ops ops.json   # 多余键会
 python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 ```
 
-20 个算子（详见 [API.md](API.md)）：
+21 个算子（原有 20 个 + `set_layer_blend`；详见 [API.md](API.md)）：
 
 | 算子 | 改什么 | 关键键 |
 |---|---|---|
@@ -304,6 +304,7 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
 | `recolor_palette` | 整套调色板替换 | palette |
 | `draw_path` | 按 SVG path 加笔画（凭空起手；层不存在会自动建层） | layer, d, color, size, blend |
 | `add_layer` | 新增空图层（幂等；`index` 指定插入位置，0=垫底） | name, blend, index |
+| `set_layer_blend` | 改已有层的混合模式（不新建、不删层） | layer, blend |
 | `remove_layer` / `rename_layer` / `move_layer` | 删层（连笔触） / 改名（连笔触） / 重排合成顺序 | name, to / index |
 | `replan_region` | 按参考图重排某区域 | ref |
 
@@ -333,7 +334,7 @@ python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png --fast
    {"type":"directional","azimuth":200,"elevation":25,"strength":2.6,
     "map":"textures/rose_window.png","map_mode":"rgb","map_rect":[80,20,400,300]}]}]
 ```
-层管理三件套：`remove_layer`（层与笔触一起删）、`rename_layer`（层与笔触一起改，目标名已存在会报错）、`move_layer`（只改顺序）。
+层管理四件套：`remove_layer`（层与笔触一起删）、`rename_layer`（层与笔触一起改，目标名已存在会报错）、`move_layer`（只改顺序）、`set_layer_blend`（只改已有层混合模式；要新建层用 `add_layer`）。
 
 法线模型（`relight_dir` 与 `light_rig` 共用，见 `scripts/ops.py`）：`dome` 把选区当椭球，法线由笔触质心相对中心的偏移解析算出（纯 plan 坐标，不碰像素）；`gradient` 把 shade 画到 bbox 栅格上求梯度，再按笔触质心采样（内部有栅格中间量，但结果写回笔触参数）。两者都只是「图像平面伪法线」，不是 3D 法线贴图。公共 helper：`_dome_frame` / `_dome_normal` / `_normal_fields` / `_normal_sample`；`pick_instance.fit_boundary` 里的法线是轮廓边缘法线，与光照无关。
 
@@ -499,6 +500,6 @@ python scripts/metric.py ref.png render.png
 
 ## 9. 形状能力（新增，不改原有 20 个算子）
 
-`scripts/shape_ops.py` 新增两个 helper：`fill_polygon`（多边形块面/剪影）与 `tapered_stroke`（沿 path 的锥形笔，鹿角/枝干/毛流）。它们只往 plan 追加普通笔触，不是新算子、不是新笔刷；原有的 densify / relight_dir / light_rig / draw_path 等 20 个算子照旧。
+`scripts/shape_ops.py` 新增两个 helper：`fill_polygon`（多边形块面/剪影）与 `tapered_stroke`（沿 path 的锥形笔，鹿角/枝干/毛流）。它们只往 plan 追加普通笔触，不是新算子、不是新笔刷；原有的 densify / relight_dir / light_rig / draw_path 等 20 个算子照旧；另有新增的 `set_layer_blend`。
 
 参数语义、约束、层序与组合方式见 [SHAPE_API.md](SHAPE_API.md)。

@@ -373,6 +373,35 @@ def add_layer(doc, name, blend="normal", index=None, guidance=1.0, **_):
     return doc
 
 
+def set_layer_blend(doc, layer, blend, guidance=1.0, **_):
+    """把已有层的混合模式改为 blend（guidance=0 不变；层不存在报错）。
+
+    与 add_layer 的区别：add_layer 只在新层时使用 blend，已有层不改；这个算子
+    专门改已有层。blend 必须是 paint_native.BLENDS 里的名字（normal/multiply/
+    screen/overlay/softlight/...）。
+    """
+    g = _strength(guidance, 1.0)
+    if g <= 0.0:
+        return doc
+    name = str(layer or "").strip()
+    if not name:
+        raise ValueError("set_layer_blend needs a non-empty layer name")
+    layers = doc.get("layers") or []
+    i = _layer_index(layers, name)
+    if i < 0:
+        raise ValueError("set_layer_blend: unknown layer %r" % (name,))
+    b = str(blend or "").strip().lower()
+    try:
+        import paint_native
+        valid = set(paint_native.BLENDS)
+    except Exception:
+        valid = {"normal"}
+    if b not in valid:
+        raise ValueError("set_layer_blend: unknown blend %r; known: %s" % (b, ", ".join(sorted(valid))))
+    layers[i]["blend"] = b
+    return doc
+
+
 def remove_layer(doc, name, guidance=1.0, **_):
     """删除图层连同它的全部笔触（幂等：层不存在就什么都不做）。
 
@@ -1180,6 +1209,7 @@ def light_rig(doc, lights=None, ambient=1.0, mode="dome", preserve="strokes", bl
 
 OPS = {
     "light_rig": light_rig,    "add_layer": add_layer,
+    "set_layer_blend": set_layer_blend,
     "remove_layer": remove_layer,
     "rename_layer": rename_layer,
     "move_layer": move_layer,
@@ -1204,6 +1234,7 @@ OPS = {
 REQUIRED = {
     "add_layer": ["name"],
     "light_rig": [],
+    "set_layer_blend": ["layer", "blend"],
     "remove_layer": ["name"],
     "rename_layer": ["name", "to"],
     "move_layer": ["name", "index"],
@@ -1230,6 +1261,7 @@ ALLOWED = {
     "add_layer": {"name", "blend", "index", "guidance"},
     "light_rig": {"lights", "ambient", "mode", "preserve", "blur", "layer", "guidance",
                   "render_iters", "render_tol", "map", "map_mode", "map_rect", "map_invert"},
+    "set_layer_blend": {"layer", "blend", "guidance"},
     "remove_layer": {"name", "guidance"},
     "rename_layer": {"name", "to", "guidance"},
     "move_layer": {"name", "index", "guidance"},

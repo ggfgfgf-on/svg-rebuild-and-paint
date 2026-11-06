@@ -60,19 +60,20 @@ shape_ops.tapered_stroke(doc, ...)
 fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.0,
              opacity=1.0, preset="round_soft", spacing=None, jitter=0.35,
              angle=0.0, gradient_angle=0.0, hardness=0.7, blend="normal",
-             tag=None, guidance=1.0, seed=0, edge=True, edge_inset=0.0)
+             tag=None, guidance=1.0, seed=0, edge=True, edge_inset=0.0,
+             pressure=1.0, holes=None)
 ~~~
 
 ### 1.1 它到底做什么
 
 1. 在多边形 bbox 里按 spacing 铺网格；
-2. 每个格点做 jitter，再用点在多边形内测试；
+2. 每个格点做 jitter，再用「在外环内且不在任何 hole 内」测试；
 3. 在多边形内的点画一小段笔触（默认长度 0.2×size）；
 4. 可选沿多边形边补一圈边笔；
 5. 每笔一个颜色（color 或 color→color2 的插值）。
 
 它不是扫描线填充，也不是矢量填充；边缘由笔刷半径和边圈决定。
-凹多边形可以；带洞多边形不支持；自交多边形行为未定义。
+凹多边形可以；holes 支持挖洞；自交多边形行为未定义。
 
 ### 1.2 参数
 
@@ -80,7 +81,8 @@ fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.0,
 |---|---|---|---|
 | doc | dict | plan | 原地追加；必须含 canvas/layers/strokes |
 | layer | str | 目标层 | 不存在则建层；已存在不改 blend |
-| polygon | [[x,y],...] | 多边形顶点 | ≥3 点；自动闭合；可凹；不支持洞 |
+| polygon | [[x,y],...] | 外环顶点 | ≥3 点；自动闭合；可凹 |
+| holes | [[x,y],...] 列表/None | 洞/内环 | 每个 ≥3 点；落在其中的撒点被跳过；edge 只补外环 |
 | color | rgb/hex | 起始颜色 | 0..255 或 "#rrggbb" |
 | color2 | rgb/hex/None | 终点颜色 | 给定时按 gradient_angle 逐笔插值 |
 | size | float=8 | 笔刷直径 | ≥0.5；边圈用 0.9×size |
@@ -97,6 +99,7 @@ fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.0,
 | seed | int=0 | 抖动种子 | 确定性 |
 | edge | bool=True | 是否补边圈 | True 减少圆笔触锯齿 |
 | edge_inset | float=0 | 边圈内缩像素 | 0=边笔中心在边界；可设 ~0.5×size 防越界 |
+| pressure | float=1 | 笔触压力 | 0..1；写入每笔 points；渲染器读取 |
 
 ### 1.3 color2 的真实语义
 
@@ -128,7 +131,7 @@ opacity 是**单笔**不透明度，不是整层统一 alpha。
 
 一次 fill 只产生一遍笔触。要改变块面的外观，调这些维度：
 
-- polygon：覆盖范围与轮廓；凹多边形可以，洞不支持。
+- polygon / holes：覆盖范围与轮廓；凹多边形可以，holes 挖洞。
 - color / color2 / gradient_angle：颜色与方向；color2 是逐笔插值，不是像素渐变。
 - size / spacing / jitter：笔触密度与规则性；spacing 越小越实、笔数越多。
 - hardness / edge / edge_inset：边缘软硬与边圈内缩。
@@ -143,7 +146,7 @@ opacity 是**单笔**不透明度，不是整层统一 alpha。
 tapered_stroke(doc, layer, d, color=(217, 180, 90), size=10.0, size_end=1.0,
                steps=24, opacity=1.0, preset="round_soft", blend="normal",
                tag=None, guidance=1.0, seed=0, copies=1, spread=0.0,
-               hardness=0.7)
+               hardness=0.7, pressure=1.0, pressure_end=None)
 ~~~
 
 ### 2.1 它到底做什么
@@ -154,7 +157,7 @@ tapered_stroke(doc, layer, d, color=(217, 180, 90), size=10.0, size_end=1.0,
 4. copies>1 时沿每段法线并行复制，spread 控制间距；
 5. 相邻段圆头重叠，形成连续锥形。
 
-它是“沿路径的宽度变化”，不是新笔刷，也没有压力/倾斜。
+它是“沿路径的宽度变化”；pressure 是另一条独立的压力变化，仍然没有倾斜。
 
 ### 2.2 参数
 
@@ -176,6 +179,8 @@ tapered_stroke(doc, layer, d, color=(217, 180, 90), size=10.0, size_end=1.0,
 | copies | int=1 | 并行副本数 | 1..64；用于厚度/体积 |
 | spread | float=0 | 副本法线间距 | 像素；0 时副本重叠 |
 | hardness | float=0.7 | 笔刷硬度 | 0..1 |
+| pressure | float=1 | 起点压力 | 0..1；写入每段 points |
+| pressure_end | float/None | 终点压力 | 缺省 = pressure；给定时沿路径线性插值 |
 
 ### 2.3 笔径插值
 
@@ -185,6 +190,8 @@ w(t) = size + (size_end - size) × t
 
 每段用这个 w 作为该笔的 size。相邻段圆头重叠，视觉上是连续锥形；
 但它是分段常宽，不是解析锥形；steps 越大越平滑。
+
+压力同理：p(t)=pressure+(pressure_end-pressure)×t；缺省 pressure_end 时等压。
 
 ### 2.4 copies 与 spread 的真实语义
 
@@ -208,18 +215,18 @@ draw_path 是一条 path = 一笔，笔径恒定；tapered_stroke 是一条 path
 
 ## 4. helper 的边界（不是引擎缺陷）
 
-shape_ops 只把普通笔触追加进 plan，不改变渲染器，也不替代原有 20 个算子。下面几条是 helper 的刻意边界或接口约定；其中层序已经补了显式入口：
+shape_ops 只把普通笔触追加进 plan，不改变渲染器，也不替代原有 20 个算子（另加 `set_layer_blend`）。下面几条是 helper 的刻意边界或接口约定；其中层序已经补了显式入口：
 
-- **单环**：fill_polygon 用单个 ring 做“点在多边形内”；带洞/多环剪影拆成多个 polygon 或多个层。引擎没有“路径布尔填充”这一步。
+- **多环**：fill_polygon 支持外环 + 可选 holes（挖洞）；多个不相交的块面还是多次调用（或分 polygon/层）。它不做路径布尔运算。
 - **color2 逐笔**：plan 里一笔只有一个 color；像素级渐变要靠更密的 spacing/更多笔触近似，不是一次 fill 的像素插值。
 - **体积/光**：helper 不生成 height/normal；要光照用原有 relight_dir / light_rig / tone_map 叠在产物上。2D 合成没有真实颜料厚度，这是引擎模型，不是 helper 漏做。
-- **压力**：渲染器会读 points 的 pressure（实测 0.2 vs 1.0 会改变 alpha）；helper 当前固定写 1.0，所以它本身不生成压力曲线。tapered_stroke 的宽度锥形用 size 插值，不依赖 pressure；要压力曲线直接写 points，或扩展 helper。
+- **压力**：fill_polygon / tapered_stroke 已暴露 pressure（tapered 还有 pressure_end 线性插值），写入 points；渲染器会读（实测 0.2 vs 1.0 会改变 alpha）。宽度锥形仍用 size，两者独立。
 - **倾斜**：plan 没有倾斜笔尖字段，渲染器是 2D stamp，没有这个参数；这是引擎边界，不是 helper。
 - **层序**：dump_plan 不给 layer_order 时按首笔；传 layer_order 可显式指定（可含空层）；render_plan 严格按 doc["layers"] 合成。helper 建层仍按调用顺序。
 - **边圈**：edge 是沿多边形边逐段 stamping，不是 miter 路径偏移；凹角/尖角可能留缺口。复杂轮廓用 edge=False + 多 polygon，或自己补边。
-- **blend**：helper 只在新建层时使用 blend；已有层不会被改。要改已有层，直接改 doc["layers"] 里该层的 "blend" 再 dump/load；没有 set_layer_blend 算子，也不需要重建。
+- **blend**：helper 只在新建层时使用 blend；已有层用 `set_layer_blend` 算子改（也可直接改 `doc["layers"]` 里该层的 `"blend"`）。
 
-这些不是 20 个算子的缺陷；算子的完整能力见 [API.md](API.md)。
+这些不是 bug：一部分是 plan/2D 模型边界，一部分是 helper 的刻意选择；算子的完整能力见 [API.md](API.md)。
 
 ## 5. 验证方式
 
