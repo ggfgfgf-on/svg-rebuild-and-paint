@@ -264,6 +264,8 @@ python examples/realistic_sky_sea.py sky_sea.png sky_sea.plan.json
 python examples/target_sampling.py sampled.png sampled.plan.json
 ```
 
+> 本节三个脚本（含 §8 的 `incremental_video.py`）都在 `examples/` 下，是**可运行示例**，不是技能入口；生产入口仍是 `paint_cli.py` / `render_plan.py` / host `art_paint`。示例可以复制改，但不承诺作为稳定 CLI。
+
 两个脚本都打印一行 JSON（笔数 / 层数 / 画布 / plan 字节 / 耗时）。这些数字是自查基线：同参数复跑应在同一量级，plan 字节数应稳定；耗时不稳多半是机器负载，不是脚本。
 
 选路线的取舍见 [USAGE.md](USAGE.md) §4.6：A 的形体可改，B 更接近参考图但形体由目标图定死。

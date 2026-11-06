@@ -207,8 +207,8 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 
 | 路线 | 谁决定形体 | 写实上限 | plan 可改性 | 可跑例子 |
 |---|---|---|---|---|
-| A 解析场 | 你的循环 | 中（厚涂插画） | 高：改哪段只影响那段 | `examples/realistic_sky_sea.py` |
-| B 目标图采样 | 目标图（解析场或照片） | 高（受目标图限制） | 低：改一笔只是改一笔，改不动整体形体 | `examples/target_sampling.py` |
+| A 解析场 | 你的循环 | 中（厚涂插画） | 高：改哪段只影响那段 | `examples/realistic_sky_sea.py`（示例，不是入口） |
+| B 目标图采样 | 目标图（解析场或照片） | 高（受目标图限制） | 低：改一笔只是改一笔，改不动整体形体 | `examples/target_sampling.py`（示例，不是入口） |
 
 两条不互斥：常见做法是 B 打底、A 补光与局部；也可以在采样结果上再手写笔画。
 
@@ -248,6 +248,16 @@ lum = cv2.GaussianBlur(lum, (0, 0), 2)
 gx = cv2.Sobel(lum, cv2.CV_32F, 1, 0, ksize=3); gy = cv2.Sobel(lum, cv2.CV_32F, 0, 1, ksize=3)
 ang = np.arctan2(gy, gx) + np.pi / 2                 # 沿等值线走笔
 strokes = []
+
+# 先铺底：大笔盖满（完整版见 examples/target_sampling.py 3a）
+for y in range(0, H, 7):
+    for x in range(0, W, 22):
+        yi, xi = int(np.clip(y, 0, H - 1)), int(np.clip(x, 0, W - 1))
+        strokes.append({"layer": "base", "preset": "flat", "size": 20.0,
+                        "opacity": 0.9, "color": [float(c) for c in target[yi, xi]],
+                        "hardness": 0.4, "region_id": 0,
+                        "points": [[x, y, 1.0], [x + 60, y, 1.0]]})
+
 for y in range(0, H, 4):
     for x in range(0, W, 4):
         g = float(np.hypot(gx[y, x], gy[y, x]))
@@ -451,7 +461,7 @@ p.stroke_batch(layer_idx, strokes[j:k], nthreads=8)      # 每笔全片只画一
 frame = p.composite()                                    # (H, W, 4) uint8
 ```
 
-完整可跑：`examples/incremental_video.py`。实测（9,199 笔 / 960×640 / 600 帧 30fps）：增量 **5.97 s**、0.32 MB；同一量级计划逐帧用 `render_arr` 重画前 k 笔是 Σk 次落笔，实测 **94.1 s**（12,701 笔）。h264 `-crf 20 -preset veryfast` 后 0.28–0.50 MB。
+`examples/incremental_video.py` 是示例，不是视频入口；生产入口仍是 `paint_cli.py video`。实测（9,199 笔 / 960×640 / 600 帧 30fps）：增量 **5.97 s**、0.32 MB；同一量级计划逐帧用 `render_arr` 重画前 k 笔是 Σk 次落笔，实测 **94.1 s**（12,701 笔）。h264 `-crf 20 -preset veryfast` 后 0.28–0.50 MB。
 
 ---
 

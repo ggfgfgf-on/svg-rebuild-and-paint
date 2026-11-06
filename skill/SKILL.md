@@ -134,7 +134,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 ```
 
 - `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状，层数、层名、配色都不是模板，按 §6.1 拆你题目的层。
-- **凭空画（无参考图）有两条路线，先选再写**：A 解析场写循环（形体可改、上限厚涂插画，`examples/realistic_sky_sea.py`）；B 目标图采样（更接近参考图，但形体由目标图定死，`examples/target_sampling.py`）。两者都是 `plan_io.dump_plan(...)` 落盘 + `render_util.render_arr(...)` 出图，迭代时看图改笔触。路线取舍、骨架与字段语义见 **[docs/USAGE.md](docs/USAGE.md) §4.6**；参数带在 §4.5。
+- **凭空画（无参考图）有两条路线，先选再写**：A 解析场写循环（形体可改、上限厚涂插画，`examples/realistic_sky_sea.py`；示例不是入口）；B 目标图采样（更接近参考图，但形体由目标图定死，`examples/target_sampling.py`，也是示例，不是入口）。两者都是 `plan_io.dump_plan(...)` 落盘 + `render_util.render_arr(...)` 出图，迭代时看图改笔触。路线取舍、骨架与字段语义见 **[docs/USAGE.md](docs/USAGE.md) §4.6**；参数带在 §4.5。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
 - **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
 
