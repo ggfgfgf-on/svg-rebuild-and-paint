@@ -60,7 +60,39 @@ spec 是归一化尺子：landmarks_bbox 的坐标相对主体 bbox，0..1；seg
 4. 只对选中的结构做完成门：V1 的 base/fur/rim/hoof + V3 的 tapered 鹿角；
 5. 完成门后仍看 25%：它是最后一眼，不是结构判据。
 
-## 5. 边界
+## 5. 返回值与 ops 边界
+
+### structure_metric.py
+
+函数返回：
+
+| 接口 | 返回 |
+|---|---|
+| load_mask | (mask, width, height, layers)；mask 是 uint8 0/1 |
+| mask_metrics | dict：empty / bbox / bbox_wh / bbox_aspect / area / fill_ratio / centroid / bottom_y / bottom_width |
+| compare_masks | dict：ref / candidate / shape_iou / shape_dice / shape_chamfer_px / placement |
+| check_landmarks | dict：available / tolerance / mean_error / max_error / landmark_pass / segment_pass / segments / landmarks / pass |
+
+CLI 的 JSON 顶层：plan / canvas / layers / mask；有 ref 时多 ref / ref_layers / comparison；有 spec 时多 spec / landmarks / ground。
+
+### structure_candidates.py
+
+stdout 只有一行 JSON：{best, mode, n, sheet}。
+--out 写完整候选数组：candidates[] / best / mode。
+mode：reference / landmark_spec / manual。manual 时 best=null，这是故意的，不猜。
+
+### ops 边界
+
+structure_metric / structure_candidates 不是 ops：
+
+- 它们不修改 plan，不进入 ops.apply；
+- 它们不改变 OPS 表，当前仍是 21 个算子（含 set_layer_blend）；
+- 结构度量需要渲染，不能当成纯 plan 编辑算子；
+- shape_ops 也仍然不是 ops，只是 plan 生成 helper。
+
+plan_io.dump_plan 返回写入笔数 int；现在保留 stroke 的 tag，所以 landmark 标签落盘后仍可读。
+
+## 6. 边界
 
 - 这不是自动生成结构；它只测候选。
 - 没有参考/landmark 时不能自动判断“结构对不对”，只能并排给人看。

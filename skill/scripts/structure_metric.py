@@ -34,6 +34,7 @@ def _layer_list(doc, layers):
 
 
 def load_mask(plan_path, layers=None, alpha_thresh=8):
+    """Return (mask uint8 HxW, width, height, resolved layer names)."""
     doc, w, h = plan_io.load_plan(str(plan_path))
     use = _layer_list(doc, layers)
     mask = np.zeros((h, w), np.uint8)
@@ -44,6 +45,7 @@ def load_mask(plan_path, layers=None, alpha_thresh=8):
 
 
 def mask_metrics(mask):
+    """Return bbox/aspect/fill/centroid/bottom metrics for a binary mask."""
     ys, xs = np.nonzero(mask)
     if len(xs) == 0:
         return {"empty": True, "area": 0}
@@ -99,6 +101,7 @@ def _shape_compare(ref_crop, cand_crop):
 
 
 def compare_masks(ref_mask, cand_mask):
+    """Return aligned shape_iou/dice/chamfer and placement metrics."""
     if ref_mask.shape != cand_mask.shape:
         cand_mask = _resize(cand_mask, ref_mask.shape)
     rm = mask_metrics(ref_mask)
@@ -146,6 +149,7 @@ def load_landmarks(path_or_none, doc):
 
 
 def check_landmarks(pred, spec, cand_bbox):
+    """Return landmark and segment errors; pass is theirs, not an aesthetic score."""
     target = spec.get("landmarks_bbox") or {}
     if not pred or not target:
         return {"available": False}
