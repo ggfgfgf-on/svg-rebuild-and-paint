@@ -44,8 +44,6 @@
   },
   "tolerances": {
     "landmark": 0.08,
-    "bbox_aspect": 0.25,
-    "fill_ratio": 0.2,
     "ground": 0.03,
     "segment": 0.1
   },

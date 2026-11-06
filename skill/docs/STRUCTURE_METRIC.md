@@ -22,26 +22,38 @@ python scripts/structure_metric.py out/cand.plan.json --layers stag --spec scrip
 
 注意：**shape_iou** 是归一化形状比较，先消除位置/大小；位置和大小看 placement。不要拿原始像素 IoU 判结构。
 
-## 1.1 --ref 的语义（关键）
+## 1.1 --ref 的语义
 
---ref 是**结构参考 plan**，不是渲染图、不是绘制模板，也不是硬编码结构。
+--ref 是**可选的参考 plan**，不是渲染图、不是绘制模板，也不是硬编码结构。
 
 - 取参考 plan 的主体层 alpha 作为剪影；
 - 候选和参考各自按主体 bbox 归一化，再算 shape_iou / dice / chamfer；
-- 所以位置和大小会被消掉，shape_iou 只看轮廓形状：
+- 位置和大小会被消掉；shape_iou 只看归一化轮廓：
   - 1.0 = 归一化轮廓相同；
   - 越高越接近参考；
   - shape_chamfer_px 越低越好；
   - 位置/大小另看 placement。
-- 候选阶段就应该用同一个 --ref 跑所有候选，由 structure_candidates.py 按 shape_iou 排序；不要等完成门才第一次用参考。
-- 完成门后也要对 final 再跑一次同一个 --ref。如果 shape_iou 明显下降，说明完成层的笔触改变了/撑大了主体轮廓，不是“更细化”。
-- 没有 --ref 时，spec 只验 landmark / segment / 接地；它能抓“点标错”，不能抓“剪影不像鹿”。**spec pass 不等于结构 pass。**
+- 如果要对多个候选做形状比较，可以给它们传同一份 --ref；这样 shape_iou 在同一参考下可比。是否使用由调用方决定。
+- 完成门后也可以再对 final 跑同一份 --ref，观察 shape_iou 是否变化；这是可选的复查，不是强制步骤。
+- 没有 --ref 时，spec 只验 landmark / segment / 接地；它不提供轮廓判断。spec pass 不等于结构 pass。
 
-冷测里 A 的 spec max_error=0.029、segment 全过，但和 V2 的 shape_iou 只有 0.156、面积比 3.9；原因就是没有 --ref，landmark 对了，轮廓没对。
+### 1.2 CLI 参数
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| plan | 必填 | 候选 plan |
+| --layers | plan.subject_layers | 逗号分隔的主体层；没有 subject_layers 时必须给 |
+| --ref | 无 | 可选参考 plan；提供时输出 comparison |
+| --ref-layers | 同 --layers | 参考 plan 的主体层 |
+| --spec | 无 | 归一化 landmark/segment/ground 尺子 |
+| --landmarks | 无 | 候选 landmark JSON；不给则从 landmark: 标签取 |
+| --alpha-thresh | 8 | alpha 大于该值算主体像素 |
+| --out | 无 | 写完整 JSON |
+| --guide | 无 | 写结构参考图；需要 --spec |
 
 ## 2. 多候选：structure_candidates.py
 
-同一个 prompt 先生成 2–3 个**结构-only** plan（只画剪影、接地、遮挡，不画毛/鹿角/高光），然后：
+structure_candidates.py 接收多个结构-only 候选 plan（只画剪影、接地、遮挡，不画毛/鹿角/高光）。候选由调用方生成，可以来自同一个 prompt：
 
 ~~~powershell
 python scripts/structure_candidates.py out/cand_*.plan.json --layers stag --ref ref.plan.json --ref-layers stag,stag_detail --thumb 320 --cols 3 --sheet out/structure_candidates.png --out out/structure_ranking.json
@@ -49,7 +61,22 @@ python scripts/structure_candidates.py out/cand_*.plan.json --layers stag --ref 
 
 有参考时按 shape_iou 排序并标出 best；没有参考但有 spec/landmark 时按 landmark 最大误差排序；两者都没有时 best=null，只生成联系表供人或视觉模型选择，不假装自动排名。
 
-关键：**不要接受第一个结构候选**。先并排渲最小图，选结构后再进完成门。
+### 2.1 CLI 参数
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| plans | 必填 | 一个或多个候选 plan |
+| --layers | 无，必填 | 候选主体层，逗号分隔 |
+| --ref | 无 | 可选参考 plan；提供时按 shape_iou 排序 |
+| --ref-layers | 同 --layers | 参考主体层 |
+| --spec | 无 | 用 spec landmark/segment 排序 |
+| --thumb | 320 | 每张缩略图宽度 |
+| --cols | 3 | 联系表列数 |
+| --sheet | 无 | 写联系表 PNG |
+| --out | 无 | 写完整 ranking JSON |
+
+
+输出是排序和联系表；是否选择、选哪个，由调用方决定。
 
 ## 3. landmark 标签
 
@@ -69,13 +96,28 @@ plan_io.dump_plan 会保留 tag；structure_metric.py 默认从 landmark:<name> 
 
 spec 是归一化尺子：landmarks_bbox 的坐标相对主体 bbox，0..1；segments 给关键点之间的距离，ground_y 给接地线。它不是要照抄的几何模板。scripts/structure_specs/stag.json 只是一个示例，换题材时换 spec。
 
-## 4. 推荐流程
+### 3.1 spec 字段
 
-1. 同 prompt 生成 3 个结构候选；
-2. structure_candidates.py 渲最小图 + 排序/联系表；
-3. 选结构最好的一个（有 ref/spec 看指标，没有就人工/视觉选）；
-4. 只对选中的结构做完成门：V1 的 base/fur/rim/hoof + V3 的 tapered 鹿角；
-5. 完成门后仍看 25%：它是最后一眼，不是结构判据。
+| 字段 | 说明 |
+|---|---|
+| subject_bbox | 归一化画布 bbox；只用于 --guide 的示意框 |
+| ground_y | 归一化接地线；参与 ground 检查 |
+| landmarks_bbox | landmark 目标点，坐标相对主体 bbox，0..1 |
+| segments | 关键点对（head/body/front_leg/hind_leg/stance）；按 bbox 归一化长度比较 |
+| tolerances.landmark | landmark 最大误差容差，默认 0.06 |
+| tolerances.segment | 段长误差容差，默认 0.10 |
+| tolerances.ground | 接地线误差容差，默认 0.03 |
+
+未列出的字段不会被执行；spec 是尺子，不是绘制模板。
+
+
+## 4. 一种组合方式（不是要求）
+
+1. 可生成多个结构候选；
+2. 用 structure_candidates.py 渲最小图并输出排序/联系表；
+3. 由调用方选择候选（有 ref/spec 看指标，没有就人工/视觉看联系表）；
+4. 对选中的结构做完成门：base/fur/rim/hoof + tapered 鹿角；
+5. 完成门后仍可看 25%；它是复查，不是结构判据。
 
 ## 5. 返回值与 ops 边界
 
