@@ -9,7 +9,7 @@
 python scripts/structure_metric.py out/cand.plan.json --layers stag --ref ref.plan.json --ref-layers stag,stag_detail --out out/cand.structure.json
 
 # 没有参考图：用归一化 landmark 表 + 候选里的 landmark 标签
-python scripts/structure_metric.py out/cand.plan.json --layers stag --spec scripts/structure_specs/stag.json --guide out/structure_guide.png --out out/cand.structure.json
+python scripts/structure_metric.py out/cand.plan.json --layers stag --spec scripts/structure_specs/stag.example.json --guide out/structure_guide.png --out out/cand.structure.json
 ~~~
 
 输出包括：
@@ -94,7 +94,7 @@ plan_io.dump_plan 会保留 tag；structure_metric.py 默认从 landmark:<name> 
 {"nose": [550, 390], "poll": [520, 360], "front_hoof": [560, 780]}
 ~~~
 
-spec 是归一化尺子：landmarks_bbox 的坐标相对主体 bbox，0..1；segments 给关键点之间的距离，ground_y 给接地线。它不是要照抄的几何模板。scripts/structure_specs/stag.json 只是一个示例，换题材时换 spec。
+spec 是归一化尺子：landmarks_bbox 的坐标相对主体 bbox，0..1；segments 给关键点之间的距离，ground_y 给接地线。它不是要照抄的几何模板。scripts/structure_specs/stag.example.json 只是一个示例，换题材时换 spec。
 
 ### 3.1 spec 字段
 
@@ -112,7 +112,8 @@ spec 是归一化尺子：landmarks_bbox 的坐标相对主体 bbox，0..1；seg
 | tolerances.segment | 段长误差容差，默认 0.10 |
 | tolerances.ground | 接地线误差容差，默认 0.03 |
 
-未列出的字段不会被执行；bbox_aspect/fill_ratio 只有给了目标和容差才参与 gate，不是硬编码结构。spec 是尺子，不是绘制模板。
+未列出的字段不会被执行；bbox_aspect/fill_ratio 只有调用方在自己的 spec 里给了目标和容差才参与 gate；示例 spec 不提供这两个目标值。spec 是尺子，不是绘制模板。
+没有 --ref、spec 里也没有 bbox_aspect/fill_ratio 目标时，metric 只给测量值和 landmark/segment/ground 检查，不会自动判“轮廓通过”。要判形状，用 --ref，或由调用方提供带目标的 spec。
 
 
 ## 4. 一种组合方式（不是要求）

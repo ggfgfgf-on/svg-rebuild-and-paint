@@ -5,8 +5,8 @@ never contains subject geometry; a candidate plan supplies the silhouette/landma
 
 Examples:
     python scripts/structure_metric.py cand.plan.json --layers stag --ref ref.plan.json --out report.json
-    python scripts/structure_metric.py cand.plan.json --layers stag --spec specs/stag.json --out report.json
-    python scripts/structure_metric.py cand.plan.json --layers stag --spec specs/stag.json --landmarks lm.json --guide guide.png
+    python scripts/structure_metric.py cand.plan.json --layers stag --spec specs/stag.example.json --out report.json
+    python scripts/structure_metric.py cand.plan.json --layers stag --spec specs/stag.example.json --landmarks lm.json --guide guide.png
 """
 import argparse
 import json

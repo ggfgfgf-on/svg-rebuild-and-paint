@@ -1,6 +1,6 @@
 {
   "name": "stag_side_profile",
-  "notes": "Normalized ruler for a side-profile stag; this is measurement data, not a drawing template. Replace for other subjects.",
+  "notes": "Example schema only: a normalized ruler for a side-profile stag. It is not a default gate and carries no canonical bbox_aspect/fill_ratio; supply those in your own spec when needed.",
   "subject_bbox": [
     0.16,
     0.18,
@@ -45,9 +45,7 @@
   "tolerances": {
     "landmark": 0.08,
     "ground": 0.03,
-    "segment": 0.1,
-    "bbox_aspect": 0.12,
-    "fill_ratio": 0.05
+    "segment": 0.1
   },
   "segments": {
     "head": [
@@ -70,7 +68,5 @@
       "hind_hoof",
       "front_hoof"
     ]
-  },
-  "bbox_aspect": 0.97,
-  "fill_ratio": 0.21
+  }
 }
