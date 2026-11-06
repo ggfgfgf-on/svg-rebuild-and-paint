@@ -1,15 +1,15 @@
-"""最小形状演示：fill_polygon + tapered_stroke -> plan / png。
+"""最小形状 API 测试夹具：fill_polygon + tapered_stroke -> plan / png。
 
     python examples/shape_demo.py
 
-产物在 examples/out_shape_demo/。它不是一张完整作品，只演示两个 helper 的调用；
-完整流程、风格参数组和宿主工具调用见 docs/EXAMPLES.md。
+产物在 tests/fixtures/out_shape_demo/。它不是画面结构示例，只是两个 helper 的调用夹具；
+调用示例见 docs/EXAMPLES.md，画面结构仍按 SKILL/USAGE 的原有示例与流程。
 """
 import math
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import plan_io
 import render_util as RU
@@ -51,7 +51,7 @@ for d in ("M 478 270 C 470 230 455 205 430 190",
     shape_ops.tapered_stroke(doc, "antler", d, color="#6b5744",
                              size=10, size_end=1.2, steps=24, preset="round_hard")
 
-out = ROOT / "examples" / "out_shape_demo"
+out = ROOT / "tests" / "fixtures" / "out_shape_demo"
 out.mkdir(parents=True, exist_ok=True)
 plan_io.dump_plan(str(out / "shape.plan.json"), W, H, doc["strokes"],
                   layer_blends={"moon": "screen"})
