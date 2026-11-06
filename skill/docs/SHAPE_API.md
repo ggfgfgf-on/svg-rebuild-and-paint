@@ -246,4 +246,4 @@ arr = RU.render_arr(plan_io.load_plan(path)[0], gpu=False, nthreads=8)
 | color2 渐变 + hardness | `test_fill_gradient_and_hardness` |
 | copies/spread 副本数、笔径 | `test_taper_copies_and_hardness` |
 
-不另设“画法示例”文档：参数行为由这些测试执行验证；需要看调用方式，读函数签名与 docstring，不要复制某个题材的完整构图。
+具体案例见 [EXAMPLES.md](EXAMPLES.md)；本文件只负责参数契约，案例不替代参数说明。
