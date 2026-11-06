@@ -223,9 +223,9 @@ assemble_parts(doc, layer, parts, color=(217,180,90), color2=None,
 | name | 可选；没有 tag 时生成 part:<name> 标签 |
 | z | 同一调用内的绘制顺序，越小越先 |
 | value | -1..1，乘 far_near_delta 后整体平移颜色，用于远/近区分 |
-| color / color2 / size / opacity / spacing / preset / hardness / edge / edge_inset / holes / tag / pressure | 覆盖本次调用的默认值 |
+| color / color2 / size / opacity / spacing / preset / hardness / edge / edge_inset / holes / tag / pressure / jitter / angle / gradient_angle / seed | 覆盖本次调用的默认值 |
 
-它不规定名称、数量、比例和遮挡语义；这些都由调用方写。返回同一个 doc，不是 op，不改变原有引擎。
+它不规定名称、数量、比例和遮挡语义；这些都由调用方写。z 只控制同一 layer 内的笔触顺序；blend 只在层不存在时生效。返回同一个 doc，不是 op，不改变原有引擎。
 
 ## 3. 组合与分层（语义，不是配方）
 

@@ -27,6 +27,7 @@ python scripts/structure_metric.py out/cand.plan.json --layers stag --spec my-sp
 --ref 是**可选的参考 plan**，不是渲染图、不是绘制模板，也不是硬编码结构。
 
 - 取参考 plan 的主体层 alpha 作为剪影；
+- 画布尺寸不同时，候选 mask 会缩放到参考 mask 的尺寸再比较；placement 的 bbox 坐标按参考画布报告。
 - 候选和参考各自按主体 bbox 归一化，再算 shape_iou / dice / chamfer；
 - 位置和大小会被消掉；shape_iou 只看归一化轮廓：
   - 1.0 = 归一化轮廓相同；
@@ -71,7 +72,7 @@ python scripts/structure_candidates.py out/cand_*.plan.json --layers stag --ref 
 | --layers | 无，必填 | 候选主体层，逗号分隔 |
 | --ref | 无 | 可选参考 plan；提供时按 shape_iou 排序 |
 | --ref-layers | 同 --layers | 参考主体层 |
-| --spec | 无 | 用 spec landmark/segment 排序 |
+| --spec | 无 | 用 spec 的 shape/landmark/segment gate 排序 |
 | --thumb | 320 | 每张缩略图宽度 |
 | --cols | 3 | 联系表列数 |
 | --sheet | 无 | 写联系表 PNG |
@@ -152,10 +153,12 @@ python scripts/structure_candidates.py cand_*.plan.json --layers stag --ref ref.
 | load_mask | (mask, width, height, layers)；mask 是 uint8 0/1 |
 | mask_metrics | dict：empty / bbox / bbox_wh / bbox_aspect / area / fill_ratio / centroid / bottom_y / bottom_width |
 | compare_masks | dict：ref / candidate / shape_iou / shape_dice / shape_chamfer_px / placement |
-| check_shape_metrics | dict：available / pass / checks（bbox_aspect、fill_ratio 的 candidate/target/error/tolerance/pass） |
+| check_shape_metrics | dict：available / pass / checks（bbox_aspect、fill_ratio 的 candidate/target/error/tolerance/pass）；没有目标时 available=false、pass=null |
 | check_landmarks | dict：available / tolerance / mean_error / max_error / landmark_pass / segment_pass / segments / landmarks / pass |
 
 CLI 的 JSON 顶层：plan / canvas / layers / mask；有 ref 时多 ref / ref_layers / comparison；有 spec 时多 spec / shape / landmarks / ground；多个 gate 都可用时多 structure_pass。
+
+structure_pass 的规则：只汇总 available=true 的 shape/landmarks/ground gate；一个可用 gate 都没有时为 null，不默认 true。
 
 ### structure_candidates.py
 

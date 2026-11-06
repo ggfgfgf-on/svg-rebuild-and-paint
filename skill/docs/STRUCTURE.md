@@ -57,13 +57,24 @@ parts 的名称、数量和 z 都由你定。assemble_parts 只按 z 填充你�
 ## 4. 接口
 
 - shape_ops.assemble_parts(doc, layer, parts, ...)：按 z 填充模型写的 parts，支持远/近明暗偏移、边圈；见 [SHAPE_API.md](SHAPE_API.md) §2.6；
+
+~~~python
+import shape_ops
+parts = [
+    {"name": "far_leg", "z": 0, "value": -0.8, "polygon": [[150, 300], [210, 300], [200, 500]]},
+    {"name": "body",    "z": 1, "value":  0.0, "polygon": [[120, 220], [360, 220], [400, 380], [100, 380]]},
+    {"name": "near_leg","z": 2, "value":  0.3, "polygon": [[250, 340], [300, 340], [280, 520]]},
+]
+shape_ops.assemble_parts(doc, "stag", parts, size=12, spacing=5,
+                        far_near_delta=40, edge=True)
+~~~
 - scripts/structure_metric.py：测量/参考比较；
 - scripts/structure_candidates.py：多候选联系表/排序；
 - scripts/structure_specs/stag.example.json：纯 schema，目标值全是 null；填自己的值或用 --ref。
 
 ## 6. 谁决定
 
-- 结构单、parts、空白比例字段：模型填；它可以在改结构时重填。
+- 结构单、parts：模型填；它可以在改结构时重填。当前没有默认比例字段；比例由 parts/landmarks 加独立 ref/spec 检查，不要把它当成默认答案。
 - 独立参考/目标：由调用方提供。可以是认可的 plan，也可以是调用方审过的 spec；模型不应自己编一个目标再宣布通过。
 - metric：只执行确定性计算，返回指标/pass/exit code；它不生成结构，也不做审美判断。
 - 循环：模型可以改结构再跑；不能改 pass 字段。要通过，只能改几何或改用调用方认可的目标。
