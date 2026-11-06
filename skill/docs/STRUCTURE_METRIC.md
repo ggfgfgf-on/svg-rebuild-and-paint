@@ -156,6 +156,17 @@ structure_metric / structure_candidates 不是 ops：
 
 plan_io.dump_plan 返回写入笔数 int；现在保留 stroke 的 tag，所以 landmark 标签落盘后仍可读。
 
+## 5.1 度量本身不调用模型
+
+structure_metric / structure_candidates 不调用 LLM、多模态模型或外部 API：
+
+- mask 来自主体层渲染；
+- 指标和 gate 是 numpy/cv2 的确定性计算；
+- best 由 shape_iou 排序或 spec gate 计算；全不过时 best=null；
+- 多模态模型（冷代理）只是读取 JSON/联系表的消费者；它可以做视觉复核，但不是 metric 的一部分。
+
+所以“A 被拒”是数值 gate 的结果，不是模型看了返回值后自己决定的。模型可以忽略返回值，但那是调用方行为，不是接口行为。
+
 ## 6. 边界
 
 - 这不是自动生成结构；它只测候选。
