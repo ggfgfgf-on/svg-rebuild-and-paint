@@ -62,7 +62,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 | 诚实 | 不声称没做过的事；卡住就说卡在哪、文档哪里不够用。 |
 | 语义验收 | 主体是否成立、最亮处是否单焦点、25% 是否可读、是否符合意图；机械判据只管确定性/合法/不露底。 |
 
-默认路径（五阶段）见 `docs/USAGE.md` §6.1；交付清单 §6.2；验收 §6.3。阶段内用什么层、笔刷、算子，由题材决定。
+起手姿态（五阶段，可改）见 `docs/USAGE.md` §6.1；交付清单 §6.2；验收 §6.3。阶段内用什么层、笔刷、算子，由题材决定。
 
 ## ops 算子全表（21 个，确定性、可 diff、零随机）
 
@@ -134,7 +134,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 ```
 
 - `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状，层数、层名、配色都不是模板，按 §6.1 拆你题目的层。
-- **凭空画（无参考图）**：你可以写 build script，用 `shape_ops.fill_polygon` / `tapered_stroke` 往空 plan 追加笔画，用 `plan_io` 写 plan；层、part、pass 由你按场景决定。结构单和 `structure_metric` 是可选的验收工具，不是入口门；接口见 [SHAPE_API.md](docs/SHAPE_API.md) §2，用法见 [USAGE.md](docs/USAGE.md) §4.6。
+- **凭空画（无参考图）**：你可以写 build script，用 `shape_ops.fill_polygon` / `tapered_stroke` 往空 plan 追加笔画，用 `plan_io` 写 plan；层、part、pass 由你按场景决定。写驱动时可参考 [USAGE.md §6.1](docs/USAGE.md) 的起手姿态：大笔铺底 → 中笔立形体 → 小笔细节；这是常用姿态，可按题材改，不是必须顺序。接口见 [SHAPE_API.md](docs/SHAPE_API.md) §2，用法见 [USAGE.md](docs/USAGE.md) §4.6；结构单和 `structure_metric` 是可选的验收工具，不是入口门。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
 - **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
 
