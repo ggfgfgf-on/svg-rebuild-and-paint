@@ -205,28 +205,6 @@ w(t) = size + (size_end - size) × t
 draw_path 是一条 path = 一笔，笔径恒定；tapered_stroke 是一条 path = 多段笔触，笔径变化。
 两者都往同一层追加普通笔触，可混用；选择取决于你要恒定笔径还是变化笔径。
 
-### 2.6 assemble_parts
-
-~~~python
-assemble_parts(doc, layer, parts, color=(217,180,90), color2=None,
-               size=8.0, opacity=1.0, preset="round_soft", spacing=None,
-               jitter=0.35, angle=0.0, gradient_angle=0.0, hardness=0.7,
-               blend="normal", guidance=1.0, seed=0, edge=True,
-               edge_inset=0.0, far_near_delta=0.0)
-~~~
-
-它不是身体结构 helper，而是把模型自己写的一组任意 polygon 按 z 顺序填充：
-
-| part 字段 | 说明 |
-|---|---|
-| polygon | 必填，任意 [[x,y], ...] |
-| name | 可选；没有 tag 时生成 part:<name> 标签 |
-| z | 同一调用内的绘制顺序，越小越先 |
-| value | -1..1，乘 far_near_delta 后整体平移颜色，用于远/近区分 |
-| color / color2 / size / opacity / spacing / preset / hardness / edge / edge_inset / holes / tag / pressure / jitter / angle / gradient_angle / seed | 覆盖本次调用的默认值 |
-
-它不规定名称、数量、比例和遮挡语义；这些都由调用方写。z 只控制同一 layer 内的笔触顺序；blend 只在层不存在时生效。返回同一个 doc，不是 op，不改变原有引擎。
-
 ## 3. 组合与分层（语义，不是配方）
 
 - fill_polygon 产生“面”的笔触；tapered_stroke 产生“有宽度变化的线”的笔触。

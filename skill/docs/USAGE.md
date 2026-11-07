@@ -200,16 +200,15 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 | 水面碎光 | 1.5–5 | 0.1–0.5 | 默认 | 500–1000 |
 | 暗角 | 70–150 | 0.03–0.08 | 默认 | 150–250 |
 
-### 4.6 凭空画：先填结构单，再过结构门
+### 4.6 凭空画：写场景驱动
 
-先读 [STRUCTURE.md](STRUCTURE.md)。这一节只保留入口，不重复结构单字段和参数：
+凭空画不是固定流程。写一个 build script，用 `shape_ops` 往空 plan 追加笔画：
 
-- 在 STRUCTURE.md 里填结构单：pose / 主体 bbox / 接地线 / parts / landmarks / 主光；
-- 用这些 parts 生成**结构-only** plan（可用 shape_ops.assemble_parts，见 [SHAPE_API.md](SHAPE_API.md) §2.6）；
-- 结构门：有参考用 structure_metric --ref；没有参考用自己填的 spec 或 structure_candidates 联系表；
-- 结构通过后才进完成门；完成门后再看一次结构是否被细化改坏。
+- `fill_polygon(doc, layer, polygon, ...)`：在多边形内撒笔触；同一块面可按底色/暗部/毛/轮廓光分多次调用，也可分到不同层；
+- `tapered_stroke(doc, layer, d, ...)`：沿 path 生成由粗到细的笔触，用于枝干/鹿角/毛流；
+- `plan_io.dump_plan(...)`：写 plan。
 
-路线 A/B 的代码骨架、示例数字属于可选案例，见 [EXAMPLES.md](EXAMPLES.md) §7；参数带见 §4.5，plan 字段见 §4.1–4.4。
+层、part、pass、顺序由场景决定，没有默认层数/顺序。结构单、`structure_metric`、`structure_candidates` 是可选的验收工具，不是入口。参数见 [SHAPE_API.md](SHAPE_API.md)，案例见 [EXAMPLES.md](EXAMPLES.md) §7。
 
 ## 5. 调参手册（按阶段）
 

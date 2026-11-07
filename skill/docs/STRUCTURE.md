@@ -34,7 +34,7 @@
 - 头、颈、躯干、腿的接点在哪？
 - 主光从哪来？
 
-parts 的名称、数量和 z 都由你定。assemble_parts 只按 z 填充你写的多边形，不规定身体部件。
+parts 的名称、数量和 z 都由你定。用 `fill_polygon` 逐块填；同一块面可以分多次、分到不同层填，遍数与层名由你按场景决定。
 
 ## 2. 结构门
 
@@ -56,17 +56,14 @@ parts 的名称、数量和 z 都由你定。assemble_parts 只按 z 填充你�
 
 ## 4. 接口
 
-- shape_ops.assemble_parts(doc, layer, parts, ...)：按 z 填充模型写的 parts，支持远/近明暗偏移、边圈；见 [SHAPE_API.md](SHAPE_API.md) §2.6；
+- `shape_ops.fill_polygon(doc, layer, polygon, ...)`：把结构多边形逐块填成笔触；同一块面可以分多次、分不同层填，遍数由你定；见 [SHAPE_API.md](SHAPE_API.md) §2.1；
 
 ~~~python
 import shape_ops
-parts = [
-    {"name": "far_leg", "z": 0, "value": -0.8, "polygon": [[150, 300], [210, 300], [200, 500]]},
-    {"name": "body",    "z": 1, "value":  0.0, "polygon": [[120, 220], [360, 220], [400, 380], [100, 380]]},
-    {"name": "near_leg","z": 2, "value":  0.3, "polygon": [[250, 340], [300, 340], [280, 520]]},
-]
-shape_ops.assemble_parts(doc, "stag", parts, size=12, spacing=5,
-                        far_near_delta=40, edge=True)
+for part in sorted(parts, key=lambda p: p.get("z", 0)):
+    shape_ops.fill_polygon(doc, part.get("layer", "stag"), part["polygon"],
+                           color=(30, 30, 28), size=12, opacity=0.9,
+                           preset="round_hard", hardness=0.75)
 ~~~
 - scripts/structure_metric.py：测量/参考比较；
 - scripts/structure_candidates.py：多候选联系表/排序；

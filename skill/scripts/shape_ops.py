@@ -3,7 +3,6 @@
 这些函数是 **plan 生成 helper**，不是 ops 算子，也不改渲染器：
   * fill_polygon   —— 在多边形内撒普通笔触，做块面/剪影/岩台。
   * tapered_stroke —— 沿 SVG path 生成由粗到细的普通笔触，做枝干/鹿角/毛流。
-  * assemble_parts —— 把调用方写的一组任意 polygon 按 z 填充，不规定身体部件。
 
 产物就是 plan["strokes"] 里的普通笔触，所以能被 densify / relight_dir /
 light_rig / tone_map 等原有算子继续处理；不是新笔刷，也不是像素填充。
