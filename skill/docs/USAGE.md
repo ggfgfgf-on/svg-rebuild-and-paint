@@ -407,7 +407,7 @@ frame = p.composite()                                    # (H, W, 4) uint8
 
 这是常用姿态，不是固定流程：阶段可合并、可回退；但**至少保留一次中间渲染**，不要只渲最终版。先整体、后局部、最后交付；阶段内怎么做、遍数多少，按题材改。
 
-**最小驱动骨架**（只示范“中间渲染”，层名/内容按题材改）：
+**最小驱动骨架**（只示范机制；场景、层、遍数、中间稿划分由你定）：
 
 ~~~python
 import plan_io
@@ -415,23 +415,16 @@ import plan_io
 W, H = 1200, 900
 doc = {"canvas": [W, H], "layers": [], "strokes": []}
 
-def stage_blockin(doc):
-    ...  # 大形/接地
+def add(layer, points, ...):
+    ...  # 往 doc["strokes"] 追加一笔
 
-def stage_volume(doc):
-    ...  # 明暗/主体体积
+def fill(layer, polygon, ...):
+    ...  # 往一个层里填一组笔触
 
-def stage_finish(doc):
-    ...  # 细节/光/环境
-
-def checkpoint(name):
-    plan_io.dump_plan(f"out/{name}.plan.json", W, H, doc["strokes"])
-    print("render", name)  # python scripts/render_plan.py out/{name}.plan.json --out out/{name}.png
-
-for name, stage in (("blockin", stage_blockin), ("volume", stage_volume), ("finish", stage_finish)):
-    stage(doc)
-    checkpoint(name)
-    # 看一眼；主体/接地不成立就回改，不要直接进下一 stage
+# 场景、层、遍数、先画什么，都由你按题材决定。
+# 至少落一版中间 plan/png，再落完成版：
+#   python scripts/render_plan.py out/draft.plan.json --out out/draft.png
+plan_io.dump_plan("out/draft.plan.json", W, H, doc["strokes"])
 ~~~
 
 ### 6.2 交付清单
