@@ -60,7 +60,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 | 可交付 | 细化到你愿意为“可以交付”负责；不是跑通一次就交。 |
 | 量化自评 | 报告最终 plan / png / ops、尺寸、笔数、渲染耗时；说明“画出来/细化”各到什么程度、缺什么。 |
 | 诚实 | 不声称没做过的事；卡住就说卡在哪、文档哪里不够用。 |
-| 语义验收 | 主体是否成立、脚/接触点是否有承托面、最亮处是否单焦点、25% 是否可读、是否符合意图；机械判据只管确定性/合法/不露底。 |
+| 语义验收 | 主体是否成立、肢体/枝干连接与承重是否成立、脚/接触点是否有承托面、最亮处是否单焦点、25% 是否可读、是否符合意图；机械判据只管确定性/合法/不露底。 |
 
 起手姿态与检查点（可改）见 `docs/USAGE.md` §6.1；交付清单 §6.2；验收 §6.3。阶段内用什么层、笔刷、算子，由题材决定。
 
@@ -134,7 +134,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 ```
 
 - `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状，层数、层名、配色都不是模板，按 §6.1 拆你题目的层。
-- **凭空画（无参考图）的主路径**：写 build script，用 `shape_ops.fill_polygon` / `tapered_stroke` 往空 plan 追加笔画，用 `plan_io` 写 plan；层、part、pass 由你按场景决定。驱动至少要能落一版中间 plan/png 和一版完成 plan/png；中间稿怎么分、分几段，由你按场景决定。每版渲染后看图再改，不要只渲最终版就交。同一块面可多次填充到不同层，主体不要默认压成一层（层名/数量按题材定）。
+- **凭空画（无参考图）的主路径**：写 build script，用 `shape_ops.fill_polygon` / `tapered_stroke` 往空 plan 追加笔画，用 `plan_io` 写 plan；层、part、pass 由你按场景决定。驱动至少要能落一版中间 plan/png 和一版完成 plan/png；中间稿怎么分、分几段，由你按场景决定。每版渲染后看图再改，不要只渲最终版就交。同一块面可多次填充到不同层；主体不要默认压成一层：底色/体积/表面质感/边缘光/接触点都应有笔触落点，层名和数量按题材定。有体积的部件（肢体/枝干/角）不要只画一条锥形线：上段有体积，末端有接触或 hoof。
 - 起手姿态与检查点见 [USAGE.md §6.1](docs/USAGE.md)；接口见 [SHAPE_API.md](docs/SHAPE_API.md) §2，用法见 [USAGE.md §4.6](docs/USAGE.md)。结构单和 `structure_metric` 只在有独立参考时作为可选验收，不是入口门。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
 - **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
