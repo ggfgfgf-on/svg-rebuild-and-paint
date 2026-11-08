@@ -1,4 +1,11 @@
-# 可选参考图（Sana-Sprint / iMF）
+# 可选参考图（SDXS / Sana-Sprint / iMF）
+
+## 0. 本机实测状态（2026-11-08）
+
+- CUDA PyTorch `2.11.0+cu128`，`diffusers 0.42.1`，已装；
+- **SDXS-512** 已下载（2.1GB），512×512、1 step 实测：首次含加载约 20s，第二次生成约 1.0s；
+- **Sana-Sprint** 未安装：完整 Diffusers 目录约 7.7GB，本机下载过慢，接口保留但未实测；
+- **iMF-B/2** 已下载 zip（约 330MB），但没有内置 JAX 加载器，`class_reference` 只能接 runner。
 
 这一页是**可选**能力，不是凭空画入口，也不改变 plan/渲染的确定性。
 参考图只用于让模型“看一眼”，不能描图，不能直接 vectorize 成 plan。
@@ -24,6 +31,8 @@ $env:DSH_SDXS_PATH = "$PWD\models\sdxs-512-dreamshaper"
 python scripts/reference_image.py sana --backend sdxs "..." out/ref.png --size 512 512 --steps 1
 ~~~
 
+实测（RTX 5070 Laptop 8GB，SDXS-512，512×512，1 step）：首次含加载约 20s，第二次生成约 **1.0s**。
+
 Sana 权重**不随仓库发布**：完整 Diffusers 目录约 **7.7 GB**（transformer 1.2 GB + VAE 1.25 GB + Gemma 文本编码器约 5.2 GB）。  
 GitHub 普通仓库/单文件放不下，且 Sana 是 Apache-2.0、文本编码器 Gemma-2-2B 还受 Gemma Terms 约束；不要直接镜像。
 
@@ -41,7 +50,7 @@ $env:DSH_SANA_SPRINT_PATH = "$PWD\models\Sana_Sprint_0.6B_1024px_diffusers"
 生成一张参考图：
 
 ~~~powershell
-python scripts/reference_image.py sana "a red fox standing on a mossy boulder at the edge of a misty forest at dawn" out/ref.png --size 768 768 --steps 1 --seed 0
+python scripts/reference_image.py sana --backend sdxs --model-path D:\DSHwork\flower\_models\sdxs-512-dreamshaper "a red fox standing on a mossy boulder at the edge of a misty forest at dawn" out/ref.png --size 512 512 --steps 1 --seed 0
 ~~~
 
 Python：

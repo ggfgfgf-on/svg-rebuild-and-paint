@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -48,7 +49,17 @@ def manifest():
     return {k: {kk: vv for kk, vv in v.items()} for k, v in MODELS.items()}
 
 
+def _fix_no_proxy():
+    # httpx2 mis-parses the bracketed IPv6 loopback entry on this Windows box.
+    for key in ("NO_PROXY", "no_proxy"):
+        raw = os.environ.get(key, "")
+        if "[::1]" in raw:
+            parts = [x for x in raw.split(",") if x.strip() != "[::1]"]
+            os.environ[key] = ",".join(parts)
+
+
 def download(key, dest):
+    _fix_no_proxy()
     if key not in MODELS:
         raise KeyError("unknown model: %s" % key)
     try:
