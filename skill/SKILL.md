@@ -923,3 +923,15 @@ python scripts/paint_cli.py compile plan.json --instruction "..." --provider ark
 python scripts/paint_cli.py video plan.json --ops ops.json --mask-file m.json --out a.mp4 --frames 600
 python scripts/paint_cli.py eval plan.json examples/batch/expected_hard.json examples/batch/compiled_hard.json
 ```
+
+## 可选附录：视觉辅助函数（默认不使用）
+
+默认凭空画不调用这些函数，也不需要任何模型权重。只有在任务明确允许外部视觉辅助时，才参考 [VISUAL_HELPERS.md](docs/VISUAL_HELPERS.md)。
+
+用途只有三类：
+
+- text_reference：用 SDXS / Sana-Sprint 生成一张 advisory 缩略图；
+- class_reference + imf_runner：生成 ImageNet 类别先验（例如 277 = red fox）；
+- status：检查依赖、本地模型路径是否可用。
+
+它们只返回图片/元数据：不写 plan、不生成几何、不判断接地；不能描图或 vectorize。
