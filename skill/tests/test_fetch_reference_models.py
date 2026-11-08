@@ -6,9 +6,10 @@ import fetch_reference_models as F
 
 def test_manifest():
     m = F.manifest()
-    assert "sana" in m and "imf-b2" in m
+    assert "sana" in m and "sdxs" in m and "imf-b2" in m
     assert m["sana"]["repo"].endswith("_diffusers")
     assert m["sana"]["redistribute"] is False
+    assert m["sdxs"]["redistribute"] is False
     assert m["imf-b2"]["redistribute"] is False
     print("PASS reference model manifest")
 

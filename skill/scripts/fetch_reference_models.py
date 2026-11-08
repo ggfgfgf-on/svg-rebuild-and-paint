@@ -16,6 +16,14 @@ import sys
 from pathlib import Path
 
 MODELS = {
+    "sdxs": {
+        "repo": "IDKiro/sdxs-512-dreamshaper",
+        "kind": "snapshot",
+        "size_gb": 2.1,
+        "license": "OpenRAIL++",
+        "redistribute": False,
+        "note": "512px one-step; much smaller than full Sana-Sprint.",
+    },
     "sana": {
         "repo": "Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers",
         "kind": "snapshot",

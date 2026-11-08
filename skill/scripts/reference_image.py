@@ -33,6 +33,7 @@ def _has(name):
 
 def status():
     sana_path = os.environ.get("DSH_SANA_SPRINT_PATH", "").strip() or None
+    sdxs_path = os.environ.get("DSH_SDXS_PATH", "").strip() or None
     return {
         "sana-sprint": {
             "installed": all(_has(m) for m in ("torch", "diffusers", "transformers")),
@@ -41,6 +42,11 @@ def status():
             "transformers": _has("transformers"),
             "model_path": sana_path,
             "available": bool(sana_path) and all(_has(m) for m in ("torch", "diffusers", "transformers")),
+        },
+        "sdxs": {
+            "installed": all(_has(m) for m in ("torch", "diffusers", "transformers")),
+            "model_path": sdxs_path,
+            "available": bool(sdxs_path) and all(_has(m) for m in ("torch", "diffusers", "transformers")),
         },
         "imagenet": {
             "installed": False,
@@ -65,12 +71,19 @@ def _pick_device(torch, device):
 
 def text_reference(prompt, out_png, *, model_path=None, size=(768, 768),
                    steps=1, seed=0, device="auto", offload=True,
-                   guidance_scale=0.0):
+                   guidance_scale=0.0, backend="sana-sprint"):
     """Generate one advisory text-to-image thumbnail with Sana-Sprint.
 
     Returns a metadata dict.  The caller remains responsible for looking at the
     image and writing geometric plan data; this helper does not create a plan.
     """
+    if backend == "sdxs":
+        return sdxs_reference(prompt, out_png, model_path=model_path, size=size,
+                              steps=steps, seed=seed, device=device,
+                              offload=offload, guidance_scale=guidance_scale)
+    if backend != "sana-sprint":
+        raise ValueError("backend must be 'sana-sprint' or 'sdxs'")
+
     prompt = str(prompt or "").strip()
     if not prompt:
         raise ValueError("prompt must be non-empty")
@@ -139,6 +152,68 @@ def text_reference(prompt, out_png, *, model_path=None, size=(768, 768),
     }
 
 
+def sdxs_reference(prompt, out_png, *, model_path=None, size=(512, 512),
+                    steps=1, seed=0, device="auto", offload=True,
+                    guidance_scale=0.0):
+    """Generate one advisory 512px image with SDXS-512-DreamShaper."""
+    prompt = str(prompt or "").strip()
+    if not prompt:
+        raise ValueError("prompt must be non-empty")
+    w, h = int(size[0]), int(size[1])
+    if w <= 0 or h <= 0 or w % 32 or h % 32:
+        raise ValueError("size must be positive multiples of 32")
+    steps = int(steps)
+    if steps < 1 or steps > 8:
+        raise ValueError("steps must be 1..8")
+    torch = _torch()
+    if not _has("diffusers") or not _has("transformers"):
+        raise RuntimeError("diffusers/transformers are required; pip install diffusers transformers accelerate")
+    if not model_path:
+        model_path = os.environ.get("DSH_SDXS_PATH", "").strip()
+    if not model_path:
+        raise ValueError("set DSH_SDXS_PATH or pass model_path (nothing is downloaded automatically)")
+    model_dir = Path(model_path)
+    if not model_dir.is_dir():
+        raise FileNotFoundError("SDXS model directory not found: %s" % model_dir)
+
+    from diffusers import StableDiffusionPipeline
+    dev = _pick_device(torch, device)
+    dtype = torch.float16 if dev == "cuda" else torch.float32
+    pipe = StableDiffusionPipeline.from_pretrained(
+        str(model_dir), torch_dtype=dtype, local_files_only=True)
+    if offload and dev == "cuda" and hasattr(pipe, "enable_model_cpu_offload"):
+        try:
+            pipe.enable_model_cpu_offload()
+        except Exception:
+            pipe.to(dev)
+    else:
+        pipe.to(dev)
+    gen = torch.Generator(device="cpu").manual_seed(int(seed))
+    kwargs = {
+        "prompt": prompt,
+        "width": w,
+        "height": h,
+        "num_inference_steps": steps,
+        "generator": gen,
+        "guidance_scale": float(guidance_scale),
+    }
+    accepted = set(inspect.signature(pipe.__call__).parameters)
+    kwargs = {k: v for k, v in kwargs.items() if k in accepted}
+    image = pipe(**kwargs).images[0]
+    out = Path(out_png)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    image.save(out)
+    return {
+        "image": str(out),
+        "backend": "sdxs",
+        "model": str(model_dir),
+        "seed": int(seed),
+        "size": [w, h],
+        "steps": steps,
+        "advisory": True,
+    }
+
+
 def class_reference(class_id, out_dir, *, n=1, seed=0, runner=None):
     """Optional ImageNet/iMF class prior.
 
@@ -178,10 +253,12 @@ def main(argv=None):
         ap.add_argument("--steps", type=int, default=1)
         ap.add_argument("--seed", type=int, default=0)
         ap.add_argument("--device", default="auto")
+        ap.add_argument("--backend", choices=["sana-sprint", "sdxs"], default="sana-sprint")
         a = ap.parse_args(argv[1:])
         print(json.dumps(text_reference(a.prompt, a.out, model_path=a.model_path,
                                         size=a.size, steps=a.steps, seed=a.seed,
-                                        device=a.device), ensure_ascii=False, indent=2))
+                                        device=a.device, backend=a.backend),
+                         ensure_ascii=False, indent=2))
         return 0
     print("usage: reference_image.py [status | sana PROMPT OUT ...]", file=sys.stderr)
     return 2

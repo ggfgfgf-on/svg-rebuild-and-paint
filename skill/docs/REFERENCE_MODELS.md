@@ -14,9 +14,17 @@ pip install diffusers transformers accelerate pillow
 
 如果 cu128 轮子不可用，按 PyTorch 官网当前 Blackwell 对应版本安装；不要装 CPU 版然后指望 GPU。
 
-## 2. Sana-Sprint 0.6B
+## 2. Sana-Sprint 0.6B 与 SDXS（更小）
 
-权重**不随仓库发布**：完整 Diffusers 目录约 **7.7 GB**（transformer 1.2 GB + VAE 1.25 GB + Gemma 文本编码器约 5.2 GB）。  
+如果只要小模型，先用 **SDXS-512-DreamShaper**：约 **2.1 GB**，512px，一步生成，OpenRAIL++。
+
+~~~powershell
+python scripts/fetch_reference_models.py --download sdxs --dest models/sdxs-512-dreamshaper
+$env:DSH_SDXS_PATH = "$PWD\models\sdxs-512-dreamshaper"
+python scripts/reference_image.py sana --backend sdxs "..." out/ref.png --size 512 512 --steps 1
+~~~
+
+Sana 权重**不随仓库发布**：完整 Diffusers 目录约 **7.7 GB**（transformer 1.2 GB + VAE 1.25 GB + Gemma 文本编码器约 5.2 GB）。  
 GitHub 普通仓库/单文件放不下，且 Sana 是 Apache-2.0、文本编码器 Gemma-2-2B 还受 Gemma Terms 约束；不要直接镜像。
 
 从官方源下载：
