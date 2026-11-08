@@ -930,9 +930,11 @@ python scripts/paint_cli.py video plan.json --ops ops.json --mask-file m.json --
 python scripts/paint_cli.py eval plan.json examples/batch/expected_hard.json examples/batch/compiled_hard.json
 ```
 
-## 可选附录：视觉辅助函数（默认不使用）
+## 可选附录：构图观察与视觉辅助（默认不使用）
 
-默认凭空画不调用这些函数，也不需要任何模型权重。只有在任务明确允许外部视觉辅助时，才参考 [VISUAL_HELPERS.md](docs/VISUAL_HELPERS.md)。
+如果任务需要审美判断，可参考 [COMPOSITION.md](docs/COMPOSITION.md)：它只列观察问题和失败模式，不是流程、不是合格线。默认凭空画不需要读它。
+
+默认凭空画不调用视觉辅助函数，也不需要任何模型权重。只有在任务明确允许外部视觉辅助时，才参考 [VISUAL_HELPERS.md](docs/VISUAL_HELPERS.md)。
 
 用途只有三类：
 
