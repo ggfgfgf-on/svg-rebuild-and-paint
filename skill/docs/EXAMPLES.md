@@ -52,7 +52,7 @@ print(arr.shape)
 
 ## 2. 一个完整 driver（示例，不是模板）
 
-黄昏的红色小船。这个 driver 是 1000×750 / 18 层 / 22,496 笔；层名、构图、笔数、颜色都不是模板。
+黄昏的红帆船。这个 driver 是 1000×750 / 21 层 / 25,081 笔；层名、构图、笔数、颜色都不是模板。
 
 ~~~python
 
@@ -117,18 +117,27 @@ for i in range(45):
         rng.uniform(1.5, 4), (168, 142, 98), rng.uniform(0.08, 0.25), "liner", 0.4)
 
 # boat: hull, inner shadow, gunwale, planks
-hull = [(330, 480), (395, 465), (650, 465), (720, 482), (700, 520), (620, 548), (420, 548), (355, 520)]
-fill("boat_hull", hull, color=(92, 27, 28), color2=(205, 86, 57), gradient_angle=285, size=18, spacing=5, opacity=0.97, preset="bristle")
-inner = [(362, 490), (405, 479), (640, 479), (690, 490), (668, 515), (592, 531), (430, 531), (382, 515)]
-fill("boat_inner", inner, color=(37, 31, 27), color2=(79, 47, 38), gradient_angle=90, size=15, spacing=5, opacity=0.94, preset="round_soft")
-taper("boat_rim", "M 334 480 C 430 468 520 466 650 465 C 690 466 710 473 719 482", 8, (232, 177, 122), 0.85, 2.5, 30, "liner", 0.7)
-for k in range(3):
-    y = 496 + k * 12
-    taper("boat_plank", f"M 370 {y} C 450 {y + 4} 610 {y + 4} 690 {y - 2}", 2.2, (238, 158, 101), 0.35, 0.9, 22, "liner", 0.5)
-# mast + rigging
-part("boat_mast", [(523, 470), (523, 285)], [13, 7], color=(58, 42, 32), size=9, spacing=4, preset="bristle", hardness=0.7)
-taper("boat_mast", "M 523 300 L 650 360", 2.2, (76, 65, 50), 0.6, 1.0, 18, "liner", 0.5)
-taper("boat_mast", "M 523 300 L 395 355", 2.2, (76, 65, 50), 0.6, 1.0, 18, "liner", 0.5)
+hull = [(315, 475), (370, 458), (610, 458), (700, 472), (680, 515), (595, 540), (405, 540), (335, 512)]
+fill("boat_hull", hull, color=(74, 24, 25), color2=(166, 58, 44), gradient_angle=300, size=18, spacing=5, opacity=0.97, preset="bristle")
+inner = [(352, 486), (395, 473), (602, 473), (666, 486), (644, 512), (575, 528), (428, 528), (370, 512)]
+fill("boat_inner", inner, color=(32, 27, 24), color2=(68, 41, 34), gradient_angle=90, size=15, spacing=5, opacity=0.94, preset="round_soft")
+taper("boat_rim", "M 317 475 C 400 460 520 456 610 458 C 660 460 690 466 699 472", 8, (238, 179, 120), 0.85, 2.5, 30, "liner", 0.7)
+for k in range(4):
+    y = 492 + k * 10
+    taper("boat_plank", f"M 365 {y} C 450 {y + 4} 590 {y + 4} 664 {y - 2}", 2.2, (238, 158, 101), 0.35, 0.9, 22, "liner", 0.5)
+# mast + sails
+part("boat_mast", [(520, 470), (520, 170)], [12, 6], color=(58, 42, 32), size=9, spacing=4, preset="bristle", hardness=0.7)
+main_sail = [(520, 185), (520, 452), (700, 452), (520, 185)]
+fill("sail", main_sail, color=(108, 44, 34), color2=(220, 112, 72), gradient_angle=280, size=14, spacing=5, opacity=0.95, preset="bristle", edge=True, edge_inset=3)
+jib = [(520, 210), (520, 452), (360, 452)]
+fill("sail_jib", jib, color=(198, 172, 138), color2=(238, 205, 158), gradient_angle=260, size=12, spacing=5, opacity=0.85, preset="round_soft", edge=True, edge_inset=3)
+for k in range(5):
+    y = 230 + k * 42
+    x = 520 + (700 - 520) * (y - 185) / (452 - 185)
+    taper("sail_seam", f"M 520 {y} L {x} {y + 3}", 1.8, (244, 154, 106), 0.45, 0.7, 14, "liner", 0.4)
+# boom + rigging
+taper("boat_mast", "M 520 452 L 706 452", 5.0, (70, 48, 34), 0.8, 1.4, 18, "liner", 0.6)
+taper("boat_mast", "M 520 190 L 700 452", 1.6, (82, 68, 50), 0.55, 0.7, 18, "liner", 0.5)
 # post
 part("post", [(125, 470), (122, 645)], [26, 14], color=(56, 48, 38), size=10, spacing=4, preset="bristle")
 # reflection: broken vertical-ish streaks under boat
@@ -165,11 +174,13 @@ plan_io.dump_plan(
     layer_blends={"base": "normal", "sky": "normal", "far_bank": "normal", "water": "normal",
                   "water_ripple": "screen", "bank": "normal", "bank_detail": "normal",
                   "boat_hull": "normal", "boat_inner": "normal", "boat_rim": "screen",
-                  "boat_plank": "screen", "boat_mast": "normal", "post": "normal",
+                  "boat_plank": "screen", "boat_mast": "normal", "sail": "normal",
+                  "sail_jib": "normal", "sail_seam": "screen", "post": "normal",
                   "reflection": "screen", "reeds_front": "normal", "glow": "screen",
                   "mist": "screen", "vignette": "softlight"},
     layer_order=["base", "sky", "far_bank", "water", "water_ripple", "bank", "bank_detail",
-                 "boat_hull", "boat_inner", "boat_rim", "boat_plank", "boat_mast", "post",
+                 "boat_hull", "boat_inner", "boat_rim", "boat_plank", "boat_mast",
+                 "sail", "sail_jib", "sail_seam", "post",
                  "reflection", "reeds_front", "glow", "mist", "vignette"],
 )
 print("strokes", len(doc["strokes"]))
