@@ -11,6 +11,17 @@
 
 这些 helper 只有在用户明确允许外部视觉辅助时才调用。它们只返回 advisory 图片/元数据，不写 plan、不渲染 plan、不能描图或 vectorize。
 
+## 这些函数是干嘛的
+
+| 函数 | 输入 | 输出 | 用途 |
+|---|---|---|---|
+| text_reference | 一句英文/中文场景描述 | advisory PNG + 元数据 | 生成构图/氛围缩略图，给模型看一眼 |
+| class_reference | ImageNet class_id（0–999） | 多张类别图 + 元数据 | 对象先验，例如狐狸长什么样 |
+| imf_runner.generate | class_id + repo/ckpt | 256px 类别图 | class_reference 的实际 iMF runner |
+| status | — | 依赖/模型路径状态 | 判断能不能用，不加载模型 |
+
+它们**不负责**：写 plan、生成几何、分层、接地、审美判断。输出不能描图，也不能直接 vectorize 成 plan。
+
 ## 职责边界
 
 - 这是**可选视觉辅助**，不是参考图输入；
