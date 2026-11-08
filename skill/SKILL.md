@@ -92,6 +92,8 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 | `scale_stroke_size` | 笔触尺寸缩放 | layer, k |
 | `swap_brush` | 换笔刷预设 | layer, preset |
 
+> 完整参数、默认值、选区语义见 [docs/API.md](docs/API.md)；上表只列 op / 作用 / 必填键。
+
 校验：`python scripts/compile_ops.py validate plan.json --ops ops.json`（多余键会被拒——模型最容易在这里瞎编）。
 
 > 形状 helper（不是 op，不改上表）：`scripts/shape_ops.py` 的 `fill_polygon`（在多边形内撒笔触，可对同一块面重复调用、分到不同层）、`tapered_stroke`（沿 path 生成粗细变化的笔触）和 `ribbon`（中心线 + 宽度 → 有体积的闭合多边形）；层、part、pass 由你的场景驱动决定。参数见 `docs/SHAPE_API.md`，案例见 `docs/EXAMPLES.md`（案例不是模板）。
