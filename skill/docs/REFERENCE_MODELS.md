@@ -1,4 +1,4 @@
-# 可选参考图（SDXS / Sana-Sprint / iMF）
+# 可选视觉辅助（SDXS / Sana-Sprint / iMF）
 
 ## 0. 本机实测状态（2026-11-08）
 
@@ -7,8 +7,8 @@
 - **Sana-Sprint** 未安装：完整 Diffusers 目录约 7.7GB，本机下载过慢，接口保留但未实测；
 - **iMF-B/2** 已下载 PyTorch `.pth`（约 356MB），用官方 torch 分支 + `imf_runner.py` **实测可跑**（256px，class 277，生成约 0.9s；首次加载约 20s）。
 
-这一页是**可选**能力，不是凭空画入口，也不改变 plan/渲染的确定性。
-参考图只用于让模型“看一眼”，不能描图，不能直接 vectorize 成 plan。
+这一页是**可选视觉辅助（advisory prior）**，不是参考图输入，也不进入默认凭空画流程。
+它只生成一张给模型“看一眼”的辅助图；不能描图，不能直接 vectorize 成 plan。
 
 ## 1. 环境
 
@@ -47,7 +47,7 @@ $env:DSH_SANA_SPRINT_PATH = "$PWD\models\Sana_Sprint_0.6B_1024px_diffusers"
 `Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers`，
 不是只有 2.38 GB 的原始 .pth 仓库。
 
-生成一张参考图：
+生成一张辅助图：
 
 ~~~powershell
 python scripts/reference_image.py sana --backend sdxs --model-path D:\DSHwork\flower\_models\sdxs-512-dreamshaper "a red fox standing on a mossy boulder at the edge of a misty forest at dawn" out/ref.png --size 512 512 --steps 1 --seed 0
@@ -106,8 +106,8 @@ meta = class_reference(277, "out/prior", n=1, seed=0, runner=runner)
 - 生成构图/对象缩略图，给模型做视觉锚点；
 - 让模型对比自己的渲染；
 - 不描图；
-- 不把参考图 vectorize 后当 plan；
-- 不用参考图替代几何/接地判断。
+- 不把辅助图 vectorize 后当 plan；
+- 不用辅助图替代几何/接地判断。
 
 ## 6. 接口
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Optional local image-reference adapters.
+"""Optional local advisory-visual adapters.
 
 No weights are bundled and nothing is downloaded automatically.  The helpers
 produce an *advisory* image (a concept thumbnail or a class prior).  They never
