@@ -16,12 +16,19 @@ pip install diffusers transformers accelerate pillow
 
 ## 2. Sana-Sprint 0.6B
 
-下载到本地目录，不会自动下载：
+权重**不随仓库发布**：完整 Diffusers 目录约 **7.7 GB**（transformer 1.2 GB + VAE 1.25 GB + Gemma 文本编码器约 5.2 GB）。  
+GitHub 普通仓库/单文件放不下，且 Sana 是 Apache-2.0、文本编码器 Gemma-2-2B 还受 Gemma Terms 约束；不要直接镜像。
+
+从官方源下载：
 
 ~~~powershell
-hf download Efficient-Large-Model/Sana_Sprint_0.6B_1024px --local-dir models/Sana_Sprint_0.6B_1024px
-$env:DSH_SANA_SPRINT_PATH = "$PWD\models\Sana_Sprint_0.6B_1024px"
+python scripts/fetch_reference_models.py --download sana --dest models/Sana_Sprint_0.6B_1024px_diffusers
+$env:DSH_SANA_SPRINT_PATH = "$PWD\models\Sana_Sprint_0.6B_1024px_diffusers"
 ~~~
+
+它下载的是
+`Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers`，
+不是只有 2.38 GB 的原始 .pth 仓库。
 
 生成一张参考图：
 
@@ -61,7 +68,14 @@ meta = class_reference(277, "out/prior", n=4, seed=0, runner=runner)
 277 是 ImageNet 的 red fox；278/279/280 分别是 kit/Arctic/grey fox。
 类别图只提供“狐狸长什么样”的先验，不提供构图、姿态、支撑关系。
 
-## 4. 用途边界
+## 4. 许可证与发布
+
+- Sana 权重：Apache-2.0（官方 repo 标注）；
+- Gemma-2-2B-IT 文本编码器：Gemma Terms，需接受 Google 条款；
+- iMF ImageNet 权重：模型卡没有许可证元数据，**不要随包/镜像发布**；
+- 因此本仓库只发布：接口代码、官方源下载器、许可证说明；不发布权重。
+
+## 5. 用途边界
 
 - 生成构图/对象缩略图，给模型做视觉锚点；
 - 让模型对比自己的渲染；
@@ -69,7 +83,7 @@ meta = class_reference(277, "out/prior", n=4, seed=0, runner=runner)
 - 不把参考图 vectorize 后当 plan；
 - 不用参考图替代几何/接地判断。
 
-## 5. 接口
+## 6. 接口
 
 ~~~python
 status() -> dict
