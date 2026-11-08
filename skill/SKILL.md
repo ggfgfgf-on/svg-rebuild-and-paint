@@ -164,7 +164,6 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 
   层/part/pass 由你定；主体不要只压一层；中间稿检查肢体连接、承重、接触。
 - 起手姿态见 [USAGE.md §6.1](docs/USAGE.md)；接口见 [SHAPE_API.md](docs/SHAPE_API.md) §2，用法见 [USAGE.md §4.6](docs/USAGE.md)。结构单和 `structure_metric` 只在有独立参考时作为可选验收，不是入口门。
-- 可选参考图：`scripts/reference_image.py` 可接本地 SDXS（约 2.1GB，文生图）、Sana-Sprint（约 7.7GB，文生图）或 iMF 类别先验；只作视觉参考，不描图、不 vectorize。安装/模型路径见 [REFERENCE_MODELS.md](docs/REFERENCE_MODELS.md)。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
 - **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
 
