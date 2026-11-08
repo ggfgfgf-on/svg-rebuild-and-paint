@@ -206,6 +206,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 
 - `fill_polygon(doc, layer, polygon, ...)`：在多边形内撒笔触；同一块面可按底色/暗部/毛/轮廓光分多次调用，也可分到不同层；
 - `tapered_stroke(doc, layer, d, ...)`：沿 path 生成由粗到细的笔触，用于枝干/鹿角/毛流；
+- `ribbon(points, widths)`：中心线 + 全宽 -> 闭合多边形，用于腿/枝干/角这类有体积的部件；起点可放进承托体内部；
 - `plan_io.dump_plan(...)`：写 plan。
 
 层、part、pass、顺序由场景决定，没有默认层数/顺序。结构单、`structure_metric`、`structure_candidates` 是可选的验收工具，不是入口。参数见 [SHAPE_API.md](SHAPE_API.md)，案例见 [EXAMPLES.md](EXAMPLES.md) §7。

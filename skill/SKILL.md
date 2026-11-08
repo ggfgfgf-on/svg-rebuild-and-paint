@@ -156,8 +156,12 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
   def fill(layer, polygon, **kw):
       shape_ops.fill_polygon(doc, layer, polygon, **kw)
 
-  # 场景、层、遍数由你决定；有体积的部件可用：
-  # poly = shape_ops.ribbon(centerline, widths); fill("leg", poly, ...)
+  def part(layer, centerline, widths, **kw):
+      fill(layer, shape_ops.ribbon(centerline, widths), **kw)
+
+  # 场景、层、遍数由你决定；有体积的部件可用 part：
+  # part("leg", [(640, 430), (666, 500), (655, 560)], [34, 20, 9],
+  #      color=(92, 76, 54), size=9, spacing=6, preset="bristle")
   plan_io.dump_plan("out/draft.plan.json", W, H, doc["strokes"])
   # python scripts/render_plan.py out/draft.plan.json --out out/draft.png
   ```

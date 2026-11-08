@@ -50,66 +50,107 @@ print(arr.shape)
 
 要照抄的只有字段：canvas 是数组、layers 先声明、strokes 顺序即绘制顺序、points 是三元组。层名和层数不是格式的一部分。
 
-## 2. 四步起手：铺底 → 立形体 → 细节 → 加光/压角
+## 2. 一个完整 driver（示例，不是模板）
 
-这是一条**常见起手顺序**，不是四道必须工序。它把“起稿”拆成四类互不干扰的动作，方便每轮只看一类变化。
-
-| 步骤 | 解决什么 | 典型层 | 典型 blend |
-|---|---|---|---|
-| 1 铺底 | 不露底，先定整体明度/色温 | bed | normal |
-| 2 立形体 | 主体轮廓与大的块面关系 | band | normal |
-| 3 细节 | 边缘、纹理、局部结构 | band 或 detail | normal |
-| 4 加光/压角 | 光晕、受光、暗角，把视线收回来 | glow / vignette | screen / softlight |
-
-一个最小骨架（层名只是这一版的例子，按题材换）：
+黄昏的红色小船。只演示接口怎么组织一个场景；层名、构图、笔数、颜色都不是模板。
 
 ~~~python
-import plan_io, render_util as RU
+import sys
+from pathlib import Path
 
-W, H = 1280, 960
-strokes = []
+SKILL = Path(r"<skill>")
+sys.path.insert(0, str(SKILL / "scripts"))
+import plan_io
+import shape_ops
 
-def S(layer, pts, size, color, opacity, preset="round_soft", hardness=0.3):
-    strokes.append({
-        "layer": layer, "preset": preset,
-        "size": float(size), "opacity": float(opacity),
-        "color": [float(c) for c in color], "hardness": float(hardness),
-        "points": [[float(x), float(y), 1.0] for x, y in pts],
+Path("out").mkdir(exist_ok=True)
+W, H = 900, 700
+doc = {"canvas": [W, H], "layers": [], "strokes": []}
+
+def add(layer, points, size, color, opacity=1.0,
+        preset="round_soft", hardness=0.5):
+    doc["strokes"].append({
+        "layer": layer, "preset": preset, "size": float(size),
+        "opacity": float(opacity), "color": list(color),
+        "hardness": float(hardness),
+        "points": [[float(p[0]), float(p[1]),
+                    float(p[2]) if len(p) > 2 else 1.0] for p in points],
     })
 
-# 1) 铺底：先让底不露
-S("bed", [(-40, H * 0.5), (W + 40, H * 0.5)], H * 3,
-  [20, 24, 46], 1.0, "round_hard", 0.9)
+def fill(layer, polygon, **kw):
+    shape_ops.fill_polygon(doc, layer, polygon, **kw)
 
-# 2) 立形体：主体写进 band；这里只给一条，实际按造型写循环
-S("band", [(W * 0.35, H * 0.75), (W * 0.52, H * 0.35),
-           (W * 0.68, H * 0.75)], 180, [92, 68, 52], 1.0, "round_hard", 0.8)
+def part(layer, centerline, widths, **kw):
+    fill(layer, shape_ops.ribbon(centerline, widths), **kw)
 
-# 3) 细节：边缘、纹理；可以和 band 同层，也可以单独 detail 层
-S("band", [(W * 0.40, H * 0.62), (W * 0.50, H * 0.50)],
-  24, [150, 112, 82], 0.5, "bristle", 0.5)
+# 底：先让画面不漏底
+fill("base", [(0, 0), (W, 0), (W, H), (0, H)],
+     color=(26, 30, 38), size=90, spacing=12, opacity=1.0,
+     preset="flat", edge=False)
 
-# 4) 加光/压角：screen 提亮，softlight 压暗角
-S("glow", [(W * 0.50, H * 0.30), (W * 0.52, H * 0.28)],
-  220, [255, 210, 140], 0.06, "round_soft", 0.2)
-S("vignette", [(W * 0.5, H * 0.5), (W * 0.5, H * 0.5)],
-  H * 1.1, [0, 0, 0], 0.05, "round_soft", 0.1)
+# 天空、远岸、水、左侧沙地
+fill("sky", [(0, 0), (W, 0), (W, 350), (0, 350)],
+     color=(58, 66, 82), color2=(214, 150, 112), gradient_angle=270,
+     size=64, spacing=10, opacity=0.90, preset="round_soft", edge=False)
+fill("far_shore", [(0, 330), (W, 320), (W, 360), (0, 370)],
+     color=(41, 48, 54), size=28, spacing=7, opacity=0.90,
+     preset="bristle")
+fill("water", [(0, 350), (W, 350), (W, H), (0, H)],
+     color=(35, 52, 58), color2=(120, 112, 94), gradient_angle=90,
+     size=54, spacing=9, opacity=0.82, preset="round_soft", edge=False)
+fill("sand", [(0, 470), (210, 455), (300, 520), (250, 610), (0, 620)],
+     color=(95, 80, 58), color2=(153, 127, 86), gradient_angle=20,
+     size=36, spacing=8, opacity=0.95, preset="bristle")
 
-blends = {"bed": "normal", "band": "normal",
-          "glow": "screen", "vignette": "softlight"}
-plan_io.dump_plan("start.plan.json", W, H, strokes, layer_blends=blends)
-arr = RU.render_arr(plan_io.load_plan("start.plan.json")[0], gpu=False, nthreads=8)
-print("strokes", len(strokes), "shape", arr.shape)
+# 船体：一块面；侧舷和桅杆用 part（ribbon）做体积
+hull = [(300, 430), (640, 430), (610, 500), (360, 500)]
+fill("boat_hull", hull, color=(112, 34, 32), color2=(190, 72, 52),
+     gradient_angle=90, size=22, spacing=6, opacity=0.95,
+     preset="bristle")
+shape_ops.tapered_stroke(doc, "boat_rim",
+    "M 302 430 C 420 442 520 442 638 430",
+    color=(222, 160, 110), size=6, size_end=2, steps=30,
+    preset="liner", hardness=0.7)
+part("boat_hull", [(470, 430), (470, 240)], [12, 6],
+     color=(72, 48, 36), size=8, spacing=4, preset="bristle", hardness=0.7)
+
+# 一根系船柱：起点埋进岸里，不是从地面线上开始
+part("post", [(120, 500), (120, 620)], [22, 13],
+     color=(70, 56, 42), size=8, spacing=4, preset="bristle")
+
+# 水面倒影：碎线，不是复制船体
+for i in range(18):
+    y = 505 + i * 5
+    add("reflection", [(335 + i * 3, y), (600 - i * 2, y + 2)],
+        2.5, (176, 76, 58), 0.12 + i * 0.004, "round_soft", 0.3)
+
+# 一层暖光、一层暗角
+add("glow", [(700, 120), (720, 126)], 180, (255, 196, 142), 0.08,
+    "round_soft", 0.2)
+add("vignette", [(450, 350)], 1100, (10, 12, 18), 0.16,
+    "round_soft", 0.1)
+
+plan_io.dump_plan(
+    "out/boat.plan.json", W, H, doc["strokes"],
+    layer_blends={
+        "base": "normal", "sky": "normal", "far_shore": "normal",
+        "water": "normal", "sand": "normal", "boat_hull": "normal",
+        "boat_rim": "screen", "post": "normal", "reflection": "screen",
+        "glow": "screen", "vignette": "softlight",
+    },
+    layer_order=[
+        "base", "sky", "far_shore", "water", "sand", "boat_hull",
+        "boat_rim", "post", "reflection", "glow", "vignette",
+    ],
+)
+print("strokes", len(doc["strokes"]))
 ~~~
 
-这段代码只演示“四类笔触分别落在哪一层”，不保证像；形体、颜色、笔数都要按题材另写。
+```powershell
+python scripts/render_plan.py out/boat.plan.json --out out/boat.png
+```
 
-### 什么时候不要四步
-
-- 只画剪影/图标：bed + band 就够，glow/vignette 可以不要。
-- 主体需要单独调色/加毛/加轮廓光：把 band 拆成 subject / fur / rim，或把 glow 拆成主光/轮廓光。
-- 平涂风格：细节可以并进 band，不必为了“步骤完整”硬加层。
-- 需要独立调透明度的光：单独一层 screen；和主体混在一起以后很难只改光。
+这个 driver 里没有“必须先铺底、再立形体”的步骤：层是按“什么需要独立调色/透明度/位置”拆的，顺序由合成需要决定。换成别的题材时，层和调用都可以不一样。
 
 ## 3. 五层常用堆栈：bed → band → ambient → highlight → glaze
 
