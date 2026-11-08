@@ -159,8 +159,11 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
   def part(layer, centerline, widths, **kw):
       fill(layer, shape_ops.ribbon(centerline, widths), **kw)
 
-  # 场景、层、遍数由你决定；有体积的部件可用 part：
-  # part("leg", [(640, 430), (666, 500), (655, 560)], [34, 20, 9],
+  # 层只在需要独立调色/透明度/位置时拆；顺序即合成顺序
+  # 新结构用 fill/part；densify 只加现有笔触，不产生新层
+  # part 的 widths 是全宽；起点可放进承托体内部
+  # 场景、层、遍数由你决定：
+  # part("limb", [(640, 430), (666, 500), (655, 560)], [34, 20, 9],
   #      color=(92, 76, 54), size=9, spacing=6, preset="bristle")
   plan_io.dump_plan("out/draft.plan.json", W, H, doc["strokes"])
   # python scripts/render_plan.py out/draft.plan.json --out out/draft.png

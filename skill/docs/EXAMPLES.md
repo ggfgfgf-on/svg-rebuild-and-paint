@@ -1,4 +1,4 @@
-# 示例：格式样板、起手顺序与层堆栈
+# 示例：字段样板、驱动骨架与接口
 
 > 读法：这是**可选案例集**，不是默认阅读路径，也不是规范模板。默认先读 [USAGE.md](USAGE.md) 第 4 节和 [SHAPE_API.md](SHAPE_API.md)；[STRUCTURE.md](STRUCTURE.md) 是可选的结构验收参考。本文件的层名、层数、顺序、颜色都按题材换。
 
@@ -86,12 +86,15 @@ def part(layer, centerline, widths, **kw):
 fill("base", [(0, 0), (W, 0), (W, H), (0, H)],
      color=(24, 24, 24), size=80, spacing=12, preset="flat", edge=False)
 
+# 层只在需要独立控制时拆；顺序即合成顺序
+# 新结构用 fill/part；densify 只加现有笔触
+
 # 单个块面：只演示一次 fill 调用，不是构图
 fill("block", [(100, 100), (300, 120), (280, 260), (90, 240)],
      color=(120, 90, 70), size=16, spacing=6,
      preset="bristle", edge=True)
 
-# 单个有体积的部件：中心线 + 全宽，交给 ribbon/fill；不是腿的固定画法
+# 单个有体积的部件：widths 是全宽；起点可放进承托体内部
 part("part", [(200, 220), (240, 320), (235, 420)], [36, 22, 10],
      color=(90, 80, 62), size=8, spacing=5, preset="bristle")
 
@@ -111,66 +114,41 @@ python scripts/render_plan.py out/plan.json --out out/plan.png
 
 这份骨架没有场景：它只保证接口接对。层怎么拆、画什么，读 [SHAPE_API.md](SHAPE_API.md) 和 [USAGE.md](USAGE.md) 后自己写。
 
-## 3. 五层常用堆栈：bed → band → ambient → highlight → glaze
+## 3. 层与 blend（接口语义）
 
-旧文档写过“这个顺序保证：底永远盖满、光永远在形体之上、暗角最后收视线”。这句话描述的是**这套顺序的目的**，不是唯一正确层表。
+`blend` 是合成方式，不是层数规则：
 
-| 顺序 | 层 | blend | 作用 | 什么时候需要 |
-|---:|---|---|---|---|
-| 1 | bed | normal | 不透明底 | 几乎总是需要 |
-| 2 | band | normal | 主体/大块面 | 几乎总是需要 |
-| 3 | ambient | screen | 环境光、体积光 | 需要有“光在空气里”的感觉时 |
-| 4 | highlight | screen | 受光边缘、碎光 | 需要把注意力拉到主体时 |
-| 5 | glaze | softlight | 暗角、整体罩染 | 需要收视线/统一色调时 |
+| blend | 语义 |
+|---|---|
+| `normal` | 正常覆盖；后面的层压前面的层 |
+| `screen` | 提亮；适合光、反射、亮部 |
+| `softlight` | 压暗/增强对比；适合暗角、整体色调 |
 
-和 demo 的关系：demo 是前四层（没有 glaze）；要压暗角就再加一层 glaze，或者把暗角并进已有的 softlight 层。
+层名不影响渲染；`layer_order` 和 `blend` 才影响合成。不传 `layer_order` 时按首笔出现顺序。
 
-变体：
-
-| 目标 | 层结构 | 说明 |
-|---|---|---|
-| 平涂剪影 | bed / band | 两层就成立；不要为层数硬拆 |
-| 带环境光的主体 | bed / band / ambient | 光晕和主体分开调 |
-| 带受光边缘 | bed / band / ambient / highlight | 轮廓光独立一层 |
-| 带暗角 | 上面 + glaze | 或把 glaze 并在 ambient 的 softlight 里 |
-| 主体要单独细化 | bed / band / fur / rim / ambient / highlight / glaze | 毛、轮廓光拆开；不是必须全用 |
-
-层名也可以换成角色名：base / subject / light / tone。名字不影响渲染，**顺序和 blend 才影响合成**。
-
-## 4. 从示例改成自己的计划
-
-不要先问“示例有几层”，先问三个问题：
-
-1. **哪些东西需要独立调色/透明度/位置？** 需要独立调 → 单独一层；不需要 → 并进相邻层。
-2. **哪些东西是同一种光？** 同一种 screen 光可以同层；主光和轮廓光要分开调就拆层。
-3. **哪些是底/主体/暗角？** 底必须不透明；主体正常合成；暗角最后压。
-
-几个改法：
-
-| 从 | 改到 | 为什么 |
-|---|---|---|
-| demo 四层 | 加 glaze | 需要暗角收视线 |
-| demo 四层 | 去掉 ambient/highlight | 平涂剪影不需要光层 |
-| bed/band/glow/vignette | bed/band/ambient/highlight/glaze | 光从“一团”拆成环境光+受光边缘 |
-| 单一 band | band/fur/rim | 毛和轮廓光要单独调 |
-| 任意层名 | base/subject/light/tone | 名字随意，角色清楚即可 |
-
-改完仍用同一套入口：写 strokes → dump_plan（必要时传 layer_order）→ render_arr 看结果。
-
-两个常改接口：
+## 4. 驱动注释（可抄进 build script）
 
 ~~~python
 import ops
+import plan_io
 
-# 已有层的 blend：用算子，不要重建层
-doc = ops.apply(doc, [{"op": "set_layer_blend", "layer": "band", "blend": "screen"}])
+# 层：只有需要独立调色/透明度/位置时才拆；顺序即合成顺序
+# 光：同一现象同层；主光和轮廓光要分开调时再拆
+# 新结构：用 fill / part / draw_path 建新层；densify 只在既有笔触旁加子笔触
+# ribbon：widths 是全宽；起点可放进承托体内部，不是从轮廓外开始
+# 渲染后看图；不对就改 driver，再渲染
 
-# 显式层序（可含空层）；不传则按首笔出现顺序
-plan_io.dump_plan("my.plan.json", W, H, strokes,
-                  layer_blends={"bed": "normal", "band": "normal",
-                                "ambient": "screen", "highlight": "screen"},
-                  layer_order=["bed", "band", "ambient", "highlight"])
+# 已有层改 blend：用算子，不重建层
+doc = ops.apply(doc, [{"op": "set_layer_blend", "layer": "layer", "blend": "screen"}])
+
+# 显式层序（可含空层）；层名按场景换
+plan_io.dump_plan("out/plan.json", W, H, doc["strokes"],
+                  layer_blends={"base": "normal", "subject": "normal",
+                                "light": "screen", "vignette": "softlight"},
+                  layer_order=["base", "subject", "light", "vignette"])
 ~~~
+
+这些注释只说明接口事实，不规定层数和顺序。
 
 ## 5. shape_ops：最小调用与接到层里
 
