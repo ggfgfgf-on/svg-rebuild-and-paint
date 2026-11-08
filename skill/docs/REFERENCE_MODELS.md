@@ -5,7 +5,7 @@
 - CUDA PyTorch `2.11.0+cu128`，`diffusers 0.42.1`，已装；
 - **SDXS-512** 已下载（2.1GB），512×512、1 step 实测：首次含加载约 20s，第二次生成约 1.0s；
 - **Sana-Sprint** 未安装：完整 Diffusers 目录约 7.7GB，本机下载过慢，接口保留但未实测；
-- **iMF-B/2** 已下载 zip（约 330MB），但没有内置 JAX 加载器，`class_reference` 只能接 runner。
+- **iMF-B/2** 已下载 PyTorch `.pth`（约 356MB），用官方 torch 分支 + `imf_runner.py` **实测可跑**（256px，class 277，生成约 0.9s；首次加载约 20s）。
 
 这一页是**可选**能力，不是凭空画入口，也不改变 plan/渲染的确定性。
 参考图只用于让模型“看一眼”，不能描图，不能直接 vectorize 成 plan。
@@ -69,17 +69,26 @@ meta = text_reference("...", "out/ref.png", size=(768, 768), steps=1, seed=0)
 
 ## 3. ImageNet / iMF 类别先验
 
-iMF 的 ImageNet 权重是 JAX/Flax 研究代码，不是 Diffusers pipeline。
-本仓库不内置加载器；接口只接受本地 runner：
+iMF 现在用官方 **PyTorch 推理分支** + `scripts/imf_runner.py`，不需要 JAX。
+权重/仓库不随包：
+
+~~~powershell
+python scripts/fetch_reference_models.py --download imf-b2 --dest D:\models\imf
+git clone --depth 1 --branch torch https://github.com/Lyy-iiis/imeanflow.git D:\models\imeanflow_torch
+python scripts/imf_runner.py --repo D:\models\imeanflow_torch --ckpt D:\models\imf\iMF-B-2.pth --class-id 277 --out out/prior/fox.png
+~~~
+
+`imf_runner` 会加载 VAE、模型和 `.pth`；首次加载较慢，之后 256px 一步约 1 秒。
+
+也可以接到 `class_reference`：
 
 ~~~python
+from functools import partial
 from reference_image import class_reference
+from imf_runner import generate
 
-def runner(class_id, out_png, seed):
-    ...  # 你自己的 iMF/JAX 推理，写一张图到 out_png
-    return out_png
-
-meta = class_reference(277, "out/prior", n=4, seed=0, runner=runner)
+runner = partial(generate, "D:/models/imeanflow_torch", "D:/models/imf/iMF-B-2.pth")
+meta = class_reference(277, "out/prior", n=1, seed=0, runner=runner)
 ~~~
 
 277 是 ImageNet 的 red fox；278/279/280 分别是 kit/Arctic/grey fox。

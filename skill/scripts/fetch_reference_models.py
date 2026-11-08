@@ -35,12 +35,12 @@ MODELS = {
     },
     "imf-b2": {
         "repo": "Lyy0725/iMF",
-        "filename": "iMF-B-2.zip",
+        "filename": "iMF-B-2.pth",
         "kind": "file",
-        "size_gb": 0.33,
+        "size_gb": 0.36,
         "license": "no license metadata in the model card; do not redistribute",
         "redistribute": False,
-        "note": "ImageNet class-conditional iMF; not text-to-image.",
+        "note": "ImageNet class-conditional iMF (PyTorch); not text-to-image.",
     },
 }
 

@@ -51,7 +51,7 @@ def status():
         "imagenet": {
             "installed": False,
             "available": False,
-            "reason": "no bundled iMF/JAX loader; pass a local runner",
+            "reason": "requires the optional imf_runner and local repo/checkpoint",
         },
     }
 
@@ -234,6 +234,8 @@ def class_reference(class_id, out_dir, *, n=1, seed=0, runner=None):
     for i in range(max(1, int(n))):
         target = out / ("class_%d_%02d.png" % (class_id, i))
         got = runner(class_id, str(target), int(seed) + i)
+        if isinstance(got, dict):
+            got = got.get("image", target)
         images.append(str(got or target))
     return {"class_id": class_id, "images": images, "advisory": True}
 
