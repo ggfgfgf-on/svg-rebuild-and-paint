@@ -124,18 +124,6 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 **两条渲染入口的后端/profile 处理不同**：`render_plan.py`（`art_paint` 背后就是它）走 `render_util`，可用 `--gpu` 切后端，并按 `--look` / `scripts/native/look.json` 叠外观 profile；`plan_io.render_plan()` 是直接 `paint_native` 的 CPU 批渲染，不套 profile。默认 `look.json` 当前是恒等（tone=1/0/1、ops=空），所以**都走 CPU 时两者应逐像素一致**；实测 `render_plan.py --gpu` 与 `plan_io.render_plan()`（CPU）会有 maxdiff=1 的舍入差（不是 look 造成的）。要逐位一致：固定同一后端（都 CPU 或都 GPU）+ 同一 look；跨 GPU/CPU 不要求逐位一致。
 
-### 可选视觉辅助（advisory，不进入默认凭空画）
-
-默认凭空画只写 plan、调用本地渲染引擎：**不 import reference_image.py、不下载权重、不读取任何图片**。
-
-只有任务明确允许外部视觉辅助时，才使用下面的可选 helper：
-
-- reference_image.text_reference(...)：SDXS / Sana-Sprint 生成一张 advisory 缩略图；
-- reference_image.class_reference(...) + imf_runner.generate(...)：ImageNet 类别先验；
-- reference_image.status()：检查依赖/本地模型路径是否可用。
-
-这些 helper 只返回图片和元数据：**不写 plan、不调用绘画引擎、不自动下载、不能描图或 vectorize**。默认入口不提及它们；详见 [REFERENCE_MODELS.md](docs/REFERENCE_MODELS.md)。
-
 ## 计划从哪来（绘画 / 改画的起点）
 
 `paint_cli.py edit|video`、`paint_video.py` 都要一个 **`plan.json`**。技能里自带最小可运行小样：
