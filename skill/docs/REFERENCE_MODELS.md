@@ -1,5 +1,16 @@
 # 可选视觉辅助（SDXS / Sana-Sprint / iMF）
 
+## 0. 默认不调用
+
+默认无参考凭空画：
+
+- 不 import reference_image.py；
+- 不加载 SDXS/Sana/iMF；
+- 不下载权重；
+- 不读取任何图片。
+
+这些 helper 只有在用户明确允许外部视觉辅助时才调用。它们只返回 advisory 图片/元数据，不写 plan、不渲染 plan、不能描图或 vectorize。
+
 ## 0. 本机实测状态（2026-11-08）
 
 - CUDA PyTorch `2.11.0+cu128`，`diffusers 0.42.1`，已装；
