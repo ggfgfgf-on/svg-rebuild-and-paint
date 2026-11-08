@@ -52,29 +52,26 @@ print(arr.shape)
 
 ## 2. 一个完整 driver（示例，不是模板）
 
-黄昏的红色小船。只演示接口怎么组织一个场景；层名、构图、笔数、颜色都不是模板。
+黄昏的红色小船。这个 driver 是 1000×750 / 18 层 / 22,496 笔；层名、构图、笔数、颜色都不是模板。
 
 ~~~python
-import sys
-from pathlib import Path
 
-SKILL = Path(r"<skill>")
+import sys, math, random
+from pathlib import Path
+SKILL = Path(r"D:\DSHwork\flower\_gh_skill\skill")
 sys.path.insert(0, str(SKILL / "scripts"))
-import plan_io
-import shape_ops
+import plan_io, shape_ops
 
 Path("out").mkdir(exist_ok=True)
-W, H = 900, 700
+W, H = 1000, 750
+rng = random.Random(11)
 doc = {"canvas": [W, H], "layers": [], "strokes": []}
 
-def add(layer, points, size, color, opacity=1.0,
-        preset="round_soft", hardness=0.5):
+def add(layer, points, size, color, opacity=1.0, preset="round_soft", hardness=0.5):
     doc["strokes"].append({
         "layer": layer, "preset": preset, "size": float(size),
-        "opacity": float(opacity), "color": list(color),
-        "hardness": float(hardness),
-        "points": [[float(p[0]), float(p[1]),
-                    float(p[2]) if len(p) > 2 else 1.0] for p in points],
+        "opacity": float(opacity), "color": list(color), "hardness": float(hardness),
+        "points": [[float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 1.0] for p in points],
     })
 
 def fill(layer, polygon, **kw):
@@ -83,65 +80,97 @@ def fill(layer, polygon, **kw):
 def part(layer, centerline, widths, **kw):
     fill(layer, shape_ops.ribbon(centerline, widths), **kw)
 
-# 底：先让画面不漏底
-fill("base", [(0, 0), (W, 0), (W, H), (0, H)],
-     color=(26, 30, 38), size=90, spacing=12, opacity=1.0,
-     preset="flat", edge=False)
+def taper(layer, d, size, color, opacity=1.0, size_end=1.0, steps=20, preset="liner", hardness=0.5):
+    shape_ops.tapered_stroke(doc, layer, d, color=color, size=size, size_end=size_end,
+                             steps=steps, opacity=opacity, preset=preset, hardness=hardness)
 
-# 天空、远岸、水、左侧沙地
-fill("sky", [(0, 0), (W, 0), (W, 350), (0, 350)],
-     color=(58, 66, 82), color2=(214, 150, 112), gradient_angle=270,
-     size=64, spacing=10, opacity=0.90, preset="round_soft", edge=False)
-fill("far_shore", [(0, 330), (W, 320), (W, 360), (0, 370)],
-     color=(41, 48, 54), size=28, spacing=7, opacity=0.90,
-     preset="bristle")
-fill("water", [(0, 350), (W, 350), (W, H), (0, H)],
-     color=(35, 52, 58), color2=(120, 112, 94), gradient_angle=90,
-     size=54, spacing=9, opacity=0.82, preset="round_soft", edge=False)
-fill("sand", [(0, 470), (210, 455), (300, 520), (250, 610), (0, 620)],
-     color=(95, 80, 58), color2=(153, 127, 86), gradient_angle=20,
-     size=36, spacing=8, opacity=0.95, preset="bristle")
+def circle(cx, cy, r, n=16):
+    return [(cx + r * math.cos(2 * math.pi * i / n), cy + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
 
-# 船体：一块面；侧舷和桅杆用 part（ribbon）做体积
-hull = [(300, 430), (640, 430), (610, 500), (360, 500)]
-fill("boat_hull", hull, color=(112, 34, 32), color2=(190, 72, 52),
-     gradient_angle=90, size=22, spacing=6, opacity=0.95,
-     preset="bristle")
-shape_ops.tapered_stroke(doc, "boat_rim",
-    "M 302 430 C 420 442 520 442 638 430",
-    color=(222, 160, 110), size=6, size_end=2, steps=30,
-    preset="liner", hardness=0.7)
-part("boat_hull", [(470, 430), (470, 240)], [12, 6],
-     color=(72, 48, 36), size=8, spacing=4, preset="bristle", hardness=0.7)
+# base + sky
+fill("base", [(0, 0), (W, 0), (W, H), (0, H)], color=(15, 20, 30), size=110, spacing=14, opacity=1.0, preset="flat", edge=False)
+fill("sky", [(0, 0), (W, 0), (W, 370), (0, 370)], color=(28, 39, 57), color2=(198, 129, 92), gradient_angle=270, size=72, spacing=10, opacity=0.92, preset="round_soft", edge=False)
+for i in range(24):
+    y = 35 + i * 11
+    x = rng.uniform(-80, W)
+    w = rng.uniform(180, 520)
+    fill("sky", [(x, y), (x + w, y - 5), (x + w + 90, y + 13), (x - 20, y + 18)],
+         color=(48 + i * 2, 54 + i * 2, 74 + i * 2), color2=(92 + i * 2, 92 + i, 108 + i),
+         size=26, spacing=9, opacity=0.18, preset="round_soft", edge=False)
 
-# 一根系船柱：起点埋进岸里，不是从地面线上开始
-part("post", [(120, 500), (120, 620)], [22, 13],
-     color=(70, 56, 42), size=8, spacing=4, preset="bristle")
+# far bank + water
+fill("far_bank", [(0, 350), (W, 342), (W, 382), (0, 392)], color=(30, 40, 42), color2=(58, 62, 57), size=22, spacing=6, opacity=0.9, preset="bristle")
+fill("water", [(0, 365), (W, 358), (W, H), (0, H)], color=(38, 54, 58), color2=(118, 105, 84), gradient_angle=90, size=68, spacing=10, opacity=0.82, preset="round_soft", edge=False)
+for i in range(130):
+    y = 380 + i * 2.7
+    x0 = rng.uniform(0, W)
+    ln = rng.uniform(15, 130)
+    add("water_ripple", [(x0, y), (x0 + ln, y + rng.uniform(-1, 2))], rng.uniform(1.2, 3.8),
+        (142, 138, 118), rng.uniform(0.05, 0.16), "liner", 0.4)
 
-# 水面倒影：碎线，不是复制船体
-for i in range(18):
-    y = 505 + i * 5
-    add("reflection", [(335 + i * 3, y), (600 - i * 2, y + 2)],
-        2.5, (176, 76, 58), 0.12 + i * 0.004, "round_soft", 0.3)
+# sand bank
+fill("bank", [(0, 475), (120, 455), (230, 470), (300, 510), (270, 610), (160, 680), (0, 690)],
+     color=(72, 66, 52), color2=(140, 118, 84), gradient_angle=250, size=38, spacing=8, opacity=0.97, preset="bristle")
+for i in range(45):
+    x, y = rng.uniform(0, 270), rng.uniform(480, 675)
+    add("bank_detail", [(x, y), (x + rng.uniform(-10, 16), y + rng.uniform(-3, 4))],
+        rng.uniform(1.5, 4), (168, 142, 98), rng.uniform(0.08, 0.25), "liner", 0.4)
 
-# 一层暖光、一层暗角
-add("glow", [(700, 120), (720, 126)], 180, (255, 196, 142), 0.08,
-    "round_soft", 0.2)
-add("vignette", [(450, 350)], 1100, (10, 12, 18), 0.16,
-    "round_soft", 0.1)
+# boat: hull, inner shadow, gunwale, planks
+hull = [(330, 480), (395, 465), (650, 465), (720, 482), (700, 520), (620, 548), (420, 548), (355, 520)]
+fill("boat_hull", hull, color=(92, 27, 28), color2=(205, 86, 57), gradient_angle=285, size=18, spacing=5, opacity=0.97, preset="bristle")
+inner = [(362, 490), (405, 479), (640, 479), (690, 490), (668, 515), (592, 531), (430, 531), (382, 515)]
+fill("boat_inner", inner, color=(37, 31, 27), color2=(79, 47, 38), gradient_angle=90, size=15, spacing=5, opacity=0.94, preset="round_soft")
+taper("boat_rim", "M 334 480 C 430 468 520 466 650 465 C 690 466 710 473 719 482", 8, (232, 177, 122), 0.85, 2.5, 30, "liner", 0.7)
+for k in range(3):
+    y = 496 + k * 12
+    taper("boat_plank", f"M 370 {y} C 450 {y + 4} 610 {y + 4} 690 {y - 2}", 2.2, (238, 158, 101), 0.35, 0.9, 22, "liner", 0.5)
+# mast + rigging
+part("boat_mast", [(523, 470), (523, 285)], [13, 7], color=(58, 42, 32), size=9, spacing=4, preset="bristle", hardness=0.7)
+taper("boat_mast", "M 523 300 L 650 360", 2.2, (76, 65, 50), 0.6, 1.0, 18, "liner", 0.5)
+taper("boat_mast", "M 523 300 L 395 355", 2.2, (76, 65, 50), 0.6, 1.0, 18, "liner", 0.5)
+# post
+part("post", [(125, 470), (122, 645)], [26, 14], color=(56, 48, 38), size=10, spacing=4, preset="bristle")
+# reflection: broken vertical-ish streaks under boat
+for i in range(65):
+    x = rng.uniform(350, 715)
+    y0 = 552 + rng.uniform(0, 10)
+    ln = rng.uniform(12, 75)
+    add("reflection", [(x, y0), (x + rng.uniform(-8, 8), y0 + ln)], rng.uniform(1.6, 5.2),
+        (154, 57, 43), rng.uniform(0.05, 0.18), "liner", 0.35)
+
+# foreground reeds
+for side in (-1, 1):
+    for i in range(26):
+        if side < 0:
+            x = rng.uniform(-10, 210)
+        else:
+            x = rng.uniform(800, W + 20)
+        base_y = rng.uniform(570, 735)
+        h = rng.uniform(150, 390)
+        lean = rng.uniform(-55, 55)
+        d = f"M {x:.1f} {base_y:.1f} C {x + lean * 0.2:.1f} {base_y - h * 0.35:.1f}, {x + lean * 0.7:.1f} {base_y - h * 0.72:.1f}, {x + lean:.1f} {base_y - h:.1f}"
+        taper("reeds_front", d, rng.uniform(3.0, 7.0), (48, 62, 46), rng.uniform(0.45, 0.8), rng.uniform(0.6, 1.2), 14, "liner", 0.4)
+        if rng.random() < 0.4:
+            fill("reeds_front", circle(x + lean, base_y - h, rng.uniform(4, 7)),
+                 color=(101, 84, 52), size=5, spacing=3, opacity=0.75, preset="round_soft")
+
+# glow + mist + vignette
+add("glow", [(790, 290), (808, 296)], 220, (255, 187, 126), 0.10, "round_soft", 0.2)
+fill("mist", [(0, 385), (W, 380), (W, 430), (0, 438)], color=(176, 170, 152), color2=(120, 119, 108), size=36, spacing=9, opacity=0.10, preset="round_soft", edge=False)
+add("vignette", [(500, 375)], 1250, (8, 10, 15), 0.18, "round_soft", 0.1)
 
 plan_io.dump_plan(
     "out/boat.plan.json", W, H, doc["strokes"],
-    layer_blends={
-        "base": "normal", "sky": "normal", "far_shore": "normal",
-        "water": "normal", "sand": "normal", "boat_hull": "normal",
-        "boat_rim": "screen", "post": "normal", "reflection": "screen",
-        "glow": "screen", "vignette": "softlight",
-    },
-    layer_order=[
-        "base", "sky", "far_shore", "water", "sand", "boat_hull",
-        "boat_rim", "post", "reflection", "glow", "vignette",
-    ],
+    layer_blends={"base": "normal", "sky": "normal", "far_bank": "normal", "water": "normal",
+                  "water_ripple": "screen", "bank": "normal", "bank_detail": "normal",
+                  "boat_hull": "normal", "boat_inner": "normal", "boat_rim": "screen",
+                  "boat_plank": "screen", "boat_mast": "normal", "post": "normal",
+                  "reflection": "screen", "reeds_front": "normal", "glow": "screen",
+                  "mist": "screen", "vignette": "softlight"},
+    layer_order=["base", "sky", "far_bank", "water", "water_ripple", "bank", "bank_detail",
+                 "boat_hull", "boat_inner", "boat_rim", "boat_plank", "boat_mast", "post",
+                 "reflection", "reeds_front", "glow", "mist", "vignette"],
 )
 print("strokes", len(doc["strokes"]))
 ~~~
