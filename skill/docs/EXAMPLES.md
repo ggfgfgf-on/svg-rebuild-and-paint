@@ -112,6 +112,26 @@ plan_io.dump_plan(
 python scripts/render_plan.py out/plan.json --out out/plan.png
 ```
 
+### 2.1 落盘与验收命令
+
+~~~powershell
+python scripts/render_plan.py out/plan.json --out out/plan.png
+# {"plan":"plan.json","ops":0,"out":"out/plan.png","size":[1200,900],"luma":...,"render_s":...}
+
+python scripts/plan_io.py check out/plan.json
+# {"canvas":[1200,900],"strokes":N,"layers":[...],"non_formula_presets":[],"count_bad":0}
+~~~
+
+25% 缩略图（Pillow；尺寸按当前画布取四分之一）：
+
+~~~python
+from PIL import Image
+im = Image.open("out/plan.png")
+im.resize((im.width // 4, im.height // 4), Image.LANCZOS).save("out/plan_25.png")
+~~~
+
+注意：`render_plan.py` 落盘是 RGB PNG，alpha 被丢弃；要检查透明/露底，用 `render_util.render_arr` 的 RGBA，或保证底层不透明。
+
 这份骨架没有场景：它只保证接口接对。层怎么拆、画什么，读 [SHAPE_API.md](SHAPE_API.md) 和 [USAGE.md](USAGE.md) 后自己写。
 
 ## 3. 层与 blend（接口语义）

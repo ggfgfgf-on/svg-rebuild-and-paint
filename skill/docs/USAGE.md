@@ -117,7 +117,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `canvas` | `[w, h]` **必须是数组** | 写成 `{"w":..,"h":..}` 会报 `invalid literal for int()` |
-| `layers` | 数组，顺序 = 自下而上 | `name` 唯一，`blend` 见 4.3 |
+| `layers` | 数组，顺序 = 自下而上 | `name` 唯一，`blend` 见 4.3；`dump_plan` 默认按首笔顺序，不读这个数组，除非传 `layer_order`（见 SHAPE_API §0.3/§6.1） |
 | `strokes` | 数组 | 每个元素见 4.2；**顺序就是绘制顺序**，不要按 layer 排序 |
 | `count` | int | 笔数，渲染时以 `strokes` 实际长度为准 |
 | `regions` | 数组，可空 | 区域裁剪表；`region_id` 指向它，不填为 0 |
@@ -150,7 +150,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 1. `canvas` 是数组；`points` 是三元组。这两处错，报错信息都很绕。
 2. 图层必须先声明后使用，顺序决定上下（后面的层压在前面上）。
 3. 生成视频/过程时按**生成顺序**画；按 layer 分组会把不同层的笔交错，先画后画全乱。
-4. 空画布 = alpha 0；渲染结果要和白纸合成（`alpha` 层叠到纸色上）才是"白底画"。
+4. 空画布 = alpha 0；`render_util.render_arr` 返回 RGBA，但 `render_plan.py` 落盘的是 RGB PNG（alpha 被丢弃）。所以**不能用 PNG 的 alpha 判露底**；要么保证底层不透明，要么直接检查 `render_arr` 的 alpha。
 5. 笔数上万是常态：960×680 的厚涂约 1.2 万笔、2.4 MB。别手写，用循环生成。
 
 **参数契约之外的实测语义**（按实测理解，别猜）：
