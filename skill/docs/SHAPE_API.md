@@ -330,3 +330,41 @@ load_plan(path) -> (doc, w, h)
 ~~~
 
 读回 plan；`doc` 里的 `strokes/layers/count` 可直接检查。
+
+### 6.4 `assemble_parts`（兼容，不是默认）
+
+~~~python
+assemble_parts(doc, layer, parts, color=(217,180,90), color2=None, size=8.0,
+               opacity=1.0, preset="round_soft", spacing=None, jitter=0.35,
+               angle=0.0, gradient_angle=0.0, hardness=0.7, blend="normal",
+               guidance=1.0, seed=0, edge=True, edge_inset=0.0, far_near_delta=0.0)
+~~~
+
+`parts` 是 dict 列表；每项可用：`polygon`（必需）、`name`、`z`、`value`、`color`、`color2`、`size`、`opacity`、`preset`、`spacing`、`jitter`、`angle`、`gradient_angle`、`hardness`、`seed`、`edge`、`edge_inset`、`holes`、`tag`、`pressure`。缺省键回落到函数参数；`z` 只改本次 fill 顺序，不改层序。
+
+这是旧 parts 列表接口的兼容 helper，不是默认 driver 路径；新代码优先 `fill_polygon` + `ribbon`。
+
+### 6.5 低层渲染/预设
+
+~~~python
+plan_io.render_plan(path, out_png, threads=8)
+plan_io.resolve_preset(name, painter, allow_tips=True, catalog=None)
+render_util.render_arr(doc, gpu=False, nthreads=8) -> (H, W, 4) uint8
+render_util.luma_of(arr) -> float
+~~~
+
+`render_arr` 返回 RGBA；alpha=0 处没落笔。`luma_of` 取前 3 通道算 sRGB 相对亮度。`resolve_preset` 是低层名称/编号解析，不是 driver 入口。
+
+### 6.6 `render_plan.py` CLI
+
+| 参数 | 语义 |
+|---|---|
+| `plan` | 输入 `.plan.json` |
+| `--ops` | ops JSON，可重复，按顺序作用 |
+| `--out` | 输出 PNG（父目录需存在） |
+| `--look` | 外观 profile；缺省 `scripts/native/look.json`，不存在则恒等 |
+| `--gpu` | DirectCompute 后端；缺省 CPU |
+| `--threads N` | 渲染线程数，默认 8 |
+| `--quiet` | 不打印逐轮日志 |
+
+返回 JSON 增加 `render_s`（含 load/render/save）；示例见 [USAGE.md](USAGE.md) 附录 B。
