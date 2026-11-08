@@ -62,7 +62,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 | 诚实 | 不声称没做过的事；卡住就说卡在哪、文档哪里不够用。 |
 | 语义验收 | 主体是否成立、肢体/枝干连接与承重是否成立、脚/接触点是否有承托面、最亮处是否单焦点、25% 是否可读、是否符合意图；机械判据只管确定性/合法/不露底。 |
 
-起手姿态与检查点（可改）见 `docs/USAGE.md` §6.1；交付清单 §6.2；验收 §6.3。阶段内用什么层、笔刷、算子，由题材决定。
+驱动接口见 `docs/USAGE.md` §6.1；交付清单 §6.2；验收 §6.3。阶段内用什么层、笔刷、算子，由题材决定。
 
 ## ops 算子全表（21 个，确定性、可 diff、零随机）
 
@@ -133,7 +133,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 只出静帧
 ```
 
-- `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状，层数、层名、配色都不是模板，按 §6.1 拆你题目的层。
+- `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状，层数、层名、配色都不是模板；层怎么拆由你按场景决定，接口见 `docs/SHAPE_API.md`。
 - **凭空画（无参考图）的主路径**：写 build script，先把 plan 攒出来，再渲染看图。最小骨架：
 
   ```python
@@ -162,7 +162,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
   # python scripts/render_plan.py out/draft.plan.json --out out/draft.png
   ```
 
-  层/part/pass 由你定；`fill_polygon` / `tapered_stroke` / `ribbon` 的用途见 [SHAPE_API.md](docs/SHAPE_API.md)，案例见 [EXAMPLES.md](docs/EXAMPLES.md)。渲染后看图再改。
+  层/part/pass 由你定；`fill_polygon` / `tapered_stroke` / `ribbon` 的用途见 [SHAPE_API.md](docs/SHAPE_API.md)，案例见 [EXAMPLES.md](docs/EXAMPLES.md)。渲染用 `scripts/render_plan.py`；driver 由你写。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
 - **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
 
