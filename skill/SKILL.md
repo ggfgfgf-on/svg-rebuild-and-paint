@@ -134,7 +134,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 ```
 
 - `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状，层数、层名、配色都不是模板，按 §6.1 拆你题目的层。
-- **凭空画（无参考图）的主路径**：写 build script，先把 plan 攒出来，再用 checkpoint 看中间态。最小骨架：
+- **凭空画（无参考图）的主路径**：写 build script，先把 plan 攒出来，再渲一张看。最小骨架：
 
   ```python
   import plan_io
@@ -158,11 +158,11 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 
   # 场景、层、遍数由你决定；有体积的部件可用：
   # poly = shape_ops.ribbon(centerline, widths); fill("leg", poly, ...)
-  plan_io.checkpoint(doc, "check-01", "out")   # 落盘 + 渲染；名字自由
-  # 看图、回改，再 checkpoint(doc, "check-02", "out")
+  plan_io.dump_plan("out/draft.plan.json", W, H, doc["strokes"])
+  # 渲一张看，回改后再落完成版
   ```
 
-  层/part/pass 由你定；主体不要只压一层；中间稿检查肢体连接、承重、接触。
+  层/part/pass 由你定；主体不要只压一层；画完看肢体连接、承重、接触，不对就回改。
 - 起手姿态见 [USAGE.md §6.1](docs/USAGE.md)；接口见 [SHAPE_API.md](docs/SHAPE_API.md) §2，用法见 [USAGE.md §4.6](docs/USAGE.md)。结构单和 `structure_metric` 只在有独立参考时作为可选验收，不是入口门。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
 - **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
