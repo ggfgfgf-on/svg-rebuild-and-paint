@@ -266,6 +266,7 @@ shape_ops 只把普通笔触追加进 plan，不改变渲染器，也不替代�
 - **层序**：dump_plan 不给 layer_order 时按首笔；传 layer_order 可显式指定（可含空层）；render_plan 严格按 doc["layers"] 合成。helper 建层仍按调用顺序。
 - **边圈**：edge 是沿多边形边逐段 stamping，不是 miter 路径偏移；凹角/尖角可能留缺口。复杂轮廓用 edge=False + 多 polygon，或自己补边。
 - **blend**：helper 只在新建层时使用 blend；已有层用 `set_layer_blend` 算子改（也可直接改 `doc["layers"]` 里该层的 `"blend"`）。
+- **assemble_parts**：保留的兼容 helper，用旧的 parts 列表接口；不是默认 driver 路径，新代码优先 `fill_polygon` + `ribbon`。
 
 这些不是 bug：一部分是 plan/2D 模型边界，一部分是 helper 的刻意选择；算子的完整能力见 [API.md](API.md)。
 
@@ -288,3 +289,40 @@ arr = RU.render_arr(plan_io.load_plan(path)[0], gpu=False, nthreads=8)
 | copies/spread 副本数、笔径 | `test_taper_copies_and_hardness` |
 
 具体案例见 [EXAMPLES.md](EXAMPLES.md)；本文件只负责参数契约，案例不替代参数说明。
+
+## 6. plan_io 接口（落盘/检查点）
+
+### 6.1 `dump_plan`
+
+~~~python
+dump_plan(path, w, h, strokes, layer_blends=None, regions=None,
+          subject_layers=None, tip_names=None, layer_order=None) -> int
+~~~
+
+| 参数 | 语义 |
+|---|---|
+| `path` | 输出 `.plan.json` 路径 |
+| `strokes` | 笔画列表；`layer` 必须存在或由首笔顺序建立 |
+| `layer_blends` | 层名 -> `normal/screen/softlight`；只管新层 |
+| `layer_order` | 显式层序，可含空层；不给按首笔出现顺序 |
+| `regions` | 可选区域表；给了才写入 `regions/subject_layers` |
+| `subject_layers` | 主体层名列表；改画算子用来保护主体 |
+| `tip_names` | 可选，数字 preset id -> 名称映射 |
+| 返回 | 写入的笔数 |
+
+### 6.2 `checkpoint`（可选）
+
+~~~python
+checkpoint(doc, name, out_dir, *, layer_blends=None, layer_order=None,
+           render=True, threads=8)
+~~~
+
+落一个命名检查点：写 plan，可选渲染，返回路径/统计。`name` 是自由标签，不是阶段枚举；不调用它也能交付。
+
+### 6.3 `load_plan`
+
+~~~python
+load_plan(path) -> (doc, w, h)
+~~~
+
+读回 plan；`doc` 里的 `strokes/layers/count` 可直接检查。

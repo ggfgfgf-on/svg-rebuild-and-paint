@@ -122,6 +122,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 | `count` | int | 笔数，渲染时以 `strokes` 实际长度为准 |
 | `regions` | 数组，可空 | 区域裁剪表；`region_id` 指向它，不填为 0 |
 | `subject_layers` | 数组，可空 | 标明主体图层，供改画算子做保护 |
+| `tip_names` | dict，可空 | 数字 preset id → 名称的映射；原生 planner 用数字 id 时需要 |
 
 ### 4.2 一笔长什么样
 
