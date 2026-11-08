@@ -3,6 +3,7 @@
 这些函数是 **plan 生成 helper**，不是 ops 算子，也不改渲染器：
   * fill_polygon   —— 在多边形内撒普通笔触，做块面/剪影/岩台。
   * tapered_stroke —— 沿 SVG path 生成由粗到细的普通笔触，做枝干/鹿角/毛流。
+  * ribbon         —— 中心线 + 宽度 → 闭合多边形，做腿/枝干/角的体积。
 
 产物就是 plan["strokes"] 里的普通笔触，所以能被 densify / relight_dir /
 light_rig / tone_map 等原有算子继续处理；不是新笔刷，也不是像素填充。
@@ -56,6 +57,60 @@ def _signed_area(pts):
         x1, y1 = pts[(i + 1) % len(pts)]
         s += x0 * y1 - x1 * y0
     return 0.5 * s
+
+
+def ribbon(points, widths):
+    """把中心线 + 宽度变成有体积的闭合多边形，供 fill_polygon 填充。
+
+    points: [[x,y], ...]，至少 2 点。
+    widths: 全宽；标量、[w]、长度等于点数、或 [w0,w1]（按点序号线性插值）。
+    返回闭合多边形 [[x,y], ...]；不 fill、不建层、不渲染。宽度是总宽度，
+    不是半宽；中心线两侧各偏移 width/2。
+
+    这是纯几何 helper：不知道这是腿、枝干还是鹿角。尖角处按逐点法线偏移，
+    不做 miter 修角/布尔运算；需要更圆滑的轮廓，传入更密的中心线。
+    """
+    pts = np.asarray(points, np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 2:
+        raise ValueError("ribbon needs >=2 [x,y] points")
+    keep = [0]
+    for i in range(1, len(pts)):
+        if np.linalg.norm(pts[i] - pts[keep[-1]]) > 1e-9:
+            keep.append(i)
+    pts = pts[keep]
+    n = len(pts)
+    if n < 2:
+        raise ValueError("ribbon needs >=2 distinct points")
+
+    if np.isscalar(widths):
+        w = np.full(n, float(widths), np.float64)
+    else:
+        arr = np.asarray(widths, np.float64).reshape(-1)
+        if arr.size == 1:
+            w = np.full(n, float(arr[0]), np.float64)
+        elif arr.size == n:
+            w = arr
+        elif arr.size == 2:
+            w = np.linspace(float(arr[0]), float(arr[1]), n)
+        else:
+            raise ValueError("widths must be scalar, [w], [w0,w1], or one per point")
+    if np.any(~np.isfinite(w)) or np.any(w < 0):
+        raise ValueError("widths must be finite and >=0")
+
+    t = np.zeros_like(pts)
+    t[0] = pts[1] - pts[0]
+    t[-1] = pts[-1] - pts[-2]
+    if n > 2:
+        t[1:-1] = pts[2:] - pts[:-2]
+    ln = np.linalg.norm(t, axis=1)
+    if np.any(ln <= 1e-12):
+        raise ValueError("ribbon has a zero-length segment")
+    t /= ln[:, None]
+    nrm = np.stack([-t[:, 1], t[:, 0]], axis=1)
+    left = pts + nrm * (w[:, None] * 0.5)
+    right = pts - nrm * (w[:, None] * 0.5)
+    poly = np.vstack([left, right[::-1]])
+    return [[float(x), float(y)] for x, y in poly]
 
 
 def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.0,

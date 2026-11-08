@@ -136,6 +136,38 @@ def render_plan(path, out_png, threads=8):
     return {"canvas": [w, h], "layers": len(layers), "strokes": sum(len(v) for v in by_layer.values())}
 
 
+def checkpoint(doc, name, out_dir, *, layer_blends=None, layer_order=None,
+               render=True, threads=8):
+    """落一个命名检查点：dump plan，可选渲染，返回路径/统计。
+
+    name 是自由标签，不是阶段枚举；中间稿/完成稿怎么命名、分几段由调用方决定。
+    doc 必须有 canvas 和 strokes。render=False 时只写 plan，不启动渲染器。
+    """
+    if "canvas" not in doc or "strokes" not in doc:
+        raise ValueError("checkpoint doc needs canvas/strokes")
+    label = str(name)
+    if not label or label in (".", "..") or "/" in label or "\\" in label:
+        raise ValueError("checkpoint name must be a plain file label")
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    plan_path = out / (label + ".plan.json")
+    png_path = out / (label + ".png")
+    if layer_blends is None:
+        layer_blends = {l.get("name"): l.get("blend", "normal")
+                        for l in (doc.get("layers") or []) if l.get("name")}
+    if layer_order is None:
+        layer_order = [l.get("name") for l in (doc.get("layers") or []) if l.get("name")]
+    count = dump_plan(str(plan_path), int(doc["canvas"][0]), int(doc["canvas"][1]),
+                      doc["strokes"], layer_blends=layer_blends,
+                      layer_order=layer_order or None)
+    result = {"plan": str(plan_path), "png": None, "strokes": count,
+              "layers": len({s.get("layer") for s in doc["strokes"] if s.get("layer")})}
+    if render:
+        result["render"] = render_plan(str(plan_path), str(png_path), threads=threads)
+        result["png"] = str(png_path)
+    return result
+
+
 def main():
     if len(sys.argv) < 2:
         print("usage: plan_io.py <render|presets|check> ...")

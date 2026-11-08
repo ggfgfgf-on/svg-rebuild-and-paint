@@ -176,6 +176,31 @@ def test_taper_copies_and_hardness():
     print("PASS tapered_stroke copies=3 spread=2, %d strokes" % len(doc["strokes"]))
 
 
+def test_ribbon():
+    poly = shape_ops.ribbon([(20, 100), (180, 100)], 20)
+    assert len(poly) == 4, poly
+    ys = [pt[1] for pt in poly]
+    assert abs(min(ys) - 90) < 1e-9 and abs(max(ys) - 110) < 1e-9, (min(ys), max(ys))
+    taper = shape_ops.ribbon([(20, 100), (180, 100)], [4, 12])
+    assert abs(abs(taper[0][1] - 100) - 2) < 1e-9, taper[0]
+    assert abs(abs(taper[1][1] - 100) - 6) < 1e-9, taper[1]
+    print("PASS ribbon centerline+width polygon")
+
+
+def test_checkpoint():
+    doc = shape_ops.fill_polygon(empty_doc(), "base", [[20, 20], [80, 20], [80, 80], [20, 80]],
+                                 color=(80, 90, 100), size=8.0, spacing=8.0,
+                                 edge=False, seed=3)
+    with tempfile.TemporaryDirectory() as td:
+        out = plan_io.checkpoint(doc, "draft", td, render=False)
+        assert Path(out["plan"]).exists() and out["png"] is None, out
+        assert out["strokes"] > 0 and out["layers"] == 1, out
+        out2 = plan_io.checkpoint(doc, "final", td, render=True, threads=1)
+        assert Path(out2["png"]).exists(), out2
+        assert out2["render"]["strokes"] == out2["strokes"], out2
+    print("PASS checkpoint dump + optional render")
+
+
 if __name__ == "__main__":
     test_fill_polygon()
     test_fill_guidance_zero()
@@ -186,4 +211,6 @@ if __name__ == "__main__":
     test_taper_copies_and_hardness()
     test_dump_layer_order()
     test_assemble_parts()
+    test_ribbon()
+    test_checkpoint()
     print("all shape_ops tests passed")

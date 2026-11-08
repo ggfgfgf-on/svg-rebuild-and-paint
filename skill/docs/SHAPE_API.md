@@ -205,6 +205,21 @@ w(t) = size + (size_end - size) × t
 draw_path 是一条 path = 一笔，笔径恒定；tapered_stroke 是一条 path = 多段笔触，笔径变化。
 两者都往同一层追加普通笔触，可混用；选择取决于你要恒定笔径还是变化笔径。
 
+### 2.6 ribbon
+
+~~~python
+ribbon(points, widths) -> [[x,y], ...]
+~~~
+
+把中心线和全宽变成闭合多边形，交给 `fill_polygon` 填充；用于腿、枝干、角这类有体积的部件。
+
+- `points`：至少 2 个中心线点；
+- `widths`：全宽，不是半宽；标量、`[w]`、长度等于点数、或 `[w0,w1]`（按点序号线性插值）；
+- 返回闭合多边形，不 fill、不建层、不渲染；
+- 尖角按逐点法线偏移，不做 miter 修角/布尔运算；要更圆滑就传更密的中心线。
+
+它不知道这是腿、树枝还是鹿角；只做几何。用法见 [EXAMPLES.md](EXAMPLES.md) §5.2。
+
 ## 3. 组合与分层（语义，不是配方）
 
 - fill_polygon 产生“面”的笔触；tapered_stroke 产生“有宽度变化的线”的笔触。

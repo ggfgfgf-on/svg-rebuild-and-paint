@@ -234,6 +234,11 @@ shape_ops.fill_polygon(doc, "band", outer, holes=[hole],
 shape_ops.tapered_stroke(doc, "detail", "M 250 120 C 265 80 290 55 315 40",
                          color="#b9986a", size=14, size_end=1.5,
                          pressure=1.0, pressure_end=0.4, steps=28)
+
+# 有体积的部件：中心线 + 宽度 -> 多边形，再 fill；不是一条 taper
+leg = shape_ops.ribbon([(250, 120), (270, 180), (265, 240)], [26, 18, 9])
+shape_ops.fill_polygon(doc, "leg", leg, color="#6b4f3f", size=10,
+                       spacing=6, preset="bristle")
 ~~~
 
 参数语义、holes/pressure 的边界见 [SHAPE_API.md](SHAPE_API.md)。

@@ -429,6 +429,12 @@ def fill(layer, polygon, ...):
 plan_io.dump_plan("out/draft.plan.json", W, H, doc["strokes"])
 ~~~
 
+需要“落盘 + 渲染”一步完成时，用可选的 checkpoint（name 自由，不是阶段枚举）：
+
+~~~python
+plan_io.checkpoint(doc, "draft", "out")  # -> {plan, png, strokes, layers, render}
+~~~
+
 ### 6.2 交付清单
 
 交付时保留四样（按题材可增减，但要说明）：
