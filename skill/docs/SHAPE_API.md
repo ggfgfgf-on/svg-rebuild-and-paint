@@ -83,7 +83,7 @@ fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.0,
 | layer | str | 目标层 | 不存在则建层；已存在不改 blend |
 | polygon | [[x,y],...] | 外环顶点 | ≥3 点；自动闭合；可凹 |
 | holes | [[x,y],...] 列表/None | 洞/内环 | 每个 ≥3 点；落在其中的撒点被跳过；edge 只补外环 |
-| color | rgb/hex | 起始颜色 | 0..255 或 "#rrggbb" |
+| color | rgb/hex | 起始颜色 | 0..255 或 "#rrggbb"；helper 把 hex 归一成 [r,g,b] 写入 plan，手写 plan/dump_plan 只收 [r,g,b] |
 | color2 | rgb/hex/None | 终点颜色 | 给定时按 gradient_angle 逐笔插值 |
 | size | float=8 | 笔刷直径 | ≥0.5；边圈用 0.9×size |
 | opacity | float=1 | 单笔不透明度 | 0..1；重叠会叠加，不是整层 alpha |
@@ -98,7 +98,7 @@ fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.0,
 | guidance | float=1 | 引导强度 | 0 不变；<1 只乘 opacity |
 | seed | int=0 | 抖动种子 | 确定性 |
 | edge | bool=True | 是否补边圈 | True 减少圆笔触锯齿 |
-| edge_inset | float=0 | 边圈内缩像素 | 0=边笔中心在边界；可设 ~0.5×size 防越界 |
+| edge_inset | float=0 | 边圈内缩像素 | 只移动边圈；内部撒点仍会向外溢出约 0.5×size |
 | pressure | float=1 | 笔触压力 | 0..1；写入每笔 points；渲染器读取 |
 
 ### 1.3 color2 的真实语义
@@ -109,6 +109,7 @@ color2 不是像素渐变，而是**每笔一个颜色**：
 - 每笔颜色 = color + (color2-color)×t；
 - 颜色分辨率由 spacing 决定；spacing 大时会出现色带，需要更细就减小 spacing。
 - color2=None 时所有笔同色。
+- color2 只改每笔颜色，不改 alpha；在 screen 层上把颜色收到近黑，近似“无光”，但不是透明。要做真正的渐隐，改 opacity/覆盖密度，或另画一层。
 
 这对“主体受光/背光”有用，但它只改颜色，不改变笔触大小/形状；
 体积仍要靠多次 fill（不同 polygon/opacity）或后来的 relight。
@@ -126,6 +127,8 @@ opacity 是**单笔**不透明度，不是整层统一 alpha。
 - edge_inset 把边笔整体沿内法线平移，减少溢出；内法线方向由多边形 signed area 判断；
 - 凹角/尖角处是逐边平移，不做 miter 连接；极端尖角可能仍有缺口；
 - 要完全控制在剪影内，可 edge=False，自己用更小的 polygon 或后续收边。
+
+**边界契约（实测）**：填充笔触的**中心**落在 polygon 内，但笔刷半径仍会向外画出约 0.5×size；edge_inset 只移动边圈，不会裁掉内部撒点的溢出。相邻硬边色带若直接共用边界，会出现 8–10px 的锯齿毛边。要干净硬边：edge=False，每个 polygon 向内缩约一个笔刷半径（size/2），边缘用连续 tapered_stroke 或单独窄层补。这不是 bug，是圆笔刷覆盖的语义；要像素级剪影，只能缩 polygon 或后处理。
 
 ### 1.6 组合时看哪些参数（不是步骤）
 
@@ -309,6 +312,7 @@ dump_plan(path, w, h, strokes, layer_blends=None, regions=None,
 | `subject_layers` | 主体层名列表；改画算子用来保护主体 |
 | `tip_names` | 可选，数字 preset id -> 名称映射 |
 | 返回 | 写入的笔数 |
+| 目录 | 不自动创建父目录；`out/` 不存在会抛 FileNotFoundError |
 
 ### 6.2 `checkpoint`（可选）
 

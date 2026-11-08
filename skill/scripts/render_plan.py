@@ -8,6 +8,7 @@
 """
 import argparse
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -37,11 +38,13 @@ def render_doc_with_ops(doc, specs, gpu=False, nthreads=8):
 
 
 def render_plan_with_ops(plan_path, specs, out_path, gpu=False, nthreads=8):
+    t0 = time.perf_counter()
     doc, w, h = plan_io.load_plan(plan_path)
     arr, _ = render_doc_with_ops(doc, specs, gpu=gpu, nthreads=nthreads)
     Image.fromarray(np.ascontiguousarray(arr[..., :3])).save(out_path)
     return {"plan": Path(plan_path).name, "ops": len(specs), "out": str(out_path),
-            "size": [int(w), int(h)], "luma": round(RU.luma_of(arr), 2)}
+            "size": [int(w), int(h)], "luma": round(RU.luma_of(arr), 2),
+            "render_s": round(time.perf_counter() - t0, 3)}
 
 
 def main():

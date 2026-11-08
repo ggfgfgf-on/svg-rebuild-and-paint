@@ -3,7 +3,7 @@ name: svg-rebuild-and-paint
 description: >-
   Three runnable layers, all measured. (1) Bitmap -> true vector SVG: potrace curves per colour mask,
   pure flat <path> (no <image>/base64/gradients), no staircase at any zoom, plus a per-pixel error
-  report (mean / <=5 / <=10 / uncovered). (2) Deterministic thick-paint engine: 8-layer plans,
+  report (mean / <=5 / <=10 / uncovered). (2) Deterministic thick-paint engine: scene-defined layered plans,
   brush-stamp rasterization (CPU + DirectCompute GPU), 30fps video, plan diff, tile incremental repaint.
   (3) Semantic ops layer, ZERO KEY: a plain natural-language instruction is compiled by the current
   multimodal model itself (it reads a plan summary + a live thumbnail) into ops JSON - recolour by layer

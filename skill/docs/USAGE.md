@@ -431,7 +431,7 @@ frame = p.composite()                                    # (H, W, 4) uint8
 | 不露底 | 合成图 alpha 最小值 / alpha=0 占比 | 无 alpha=0 区域 |
 | 可复现 | 重新 materialize + 渲染 | 与交付 PNG 逐像素一致 |
 | 改动生效 | 细化前后被选中/改变的像素数 | `selected > 0` |
-| 规模（参考） | `len(plan["strokes"])`、层数 | 上千笔、4–5 层起；单层厚涂也可能成立 |
+| 规模（参考） | `len(plan["strokes"])`、层数 | 只是量级参考，不是合格线；4–5 只是示例范围，单层厚涂也可能成立 |
 | 分层（参考） | 层名与 blend | 层能按现象单独选中；不要求固定层数或 blend 组合 |
 
 **语义检查**：主体轮廓成立吗？肢体/枝干连接和承重成立吗？脚/接触点有可解释的承托面吗（是否浮空）？最亮处是否只有一个视觉焦点？缩到 25% 还读得懂构图吗？
@@ -469,7 +469,7 @@ python scripts/metric.py ref.png render.png
 
 | 入口 | 返回什么 |
 |---|---|
-| `render_plan.py` | 打印 JSON：`{plan, ops, out, size:[w,h], luma}` |
+| `render_plan.py` | 打印 JSON：`{plan, ops, out, size:[w,h], luma, render_s}`；render_s 含 load/render/save |
 | host `art_paint` | 一行文本：PNG 路径、KB、秒（与上面同一渲染器） |
 | `plan_io.load_plan(path)` | `(doc, w, h)`；doc 里 `strokes/count/layers` 可直接改 |
 | `plan_io.dump_plan(...)` | `int`：写入的笔数；唯一产物是文件；写完应再 `load_plan` 验一遍 |
