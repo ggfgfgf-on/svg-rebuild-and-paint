@@ -11,6 +11,7 @@ def main():
     ap.add_argument("--soft-filter", action="store_true", help="添加柔边 Gaussian filter（默认不加，避免整笔发糊）")
     ap.add_argument("--pure", action="store_true", help="强制纯 Python 路径")
     ap.add_argument("--stamps", action="store_true", help="stamp 级 SVG：每个 stamp 一个 circle，文件大")
+    ap.add_argument("--compact", action="store_true", help="写完后做无损路径压缩")
     a = ap.parse_args()
     if a.stamps:
         import time
@@ -24,6 +25,10 @@ def main():
         except Exception:
             svg = plan_svg.plan_to_svg_stamps(doc)
         Path(a.out).write_text(svg, encoding="utf-8")
+        if a.compact:
+            import svg_compact
+            svg = svg_compact.compact_svg(svg)
+            Path(a.out).write_text(svg, encoding="utf-8")
         print(json.dumps({"plan": a.plan, "svg": a.out, "svg_bytes": len(svg.encode("utf-8")),
                           "svg_s": round(time.perf_counter() - t0, 4), "mode": "stamps"}, ensure_ascii=False))
         return
