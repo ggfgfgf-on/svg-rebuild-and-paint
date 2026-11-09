@@ -12,6 +12,7 @@ Fidelity notes:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -469,6 +470,9 @@ def _capsule(p0, p1, r0, r1, steps=8):
         pts.append((x0 + math.cos(t)*r0, y0 + math.sin(t)*r0))
     return pts
 
+def _d_hash(d):
+    return hashlib.md5(str(d).encode("utf-8")).hexdigest()[:12]
+
 def _center_attr(ps):
     return ";".join("%s,%s,%s" % (_f(p[0]), _f(p[1]), _f(p[2] if len(p) > 2 else 1.0)) for p in ps)
 
@@ -509,9 +513,9 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
                     seg = _capsule((ps[i-1][0], ps[i-1][1]), (ps[i][0], ps[i][1]), radii[i-1], radii[i])
                     parts.append("M " + " L ".join("%s %s" % (_f(x), _f(y)) for x, y in seg) + " Z")
                 d = " ".join(parts)
-            out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s"%s/>' %
+            out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-d-hash="%s"%s/>' %
                        (d, _rgb(st.get("color")), _f(st.get("opacity", 1.0)), quoteattr(name), quoteattr(str(st.get("preset", "round_soft"))),
-                        _f(size), _f(st.get("opacity", 1.0)), _f(st.get("hardness", 0.7)), _rgb(st.get("color")), _center_attr(ps),
+                        _f(size), _f(st.get("opacity", 1.0)), _f(st.get("hardness", 0.7)), _rgb(st.get("color")), _center_attr(ps), _d_hash(d),
                         (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else ""))
         out.append("</g>")
     out.append("</svg>")
@@ -526,71 +530,195 @@ def _center_pts(text):
             out.append(q + ([1.0] if len(q) == 2 else []))
     return out
 
+def _shape_points(tag, a):
+    def fl(k, d=0.0):
+        try:
+            return float(a.get(k, d))
+        except Exception:
+            return d
+    if tag == "circle":
+        cx, cy, r = fl("cx"), fl("cy"), fl("r")
+        return [[cx + r*math.cos(2*math.pi*k/32), cy + r*math.sin(2*math.pi*k/32)] for k in range(32)] + [[cx+r, cy]]
+    if tag == "ellipse":
+        cx, cy, rx, ry = fl("cx"), fl("cy"), fl("rx"), fl("ry")
+        return [[cx + rx*math.cos(2*math.pi*k/32), cy + ry*math.sin(2*math.pi*k/32)] for k in range(32)] + [[cx+rx, cy]]
+    if tag == "rect":
+        x, y, w, h = fl("x"), fl("y"), fl("width"), fl("height")
+        return [[x, y], [x+w, y], [x+w, y+h], [x, y+h], [x, y]]
+    if tag in ("polygon", "polyline"):
+        v = [float(x) for x in _NUM.findall(a.get("points", ""))]
+        pts = [[v[i], v[i+1]] for i in range(0, len(v)-1, 2)]
+        if tag == "polygon" and pts:
+            pts.append(pts[0])
+        return pts
+    return []
+
 def _stroke_from_attrs(ch, name, pts):
-    pressure = [float(p[2] if len(p) > 2 else 1.0) for p in pts]
-    st = {"layer": name, "preset": ch.attrib.get("data-preset", "round_soft"),
-          "size": float(ch.attrib.get("data-size", ch.attrib.get("stroke-width", 8.0))),
-          "opacity": max(0.0, min(1.0, float(ch.attrib.get("data-opacity", ch.attrib.get("stroke-opacity", 1.0))))),
-          "color": _color(ch.attrib.get("data-color") or ch.attrib.get("stroke") or ch.attrib.get("fill"), (217, 180, 90)),
-          "hardness": max(0.0, min(1.0, float(ch.attrib.get("data-hardness", 0.7)))),
+    a = ch if isinstance(ch, dict) else ch.attrib
+    st = {"layer": name, "preset": a.get("data-preset", "round_soft"),
+          "size": float(a.get("data-size", a.get("stroke-width", 8.0))),
+          "opacity": max(0.0, min(1.0, float(a.get("data-opacity", a.get("stroke-opacity", 1.0))))),
+          "color": _color(a.get("data-color") or a.get("stroke") or a.get("fill"), (217, 180, 90)),
+          "hardness": max(0.0, min(1.0, float(a.get("data-hardness", 0.7)))),
           "points": [[float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)] for p in pts]}
-    if ch.attrib.get("data-tag"):
-        st["tag"] = str(ch.attrib["data-tag"])
+    if a.get("data-tag"):
+        st["tag"] = str(a["data-tag"])
     return st
 
-def svg_to_plan(svg_text):
+def _style_decls(text):
+    out = {}
+    for part in str(text or "").split(";"):
+        if ":" in part:
+            k, v = part.split(":", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def _load_css(root):
+    css = {}
+    for el in root.iter():
+        if _local(el.tag) == "style":
+            for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", el.text or ""):
+                d = _style_decls(body)
+                for one in sel.split(","):
+                    one = one.strip()
+                    if one:
+                        css.setdefault(one, {}).update(d)
+    return css
+
+
+def _selector_match(sel, ch):
+    if sel.endswith("*"):
+        return True
+    if sel.startswith("."):
+        return sel[1:] in (ch.get("class") or "").split()
+    if sel.startswith("#"):
+        return ch.get("id") == sel[1:]
+    return _local(ch.tag) == sel if hasattr(ch, "tag") else False
+
+
+def _resolved_attrs(ch, css, grads):
+    a = dict(ch.attrib)
+    for sel, d in css.items():
+        if _selector_match(sel, a):
+            for k, v in d.items():
+                a.setdefault(k, v)
+    for k, v in _style_decls(a.get("style", "")).items():
+        a[k] = v
+    for key in ("fill", "stroke"):
+        m = re.match(r"url\(#([^)]+)\)", str(a.get(key, "")))
+        if m and m.group(1) in grads:
+            a[key] = grads[m.group(1)]
+    return a
+
+
+def _gradient_colors(root):
+    out = {}
+    for el in root.iter():
+        if _local(el.tag) in ("linearGradient", "radialGradient") and el.get("id"):
+            cols = []
+            for st in list(el):
+                if _local(st.tag) == "stop":
+                    cols.append(_color(st.get("stop-color", "#000"), (0, 0, 0)))
+            if cols:
+                out[el.get("id")] = "#%02x%02x%02x" % tuple(int(sum(c[i] for c in cols) / len(cols)) for i in range(3))
+    return out
+
+
+def needs_python_parser(svg_text):
+    if "data-center=" in svg_text or "data-stroke=" in svg_text:
+        return True
+    if "transform=" in svg_text or "<style" in svg_text or "<use" in svg_text:
+        return True
+    if re.search(r'd="[^"]*[Aa][^"]*"', svg_text):
+        return True
+    if re.search(r"<(circle|ellipse|rect|polygon|polyline)\b", svg_text):
+        return True
+    return "url(#" in svg_text or "<mask" in svg_text or "<clipPath" in svg_text
+
+
+def _svg_to_plan_py(svg_text):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
-    if (_native is not None and _native.available() and "data-center=" not in svg_text
-            and "data-stroke=" not in svg_text and "transform=" not in svg_text
-            and not re.search(r'd="[^"]*[Aa][^"]*"', svg_text)):
-        return _native.svg_to_plan(svg_text)
     root = ET.fromstring(svg_text)
     vb = root.attrib.get("viewBox", "0 0 1200 900").replace(",", " ").split()
     w, h = (int(float(vb[2])), int(float(vb[3]))) if len(vb) >= 4 else (1200, 900)
-    layers = []
-    strokes = []
+    layers, strokes = [], []
+    css = _load_css(root)
+    grads = _gradient_colors(root)
+    by_id = {el.get("id"): el for el in root.iter() if el.get("id")}
 
     def add_layer(name, blend):
         if name not in [x["name"] for x in layers]:
             layers.append({"name": name, "blend": blend or "normal"})
 
-    def walk(node, inherited_layer=None, parent=(1, 0, 0, 1, 0, 0)):
-        for ch in list(node):
-            tag = _local(ch.tag)
-            if tag == "g":
-                name = ch.attrib.get("data-name") or ch.attrib.get("id") or inherited_layer or "layer"
-                blend = ch.attrib.get("data-blend") or "normal"
-                add_layer(name, blend)
-                m = _mat_mul(parent, _parse_transform(ch.attrib.get("transform")))
-                if ch.attrib.get("data-stroke") or (ch.attrib.get("data-center") and not ch.attrib.get("data-name")):
-                    ln = ch.attrib.get("data-layer") or inherited_layer or "layer"
-                    add_layer(ln, "normal")
-                    pts = _center_pts(ch.attrib.get("data-center"))
-                    if pts:
-                        pts = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in pts]
-                        strokes.append(_stroke_from_attrs(ch, ln, pts))
-                    continue
-                walk(ch, name, m)
-            elif tag == "path":
-                name = ch.attrib.get("data-layer") or inherited_layer or "layer"
-                add_layer(name, "normal")
-                pts = _center_pts(ch.attrib.get("data-center"))
-                if not pts:
-                    try:
-                        pts = [[x, y, 1.0] for x, y in _parse_d(ch.attrib.get("d", ""))]
-                    except Exception:
-                        continue
-                    pv = _floats(ch.attrib.get("data-p"), [1.0] * len(pts))
-                    if len(pv) == len(pts):
-                        pts = [[p[0], p[1], pv[k]] for k, p in enumerate(pts)]
-                m = _mat_mul(parent, _parse_transform(ch.attrib.get("transform")))
-                pts = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in pts]
-                strokes.append(_stroke_from_attrs(ch, name, pts))
-            else:
-                walk(ch, inherited_layer)
+    def visit(ch, inherited_layer=None, parent=(1, 0, 0, 1, 0, 0), active=None):
+        active = active or set()
+        tag = _local(ch.tag)
+        a = _resolved_attrs(ch, css, grads)
+        if tag == "use":
+            href = a.get("{http://www.w3.org/1999/xlink}href") or a.get("href") or ""
+            if href.startswith("#") and href[1:] not in active and href[1:] in by_id:
+                tgt = by_id[href[1:]]
+                m = _mat_mul(parent, _parse_transform(a.get("transform")))
+                m = _mat_mul(m, _mat(1, 0, 0, 1, float(a.get("x", 0) or 0), float(a.get("y", 0) or 0)))
+                visit(tgt, inherited_layer, m, active | {href[1:]})
+            return
+        if tag == "g":
+            name = a.get("data-name") or a.get("id") or inherited_layer or "layer"
+            blend = a.get("data-blend") or "normal"
+            add_layer(name, blend)
+            m = _mat_mul(parent, _parse_transform(a.get("transform")))
+            if a.get("data-stroke") or (a.get("data-center") and not a.get("data-name")):
+                ln = a.get("data-layer") or inherited_layer or "layer"
+                add_layer(ln, "normal")
+                pts = _center_pts(a.get("data-center"))
+                if pts:
+                    pts = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in pts]
+                    strokes.append(_stroke_from_attrs(a, ln, pts))
+                return
+            for sub in list(ch):
+                visit(sub, name, m, active)
+            return
+        if tag == "path":
+            name = a.get("data-layer") or inherited_layer or "layer"
+            add_layer(name, "normal")
+            center = a.get("data-center")
+            dval = a.get("d", "")
+            if center and a.get("data-d-hash") and _d_hash(dval) != a.get("data-d-hash"):
+                center = ""
+            pts = _center_pts(center)
+            if not pts:
+                try:
+                    pts = [[x, y, 1.0] for x, y in _parse_d(dval)]
+                except Exception:
+                    return
+                pv = _floats(a.get("data-p"), [1.0] * len(pts))
+                if len(pv) == len(pts):
+                    pts = [[p[0], p[1], pv[k]] for k, p in enumerate(pts)]
+            m = _mat_mul(parent, _parse_transform(a.get("transform")))
+            pts = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in pts]
+            strokes.append(_stroke_from_attrs(a, name, pts))
+            return
+        if tag in ("circle", "ellipse", "rect", "polygon", "polyline"):
+            name = a.get("data-layer") or inherited_layer or "layer"
+            add_layer(name, "normal")
+            pts = _shape_points(tag, a)
+            if pts:
+                m = _mat_mul(parent, _parse_transform(a.get("transform")))
+                pts = [[*_mat_apply(m, p[0], p[1]), 1.0] for p in pts]
+                st = _stroke_from_attrs(a, name, pts)
+                st["size"] = float(a.get("data-size", a.get("stroke-width", 1.0)))
+                strokes.append(st)
 
-    walk(root)
+    for ch in list(root):
+        visit(ch)
     return {"canvas": [w, h], "layers": layers, "strokes": strokes}
+
+
+def svg_to_plan(svg_text):
+    if _native is not None and _native.available() and not needs_python_parser(svg_text):
+        return _native.svg_to_plan(svg_text)
+    return _svg_to_plan_py(svg_text)
 
 
 def load_plan_svg(path):

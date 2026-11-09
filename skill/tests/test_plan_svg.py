@@ -114,6 +114,33 @@ def test_transform_and_arc():
     assert abs(pts[-1][0] - 50) < 1e-6 and abs(pts[-1][1] - 10) < 1e-6
 
 
+
+
+def test_shapes_css_use_gradient():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<defs><linearGradient id="g"><stop offset="0" stop-color="#ff0000"/>'
+           '<stop offset="1" stop-color="#0000ff"/></linearGradient>'
+           '<path id="p" d="M 0 0 L 10 0"/></defs>'
+           '<style>.k{stroke:#00ff00;stroke-width:4}</style>'
+           '<use href="#p" x="10" y="20" transform="translate(5,5)"/>'
+           '<rect class="k" x="50" y="50" width="10" height="10"/>'
+           '<circle cx="20" cy="20" r="5" fill="url(#g)"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert len(d["strokes"]) == 3
+    assert d["strokes"][0]["points"][0] == [15.0, 25.0, 1.0]
+    assert d["strokes"][1]["size"] == 4 and d["strokes"][1]["color"] == [0, 255, 0]
+    assert d["strokes"][2]["color"] == [127, 0, 127]
+
+
+def test_native_fallback_metadata():
+    import plan_svg_native as N
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+           '<path d="M 1 1 L 2 2" data-center="1,1,1;2,2,1" data-d-hash="wrong" '
+           'stroke="#ff0000" stroke-width="2"/></svg>')
+    pts = N.svg_to_plan(svg)["strokes"][0]["points"]
+    assert pts[0] == [1.0, 1.0, 1.0]
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -121,4 +148,6 @@ if __name__ == "__main__":
         test_dump_cli(td)
     test_outline_and_stamps_roundtrip()
     test_transform_and_arc()
+    test_shapes_css_use_gradient()
+    test_native_fallback_metadata()
     print("all plan_svg tests passed")

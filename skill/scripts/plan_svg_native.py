@@ -240,7 +240,22 @@ def plan_to_svg(doc) -> str:
     return raw.decode("utf-8")
 
 
+def _needs_py(svg_text: str) -> bool:
+    try:
+        import plan_svg
+        return plan_svg.needs_python_parser(svg_text)
+    except Exception:
+        return any(k in svg_text for k in ("data-center=", "data-stroke=", "transform=", "<style", "<use", "url(#"))
+
+
+def _py_svg_to_plan(svg_text: str):
+    import plan_svg
+    return plan_svg._svg_to_plan_py(svg_text)
+
+
 def svg_to_plan(svg_text: str):
+    if _needs_py(svg_text):
+        return _py_svg_to_plan(svg_text)
     b = svg_text.encode("utf-8")
     n = ctypes.c_int(0)
     ptr = _LIB.psvg_svg_to_bin(ctypes.c_char_p(b), len(b), ctypes.byref(n))
@@ -275,6 +290,14 @@ def plan_file_to_svg(plan_path: str, svg_path: str) -> str:
 
 
 def svg_file_to_plan(svg_path: str, plan_path: str) -> str:
+    try:
+        text = Path(svg_path).read_text(encoding="utf-8")
+    except Exception:
+        text = ""
+    if text and _needs_py(text):
+        doc = _py_svg_to_plan(text)
+        Path(plan_path).write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")
+        return plan_path
     return _call_paths(_LIB.psvg_svg_file_to_plan, svg_path, plan_path)
 
 

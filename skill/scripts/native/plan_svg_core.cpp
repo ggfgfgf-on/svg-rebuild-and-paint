@@ -831,6 +831,12 @@ static std::string bin_to_svg_stamps(const unsigned char* data, int len) {
     for(int li=0;li<lc;++li){
         out += "<g data-name=\"" + names[li] + "\" data-blend=\"" + blends[li] + "\">\n";
         for(const auto& s:strokes) if(s.layer==li){
+            std::string ca;
+            for(size_t j=0;j+2<s.pts.size();j+=3){ if(!ca.empty())ca += ";"; ca += fmt(s.pts[j])+","+fmt(s.pts[j+1])+","+fmt(s.pts[j+2]); }
+            out += "<g data-stroke=\"1\" data-layer=\""; esc_to(out,names[li]); out += "\" data-preset=\""; esc_to(out,s.preset);
+            out += "\" data-size=\""+fmt(s.size)+"\" data-opacity=\""+fmt(s.opacity)+"\" data-hardness=\""+fmt(s.hardness)+"\" data-color=\""+fmt(s.r)+","+fmt(s.g)+","+fmt(s.b)+"\" data-center=\""; esc_to(out,ca); out += "\"";
+            if(!s.tag.empty()){ out += " data-tag=\""; esc_to(out,s.tag); out += "\""; }
+            out += ">\n";
             const float baseR=s.size*0.5f;
             float total=0;
             for(size_t i=1;i+2<s.pts.size();i+=3) total += std::sqrt((s.pts[i]-s.pts[i-3])*(s.pts[i]-s.pts[i-3])+(s.pts[i+1]-s.pts[i-2])*(s.pts[i+1]-s.pts[i-2]));
@@ -852,6 +858,7 @@ static std::string bin_to_svg_stamps(const unsigned char* data, int len) {
                 }
                 arc+=ln;
             }
+            out += "</g>\n";
         }
         out += "</g>\n";
     }

@@ -203,10 +203,13 @@ N.svg_file_to_plan("out.svg", "back.plan.json")
 - 硬边/圆笔：用 stroked path 近似，形状和颜色可读；
 - 软边：用 `<filter><feGaussianBlur>` 量化近似，不是原始纹理；
 - 纹理笔刷：不重建纹理；只保留 `data-preset`；
+- outline 写入 `data-center` 与 `data-d-hash`；d 被编辑后会检测 hash 不一致并改用 d；
 - 逐点压力：保存在 `data-p`，SVG 视觉本身不按点变压力；
 - 任意 SVG 的曲线：读回时采样为折线；`A` 弧已采样；
 - 基础 `translate/scale/rotate/matrix` transform 在 Python 回退里展开；
-- CSS 类、`<use>`、外部引用仍不解析；
+- 基础 `circle/ellipse/rect/polygon/polyline` 读成折线；
+- 简单 CSS class、`<use href="#id">`、linear/radial gradient 平均色在 Python 回退里解析；
+- 外部引用、mask/clipPath 的真实合成仍不解析；
 - 这是“可编辑的桥”，不是像素级 SVG 复刻，也不是 `vectorize.py` 的平涂输出。
 
 ## 适用场景
@@ -229,4 +232,4 @@ N.svg_file_to_plan("out.svg", "back.plan.json")
 python tests/test_plan_svg.py
 ~~~
 
-覆盖 roundtrip、层序/blend、tag、pressure、确定性、文件落盘。
+覆盖 roundtrip、层序/blend、tag、pressure、确定性、文件落盘、outline/stamps 中心线回退、A 弧、transform、基础图元、CSS/use/gradient、native 回退。
