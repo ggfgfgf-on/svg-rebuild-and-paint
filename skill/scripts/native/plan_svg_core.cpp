@@ -463,13 +463,53 @@ struct EP {
     int W = 1200, H = 900;
 };
 
-static std::string scan_attr(const std::string& tag, const char* name) {
-    std::string key = std::string(name) + "=\"";
-    size_t p = tag.find(key);
-    if (p == std::string::npos) return "";
-    p += key.size();
-    size_t q = tag.find('"', p);
-    return q == std::string::npos ? "" : tag.substr(p, q - p);
+struct Attrs {
+    std::string name, id, blend, layer, d, p, color, stroke, size, sw, opacity, hardness, preset, tag, viewBox, width, height;
+};
+
+static void parse_attrs(const std::string& tag, Attrs& a) {
+    size_t p = 1;
+    while (p < tag.size() && !std::isspace((unsigned char)tag[p]) && tag[p] != '>' && tag[p] != '/') ++p;
+    while (p < tag.size()) {
+        while (p < tag.size() && std::isspace((unsigned char)tag[p])) ++p;
+        if (p >= tag.size() || tag[p] == '>' || tag[p] == '/') break;
+        size_t k0 = p;
+        while (p < tag.size() && (std::isalnum((unsigned char)tag[p]) || tag[p] == '_' || tag[p] == '-' || tag[p] == ':')) ++p;
+        if (p == k0) { ++p; continue; }
+        std::string key = tag.substr(k0, p - k0);
+        while (p < tag.size() && std::isspace((unsigned char)tag[p])) ++p;
+        if (p >= tag.size() || tag[p] != '=') continue;
+        ++p;
+        while (p < tag.size() && std::isspace((unsigned char)tag[p])) ++p;
+        std::string val;
+        if (p < tag.size() && (tag[p] == '"' || tag[p] == '\'')) {
+            char q = tag[p++]; size_t v0 = p;
+            while (p < tag.size() && tag[p] != q) ++p;
+            val = tag.substr(v0, p - v0);
+            if (p < tag.size()) ++p;
+        } else {
+            size_t v0 = p;
+            while (p < tag.size() && !std::isspace((unsigned char)tag[p]) && tag[p] != '>' && tag[p] != '/') ++p;
+            val = tag.substr(v0, p - v0);
+        }
+        if (key == "data-name") a.name = val;
+        else if (key == "id") a.id = val;
+        else if (key == "data-blend") a.blend = val;
+        else if (key == "data-layer") a.layer = val;
+        else if (key == "d") a.d = val;
+        else if (key == "data-p") a.p = val;
+        else if (key == "data-color") a.color = val;
+        else if (key == "stroke") a.stroke = val;
+        else if (key == "data-size") a.size = val;
+        else if (key == "stroke-width") a.sw = val;
+        else if (key == "data-opacity") a.opacity = val;
+        else if (key == "data-hardness") a.hardness = val;
+        else if (key == "data-preset") a.preset = val;
+        else if (key == "data-tag") a.tag = val;
+        else if (key == "viewBox") a.viewBox = val;
+        else if (key == "width") a.width = val;
+        else if (key == "height") a.height = val;
+    }
 }
 
 static std::string scan_from_svg(const std::string& input) {
@@ -485,36 +525,35 @@ static std::string scan_from_svg(const std::string& input) {
         size_t end = input.find('>', pos + 1);
         if (end == std::string::npos) break;
         std::string tag = input.substr(pos, end - pos + 1);
+        Attrs at; parse_attrs(tag, at);
         if (tag.compare(0, 4, "<svg") == 0) {
-            auto v = nums(scan_attr(tag, "viewBox"));
+            auto v = nums(at.viewBox);
             if (v.size() >= 4) { e.W = (int)v[2]; e.H = (int)v[3]; }
             else {
-                std::string ws = scan_attr(tag, "width"), hs = scan_attr(tag, "height");
-                if (!ws.empty()) e.W = std::atoi(ws.c_str());
-                if (!hs.empty()) e.H = std::atoi(hs.c_str());
+                if (!at.width.empty()) e.W = std::atoi(at.width.c_str());
+                if (!at.height.empty()) e.H = std::atoi(at.height.c_str());
             }
         } else if (tag.compare(0, 3, "<g ") == 0 || tag.compare(0, 3, "<g>") == 0) {
-            std::string n = scan_attr(tag, "data-name");
-            if (n.empty()) n = scan_attr(tag, "id");
+            std::string n = at.name;
+            if (n.empty()) n = at.id;
             if (n.empty()) n = e.stack.empty() ? "layer" : e.stack.back();
-            add_layer(e.names, e.blends, e.idx, n, scan_attr(tag, "data-blend"));
+            add_layer(e.names, e.blends, e.idx, n, at.blend);
             e.stack.push_back(n);
         } else if (tag.compare(0, 6, "<path ") == 0) {
-            std::string layer = scan_attr(tag, "data-layer");
+            std::string layer = at.layer;
             if (layer.empty()) layer = e.stack.empty() ? "layer" : e.stack.back();
             add_layer(e.names, e.blends, e.idx, layer, "");
-            std::vector<double> xs, ys; parse_d(scan_attr(tag, "d"), xs, ys);
+            std::vector<double> xs, ys; parse_d(at.d, xs, ys);
             if (!xs.empty()) {
-                auto ps = nums(scan_attr(tag, "data-p")); if (ps.size() != xs.size()) ps.assign(xs.size(), 1.0);
-                std::string ct = scan_attr(tag, "data-color");
-                auto col = ct.empty() ? color_from(scan_attr(tag, "stroke")) : color_from(ct);
+                auto ps = nums(at.p); if (ps.size() != xs.size()) ps.assign(xs.size(), 1.0);
+                auto col = at.color.empty() ? color_from(at.stroke) : color_from(at.color);
                 BinStroke st; st.layer = e.idx[layer];
-                st.preset = scan_attr(tag, "data-preset").empty() ? "round_soft" : scan_attr(tag, "data-preset");
-                st.size = (float)(scan_attr(tag, "data-size").empty() ? std::atof(scan_attr(tag, "stroke-width").c_str()) : std::atof(scan_attr(tag, "data-size").c_str()));
+                st.preset = at.preset.empty() ? "round_soft" : at.preset;
+                st.size = (float)(at.size.empty() ? std::atof(at.sw.c_str()) : std::atof(at.size.c_str()));
                 if (!(st.size > 0)) st.size = 8.0f;
-                st.opacity = (float)(scan_attr(tag, "data-opacity").empty() ? 1.0 : std::atof(scan_attr(tag, "data-opacity").c_str()));
-                st.hardness = (float)(scan_attr(tag, "data-hardness").empty() ? 0.7 : std::atof(scan_attr(tag, "data-hardness").c_str()));
-                st.r=(float)col[0]; st.g=(float)col[1]; st.b=(float)col[2]; st.tag=scan_attr(tag,"data-tag");
+                st.opacity = (float)(at.opacity.empty() ? 1.0 : std::atof(at.opacity.c_str()));
+                st.hardness = (float)(at.hardness.empty() ? 0.7 : std::atof(at.hardness.c_str()));
+                st.r=(float)col[0]; st.g=(float)col[1]; st.b=(float)col[2]; st.tag=at.tag;
                 for (size_t i=0;i<xs.size();++i){ st.pts.push_back((float)xs[i]); st.pts.push_back((float)ys[i]); st.pts.push_back((float)ps[i]); }
                 e.strokes.push_back(std::move(st));
             }
@@ -534,7 +573,6 @@ static std::string scan_from_svg(const std::string& input) {
     }
     return std::string((const char*)v.data(), v.size());
 }
-
 static std::string bin_from_svg(const std::string& input) {
     pugi::xml_document doc;
     if (!doc.load_buffer(input.c_str(), input.size())) throw std::runtime_error("XML parse failed");
