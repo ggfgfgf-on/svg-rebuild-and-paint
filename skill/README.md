@@ -48,6 +48,8 @@ Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOM
 | 笔感扩展 | `scripts/brush_ext.py` | smudge / 浮雕光照 / 纸纹变体 / 色彩动态 / 速度响应 / PSD+KRA 读回 |
 | PSD 互操作 | 内置 8BPS 解析器 | 8/16bit、raw+RLE、unicode 图层名、图层组；不依赖 psd-tools |
 
+| **Plan ⇄ SVG 双向桥** | `plan_svg.py` / `plan_to_svg.py` / `svg_to_plan.py` | 44,589 笔：plan→SVG **0.43 s / 14.9 MB**；SVG→plan **0.49 s**；逐笔可编辑，软边用 filter 近似 |
+
 ## 参数标定：值属于工程，技能只给机制
 
 `edge_min_contrast`、`accept_max_area_change`、`model_grow_px`、`ring`、`tol`、`max_spill` 这类阈值没有"通用最优值"。
@@ -126,7 +128,7 @@ python scripts/paint_cli.py compile plan.json --instruction "把花瓣调深一�
 python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png
 ```
 
-入口手册：`SKILL.md`；辅助函数签名（自动生成）：`docs/API.md`；设计与测量：`IMPLEMENTATION.md`。
+入口手册：`SKILL.md`；辅助函数签名（自动生成）：`docs/API.md`；Plan ⇄ SVG：`docs/PLAN_SVG.md`；设计与测量：`IMPLEMENTATION.md`。
 
 ## 测试
 

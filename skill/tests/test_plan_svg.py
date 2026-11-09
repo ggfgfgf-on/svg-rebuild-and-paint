@@ -1,0 +1,85 @@
+"""plan <-> SVG bridge contract tests."""
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import ops
+import plan_io
+import plan_svg
+
+
+def sample():
+    return {
+        "canvas": [120, 80],
+        "layers": [
+            {"name": "base", "blend": "normal"},
+            {"name": "empty", "blend": "screen"},
+            {"name": "light", "blend": "screen"},
+        ],
+        "strokes": [
+            {"layer": "base", "preset": "flat", "size": 9.0, "opacity": 1.0,
+             "color": [30.0, 40.0, 50.0], "hardness": 0.9,
+             "points": [[10, 10, 1.0], [100, 20, 0.6]]},
+            {"layer": "light", "preset": "round_soft", "size": 5.0, "opacity": 0.4,
+             "color": [240, 180, 90], "hardness": 0.3, "tag": "glint",
+             "points": [[20, 60, 1.0], [40, 55, 0.8], [70, 65, 0.9]]},
+        ],
+    }
+
+
+def test_roundtrip():
+    doc = sample()
+    svg = plan_svg.plan_to_svg(doc)
+    back = plan_svg.svg_to_plan(svg)
+    assert back["canvas"] == [120, 80], back["canvas"]
+    assert [l["name"] for l in back["layers"]] == ["base", "empty", "light"], back["layers"]
+    assert [l["blend"] for l in back["layers"]] == ["normal", "screen", "screen"], back["layers"]
+    assert len(back["strokes"]) == 2
+    a, b = doc["strokes"], back["strokes"]
+    for x, y in zip(a, b):
+        assert x["layer"] == y["layer"]
+        assert x["preset"] == y["preset"]
+        assert abs(x["size"] - y["size"]) < 1e-6
+        assert abs(x["opacity"] - y["opacity"]) < 1e-6
+        assert abs(x["hardness"] - y["hardness"]) < 1e-6
+        assert [round(v, 3) for v in x["color"]] == [round(v, 3) for v in y["color"]]
+        assert len(x["points"]) == len(y["points"])
+        assert [[round(v, 3) for v in p] for p in x["points"]] == [[round(v, 3) for v in p] for p in y["points"]]
+    assert b[1].get("tag") == "glint"
+    assert "data-preset" in svg
+    print("PASS plan->svg->plan roundtrip, layers/blends/tags/pressure")
+
+
+def test_deterministic():
+    doc = sample()
+    a = plan_svg.plan_to_svg(doc)
+    b = plan_svg.plan_to_svg(doc)
+    assert a == b
+    print("PASS plan->svg deterministic")
+
+
+def test_dump_cli(tmp):
+    src = Path(tmp) / "a.plan.json"
+    svg = Path(tmp) / "a.svg"
+    dst = Path(tmp) / "b.plan.json"
+    doc = sample()
+    plan_io.dump_plan(str(src), 120, 80, doc["strokes"],
+                      layer_blends={l["name"]: l["blend"] for l in doc["layers"]},
+                      layer_order=[l["name"] for l in doc["layers"]])
+    info = plan_svg.dump_plan_svg(str(src), str(svg))
+    assert info["strokes"] == 2 and svg.exists()
+    info2 = plan_svg.load_svg_plan(str(svg), str(dst))
+    assert info2["strokes"] == 2 and dst.exists()
+    doc2, w, h = plan_io.load_plan(str(dst))
+    assert [l["name"] for l in doc2["layers"]] == ["base", "empty", "light"]
+    print("PASS dump/load files, %d bytes SVG" % len(svg.read_text(encoding="utf-8")))
+
+
+if __name__ == "__main__":
+    test_roundtrip()
+    test_deterministic()
+    with tempfile.TemporaryDirectory() as td:
+        test_dump_cli(td)
+    print("all plan_svg tests passed")
