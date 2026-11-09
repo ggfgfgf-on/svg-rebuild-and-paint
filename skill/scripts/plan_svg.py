@@ -119,7 +119,8 @@ def _paint_def(paint, gid):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) for x in doc.get("strokes", []))):
+            and not any(isinstance(x.get("paint"), dict) for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
     layers = doc.get("layers") or []
@@ -148,6 +149,14 @@ def plan_to_svg(doc, *, filters=False, title=None):
 
     paint_defs = []
     paint_gid = {}
+    mask_defs = []
+    mask_gid = {}
+    for i, layer in enumerate(layers):
+        m = layer.get("mask")
+        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+            gid = "mask%d" % i
+            mask_gid[i] = gid
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
     for st in doc.get("strokes", []):
         if isinstance(st.get("paint"), dict):
             gid = "paint%d" % len(paint_defs)
@@ -158,14 +167,15 @@ def plan_to_svg(doc, *, filters=False, title=None):
             'shape-rendering="geometricPrecision">' % (w, h, w, h)]
     if title:
         head.append("<title>%s</title>" % escape(str(title)))
-    if fids or paint_defs:
-        head.append("<defs>%s</defs>" % "".join(paint_defs + ([_filter_defs(fids)] if fids else [])))
+    if fids or paint_defs or mask_defs:
+        head.append("<defs>%s</defs>" % "".join(paint_defs + mask_defs + ([_filter_defs(fids)] if fids else [])))
     out = ["".join(head)]
     for li, name in enumerate(order):
         blend = blends.get(name, "normal")
         style = "isolation:isolate;mix-blend-mode:%s" % blend if blend != "normal" else "isolation:isolate"
-        out.append('<g id=%s data-name=%s data-blend=%s style=%s>'
-                   % (quoteattr("L%d" % li), quoteattr(name), quoteattr(blend), quoteattr(style)))
+        mref = (' mask="url(#%s)"' % mask_gid[li]) if li in mask_gid else ""
+        out.append('<g id=%s data-name=%s data-blend=%s style=%s%s>'
+                   % (quoteattr("L%d" % li), quoteattr(name), quoteattr(blend), quoteattr(style), mref))
         for s in by_layer.get(name, []):
             pts = s.get("points") or []
             if not pts:
@@ -836,7 +846,18 @@ def _raster_masks(root, w, h):
             a = max(0.0, min(1.0, float(ch.get("fill-opacity", ch.get("opacity", 1.0)))))
             return int(round((0.299*c[0] + 0.587*c[1] + 0.114*c[2]) * a))
         def draw_node(ch):
+            nonlocal im, draw
             tag = _local(ch.tag)
+            if tag == "image":
+                href = ch.get("href") or ch.get("{http://www.w3.org/1999/xlink}href") or ""
+                if str(href).startswith("data:image/png;base64,"):
+                    from PIL import ImageChops
+                    q = Image.open(io.BytesIO(base64.b64decode(str(href).split(",", 1)[1]))).convert("L")
+                    if q.size != (w, h):
+                        q = q.resize((w, h), Image.BILINEAR)
+                    im = ImageChops.lighter(im, q)
+                    draw = ImageDraw.Draw(im)
+                return
             if tag == "g":
                 for q in list(ch):
                     draw_node(q)

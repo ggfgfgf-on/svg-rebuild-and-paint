@@ -97,7 +97,14 @@ def _mask_alpha(spec, w, h):
 def render_plan(plan, threads=8, brush=None, region=None):
     """按 plan 渲染，返回 (composite_rgba, layers[(name, rgba)])。"""
     w, h = plan["canvas"]
-    layers_spec = plan.get("layers") or [{"name": "base", "blend": "normal"}]
+    layers_spec = list(plan.get("layers") or [{"name": "base", "blend": "normal"}])
+    strokes_in = plan.get("strokes", [])
+    for s in strokes_in:
+        m = s.get("mask")
+        if isinstance(m, dict):
+            idx = len(layers_spec)
+            layers_spec.append({"name": "masked_%d" % idx, "blend": "normal", "mask": m})
+            s["layer"] = idx
     p = paint_native.Painter(int(w), int(h))
     for i, spec in enumerate(layers_spec):
         if i == 0:
