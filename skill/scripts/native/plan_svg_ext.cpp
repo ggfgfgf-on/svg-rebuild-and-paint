@@ -6,6 +6,28 @@
 #include <unordered_map>
 #include <vector>
 
+
+static PyObject *K_canvas, *K_layers, *K_strokes, *K_count, *K_name, *K_blend,
+                *K_layer, *K_preset, *K_size, *K_opacity, *K_hardness, *K_color, *K_points, *K_tag;
+static int init_keys() {
+    K_canvas = PyUnicode_InternFromString("canvas");
+    K_layers = PyUnicode_InternFromString("layers");
+    K_strokes = PyUnicode_InternFromString("strokes");
+    K_count = PyUnicode_InternFromString("count");
+    K_name = PyUnicode_InternFromString("name");
+    K_blend = PyUnicode_InternFromString("blend");
+    K_layer = PyUnicode_InternFromString("layer");
+    K_preset = PyUnicode_InternFromString("preset");
+    K_size = PyUnicode_InternFromString("size");
+    K_opacity = PyUnicode_InternFromString("opacity");
+    K_hardness = PyUnicode_InternFromString("hardness");
+    K_color = PyUnicode_InternFromString("color");
+    K_points = PyUnicode_InternFromString("points");
+    K_tag = PyUnicode_InternFromString("tag");
+    return K_canvas && K_layers && K_strokes && K_count && K_name && K_blend &&
+           K_layer && K_preset && K_size && K_opacity && K_hardness && K_color && K_points && K_tag;
+}
+
 static void u16(std::vector<unsigned char>& v, uint16_t x) {
     v.push_back(x & 255); v.push_back((x >> 8) & 255);
 }
@@ -135,11 +157,13 @@ static PyObject* unpack_plan(PyObject*, PyObject* args) {
     std::vector<std::string> names(lc), blends(lc);
     for (int i = 0; i < lc; ++i) { blends[i] = r.s16(); names[i] = r.s16(); }
     PyObject* layers = PyList_New(lc);
+    std::vector<PyObject*> lnames(lc);
     for (int i = 0; i < lc; ++i) {
         PyObject* l = PyDict_New();
         PyObject* n = PyUnicode_FromString(names[i].c_str());
         PyObject* b = PyUnicode_FromString(blends[i].c_str());
-        PyDict_SetItemString(l, "name", n); PyDict_SetItemString(l, "blend", b);
+        lnames[i] = n; Py_INCREF(n);
+        PyDict_SetItem(l, K_name, n); PyDict_SetItem(l, K_blend, b);
         Py_DECREF(n); Py_DECREF(b); PyList_SET_ITEM(layers, i, l);
     }
     PyObject* strokes = PyList_New(sc);
@@ -160,16 +184,18 @@ static PyObject* unpack_plan(PyObject*, PyObject* args) {
         PyObject* st = PyDict_New();
         const char* ln = (li >= 0 && li < lc) ? names[li].c_str() : "layer";
         PyObject* v;
-        v = PyUnicode_FromString(ln); PyDict_SetItemString(st, "layer", v); Py_DECREF(v);
-        v = PyUnicode_FromString(preset.c_str()); PyDict_SetItemString(st, "preset", v); Py_DECREF(v);
-        v = mkfloat(size); PyDict_SetItemString(st, "size", v); Py_DECREF(v);
-        v = mkfloat(op); PyDict_SetItemString(st, "opacity", v); Py_DECREF(v);
-        v = mkfloat(hard); PyDict_SetItemString(st, "hardness", v); Py_DECREF(v);
+        v = (li >= 0 && li < lc) ? lnames[li] : PyUnicode_FromString("layer");
+        PyDict_SetItem(st, K_layer, v);
+        if (!(li >= 0 && li < lc)) Py_DECREF(v);
+        v = PyUnicode_FromString(preset.c_str()); PyDict_SetItem(st, K_preset, v); Py_DECREF(v);
+        v = mkfloat(size); PyDict_SetItem(st, K_size, v); Py_DECREF(v);
+        v = mkfloat(op); PyDict_SetItem(st, K_opacity, v); Py_DECREF(v);
+        v = mkfloat(hard); PyDict_SetItem(st, K_hardness, v); Py_DECREF(v);
         PyObject* col = PyList_New(3);
         PyList_SET_ITEM(col, 0, mkfloat(rr)); PyList_SET_ITEM(col, 1, mkfloat(gg)); PyList_SET_ITEM(col, 2, mkfloat(bb));
-        PyDict_SetItemString(st, "color", col); Py_DECREF(col);
-        PyDict_SetItemString(st, "points", pts); Py_DECREF(pts);
-        if (!tag.empty()) { v = PyUnicode_FromString(tag.c_str()); PyDict_SetItemString(st, "tag", v); Py_DECREF(v); }
+        PyDict_SetItem(st, K_color, col); Py_DECREF(col);
+        PyDict_SetItem(st, K_points, pts); Py_DECREF(pts);
+        if (!tag.empty()) { v = PyUnicode_FromString(tag.c_str()); PyDict_SetItem(st, K_tag, v); Py_DECREF(v); }
         PyList_SET_ITEM(strokes, k, st);
     }
     PyBuffer_Release(&view);
@@ -180,10 +206,10 @@ static PyObject* unpack_plan(PyObject*, PyObject* args) {
     PyObject* doc = PyDict_New();
     PyObject* canvas = PyList_New(2);
     PyList_SET_ITEM(canvas, 0, PyLong_FromLong(W)); PyList_SET_ITEM(canvas, 1, PyLong_FromLong(H));
-    PyDict_SetItemString(doc, "canvas", canvas); Py_DECREF(canvas);
-    PyDict_SetItemString(doc, "layers", layers); Py_DECREF(layers);
-    PyDict_SetItemString(doc, "strokes", strokes); Py_DECREF(strokes);
-    PyObject* cnt = PyLong_FromLong(sc); PyDict_SetItemString(doc, "count", cnt); Py_DECREF(cnt);
+    PyDict_SetItem(doc, K_canvas, canvas); Py_DECREF(canvas);
+    PyDict_SetItem(doc, K_layers, layers); Py_DECREF(layers);
+    PyDict_SetItem(doc, K_strokes, strokes); Py_DECREF(strokes);
+    PyObject* cnt = PyLong_FromLong(sc); PyDict_SetItem(doc, K_count, cnt); Py_DECREF(cnt);
     return doc;
 }
 
@@ -193,4 +219,7 @@ static PyMethodDef methods[] = {
     {nullptr, nullptr, 0, nullptr}
 };
 static PyModuleDef mod = {PyModuleDef_HEAD_INIT, "plan_svg_ext", "fast plan packer", -1, methods};
-PyMODINIT_FUNC PyInit_plan_svg_ext(void) { return PyModule_Create(&mod); }
+PyMODINIT_FUNC PyInit_plan_svg_ext(void) {
+    if (!init_keys()) return nullptr;
+    return PyModule_Create(&mod);
+}
