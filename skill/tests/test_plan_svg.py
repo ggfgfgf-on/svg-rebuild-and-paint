@@ -83,3 +83,25 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as td:
         test_dump_cli(td)
     print("all plan_svg tests passed")
+
+
+def test_outline_and_stamps_roundtrip():
+    doc = {
+        "canvas": [200, 120],
+        "layers": [{"name": "ink", "blend": "normal"}],
+        "strokes": [{
+            "layer": "ink", "preset": "dry", "size": 9, "opacity": 0.8,
+            "hardness": 0.6, "color": [12, 34, 56],
+            "points": [[10, 20, 1.0], [50, 30, 0.5], [90, 25, 0.8]],
+            "tag": "t1",
+        }],
+    }
+    for svg in (plan_svg.plan_to_svg_outline(doc), plan_svg.plan_to_svg_stamps(doc)):
+        back = plan_svg.svg_to_plan(svg)
+        assert len(back["strokes"]) == 1
+        st = back["strokes"][0]
+        assert st["size"] == 9
+        assert st["preset"] == "dry"
+        assert st["color"] == [12, 34, 56]
+        assert st["points"] == doc["strokes"][0]["points"]
+        assert st.get("tag") == "t1"

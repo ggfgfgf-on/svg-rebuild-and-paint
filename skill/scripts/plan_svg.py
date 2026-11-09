@@ -339,6 +339,10 @@ def plan_to_svg_stamps(doc, title=None):
             size = float(st.get("size", 8.0)); base = size * 0.5
             col = _rgb(st.get("color")); op0 = max(0.0, min(1.0, float(st.get("opacity", 1.0))))
             preset = str(st.get("preset", "round_soft")); hard = float(st.get("hardness", 0.7))
+            ps = [(float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)) for p in pts]
+            body.append('<g data-stroke="1" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s"%s>' % (
+                quoteattr(name), quoteattr(preset), _f(size), _f(op0), _f(hard), col, _center_attr(ps),
+                (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else ""))
             for i in range(1, len(pts)):
                 x0, y0, p0 = float(pts[i-1][0]), float(pts[i-1][1]), float(pts[i-1][2] if len(pts[i-1]) > 2 else 1.0)
                 x1, y1, p1 = float(pts[i][0]), float(pts[i][1]), float(pts[i][2] if len(pts[i]) > 2 else 1.0)
@@ -356,6 +360,7 @@ def plan_to_svg_stamps(doc, title=None):
                         body.append('<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill="%s" fill-opacity="%s" transform="rotate(%s %s %s)"/>' % (_f(x), _f(y), _f(r), _f(max(0.8, r * 0.35)), fill, _f(op), _f(ang), _f(x), _f(y)))
                     else:
                         body.append('<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="%s"/>' % (_f(x), _f(y), _f(r), fill, _f(op)))
+            body.append("</g>")
         body.append("</g>")
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" data-bridge="plan_svg_stamps" shape-rendering="geometricPrecision">' % (w, h, w, h)]
@@ -389,6 +394,9 @@ def _capsule(p0, p1, r0, r1, steps=8):
         t = a - math.pi/2 - math.pi * (k / steps)
         pts.append((x0 + math.cos(t)*r0, y0 + math.sin(t)*r0))
     return pts
+
+def _center_attr(ps):
+    return ";".join("%s,%s,%s" % (_f(p[0]), _f(p[1]), _f(p[2] if len(p) > 2 else 1.0)) for p in ps)
 
 def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
     """One path per stroke: capsule subpaths unioned by nonzero fill."""
@@ -427,16 +435,38 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
                     seg = _capsule((ps[i-1][0], ps[i-1][1]), (ps[i][0], ps[i][1]), radii[i-1], radii[i])
                     parts.append("M " + " L ".join("%s %s" % (_f(x), _f(y)) for x, y in seg) + " Z")
                 d = " ".join(parts)
-            out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer=%s data-preset=%s/>' %
-                       (d, _rgb(st.get("color")), _f(st.get("opacity", 1.0)), quoteattr(name), quoteattr(str(st.get("preset", "round_soft")))))
+            out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s"%s/>' %
+                       (d, _rgb(st.get("color")), _f(st.get("opacity", 1.0)), quoteattr(name), quoteattr(str(st.get("preset", "round_soft"))),
+                        _f(size), _f(st.get("opacity", 1.0)), _f(st.get("hardness", 0.7)), _rgb(st.get("color")), _center_attr(ps),
+                        (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else ""))
         out.append("</g>")
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
 
+def _center_pts(text):
+    out = []
+    for chunk in str(text or "").replace(";", " ").split():
+        q = [float(v) for v in chunk.split(",")[:3]]
+        if len(q) >= 2:
+            out.append(q + ([1.0] if len(q) == 2 else []))
+    return out
+
+def _stroke_from_attrs(ch, name, pts):
+    pressure = [float(p[2] if len(p) > 2 else 1.0) for p in pts]
+    st = {"layer": name, "preset": ch.attrib.get("data-preset", "round_soft"),
+          "size": float(ch.attrib.get("data-size", ch.attrib.get("stroke-width", 8.0))),
+          "opacity": max(0.0, min(1.0, float(ch.attrib.get("data-opacity", ch.attrib.get("stroke-opacity", 1.0))))),
+          "color": _color(ch.attrib.get("data-color") or ch.attrib.get("stroke") or ch.attrib.get("fill"), (217, 180, 90)),
+          "hardness": max(0.0, min(1.0, float(ch.attrib.get("data-hardness", 0.7)))),
+          "points": [[float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)] for p in pts]}
+    if ch.attrib.get("data-tag"):
+        st["tag"] = str(ch.attrib["data-tag"])
+    return st
+
 def svg_to_plan(svg_text):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
-    if _native is not None and _native.available():
+    if _native is not None and _native.available() and "data-center=" not in svg_text and "data-stroke=" not in svg_text:
         return _native.svg_to_plan(svg_text)
     root = ET.fromstring(svg_text)
     vb = root.attrib.get("viewBox", "0 0 1200 900").replace(",", " ").split()
@@ -455,30 +485,24 @@ def svg_to_plan(svg_text):
                 name = ch.attrib.get("data-name") or ch.attrib.get("id") or inherited_layer or "layer"
                 blend = ch.attrib.get("data-blend") or "normal"
                 add_layer(name, blend)
+                if ch.attrib.get("data-stroke") or (ch.attrib.get("data-center") and not ch.attrib.get("data-name")):
+                    ln = ch.attrib.get("data-layer") or inherited_layer or "layer"
+                    add_layer(ln, "normal")
+                    pts = _center_pts(ch.attrib.get("data-center"))
+                    if pts:
+                        strokes.append(_stroke_from_attrs(ch, ln, pts))
+                    continue
                 walk(ch, name)
             elif tag == "path":
                 name = ch.attrib.get("data-layer") or inherited_layer or "layer"
                 add_layer(name, "normal")
-                try:
-                    pts = _parse_d(ch.attrib.get("d", ""))
-                except Exception:
-                    continue
-                pressure = _floats(ch.attrib.get("data-p"), [1.0] * len(pts))
-                if len(pressure) != len(pts):
-                    pressure = [1.0] * len(pts)
-                size = float(ch.attrib.get("data-size", ch.attrib.get("stroke-width", 8.0)))
-                op = float(ch.attrib.get("data-opacity", ch.attrib.get("stroke-opacity", 1.0)))
-                hard = float(ch.attrib.get("data-hardness", 0.7))
-                preset = ch.attrib.get("data-preset", "round_soft")
-                color = _color(ch.attrib.get("data-color") or ch.attrib.get("stroke"), (217, 180, 90))
-                st = {"layer": name, "preset": preset, "size": float(size),
-                      "opacity": max(0.0, min(1.0, op)), "color": color,
-                      "hardness": max(0.0, min(1.0, hard)),
-                      "points": [[float(x), float(y), float(pressure[k] if k < len(pressure) else 1.0)]
-                                 for k, (x, y) in enumerate(pts)]}
-                if ch.attrib.get("data-tag"):
-                    st["tag"] = str(ch.attrib["data-tag"])
-                strokes.append(st)
+                pts = _center_pts(ch.attrib.get("data-center"))
+                if not pts:
+                    try:
+                        pts = [[x, y, 1.0] for x, y in _parse_d(ch.attrib.get("d", ""))]
+                    except Exception:
+                        continue
+                strokes.append(_stroke_from_attrs(ch, name, pts))
             else:
                 walk(ch, inherited_layer)
 
