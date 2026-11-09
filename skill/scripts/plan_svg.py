@@ -722,11 +722,7 @@ def _gradient_colors(root):
 
 
 def needs_python_parser(svg_text):
-    # C++ covers data-center/data-stroke, A, transform, shapes, CSS,
-    # <use> and simple gradient/clip. Keep Python only for multi-subpath.
-    for dm in re.finditer(r'd="([^"]*)"', svg_text):
-        if len(re.findall(r"[Mm]", dm.group(1))) > 1:
-            return True
+    # C++ now covers the bridge fallback features we support.
     return False
 
 def _svg_to_plan_py(svg_text):

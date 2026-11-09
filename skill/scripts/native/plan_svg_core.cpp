@@ -309,6 +309,17 @@ static void parse_d(const std::string& d, std::vector<double>& xs, std::vector<d
 
 
 static std::vector<double> nums(const std::string& s);
+
+static std::vector<std::string> split_d_subpaths(const std::string& d) {
+    std::vector<std::string> out; size_t start=std::string::npos;
+    for (size_t i=0;i<d.size();++i) {
+        if (d[i]=='M'||d[i]=='m') { if(start!=std::string::npos) out.push_back(d.substr(start,i-start)); start=i; }
+    }
+    if(start!=std::string::npos) out.push_back(d.substr(start));
+    if(out.empty()) out.push_back(d);
+    return out;
+}
+
 static void parse_center(const std::string& s, std::vector<double>& xs, std::vector<double>& ys, std::vector<double>& ps) {
     size_t i = 0;
     while (i < s.size()) {
@@ -530,12 +541,21 @@ static std::string plan_from_svg(const std::string& input) {
                 std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
                 add_layer(names,blends,idx,layer,"");
                 std::vector<double> xs,ys,ps;
-                if(!at("data-center").empty()) parse_center(at("data-center"),xs,ys,ps);
-                else { parse_d(at("d"),xs,ys); ps.assign(xs.size(),1.0); auto pv=nums(at("data-p")); if(pv.size()==xs.size())ps=pv; }
-                if(xs.empty())continue;
-                Mat m=mat_mul(parent,parse_transform(at("transform")));
-                for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
-                emit_any(ch,layer,xs,ys,ps);
+                if(!at("data-center").empty()){
+                    parse_center(at("data-center"),xs,ys,ps);
+                    if(xs.empty())continue;
+                    Mat m=mat_mul(parent,parse_transform(at("transform")));
+                    for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
+                    emit_any(ch,layer,xs,ys,ps);
+                } else {
+                    Mat m=mat_mul(parent,parse_transform(at("transform")));
+                    for(const auto& part:split_d_subpaths(at("d"))){
+                        xs.clear();ys.clear();parse_d(part,xs,ys); if(xs.empty())continue;
+                        ps.assign(xs.size(),1.0);
+                        for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
+                        emit_any(ch,layer,xs,ys,ps);
+                    }
+                }
             } else if (tag=="use") {
                 std::string href=at("href"); if(href.empty())href=std::string(ch.attribute("{http://www.w3.org/1999/xlink}href").as_string());
                 if(href.size()>1 && href[0]=='#'){

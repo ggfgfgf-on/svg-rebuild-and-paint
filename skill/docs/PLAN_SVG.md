@@ -208,12 +208,12 @@ N.svg_file_to_plan("out.svg", "back.plan.json")
 - 任意 SVG 的曲线：读回时采样为折线；`A` 弧已采样；
 - 基础 `translate/scale/rotate/matrix` transform 在 Python 回退和 C++ `psvg_svg_to_plan` 里展开；
 - C++ `psvg_svg_to_plan` 已支持 `data-center`、A 弧、transform、基础图元、CSS、`<use>`、gradient 平均色和简单 clip；
-- 只有多 `M` 子路径仍走 Python 回退；
+- 多 `M` 子路径也已拆成多笔（C++）；
 - 基础 `circle/ellipse/rect/polygon/polyline` 读成折线；填充形状写 `preset="fill"`；
 - 多 `M` 子路径拆成多笔；
 - `clipPath/mask` 的简单多边形/矩形做几何裁剪（凸多边形近似）；
 - stamps 也写 `data-center-hash`，中心线被改动时检测不一致；
-- 简单 CSS class、`<use href="#id">`、linear/radial gradient 平均色在 Python 回退里解析；
+- 简单 CSS class、`<use href="#id">`、linear/radial gradient 平均色在 C++ 主路径解析；
 - 外部引用、mask/clipPath 的真实合成仍不解析；
 - 这是“可编辑的桥”，不是像素级 SVG 复刻，也不是 `vectorize.py` 的平涂输出。
 
