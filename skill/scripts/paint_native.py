@@ -47,6 +47,8 @@ def load():
     lib.paint_add_layer.restype = ctypes.c_int
     lib.paint_add_layer.argtypes = [vp, ctypes.c_int]
     lib.paint_clear_layer.argtypes = [vp, ctypes.c_int] + [ctypes.c_float] * 4
+    lib.paint_fill_gradient_polygon.restype = ctypes.c_int
+    lib.paint_fill_gradient_polygon.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_float]
     lib.paint_fill_polygon.restype = ctypes.c_int
     lib.paint_fill_polygon.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4
     lib.paint_stroke_l.restype = ctypes.c_int
@@ -249,6 +251,29 @@ class Painter:
         r, g, b = rgb
         return self._lib.paint_fill_polygon(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
                                             len(pts), r / 255.0, g / 255.0, b / 255.0, float(opacity))
+
+    def fill_gradient(self, layer, pts, paint, opacity=1.0):
+        pts = np.ascontiguousarray(pts, dtype=np.float32)
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError("fill points must be Nx2")
+        stops = paint.get("stops") or []
+        arr = np.ascontiguousarray([[float(st[0]), st[1][0] / 255.0, st[1][1] / 255.0, st[1][2] / 255.0,
+                                     float(st[2]) if len(st) > 2 else 1.0] for st in stops], dtype=np.float32)
+        if len(arr) < 2:
+            raise ValueError("gradient needs two stops")
+        xs, ys = pts[:, 0], pts[:, 1]
+        minx, maxx, miny, maxy = float(xs.min()), float(xs.max()), float(ys.min()), float(ys.max())
+        def coord(key, default):
+            v = paint.get(key, default)
+            if isinstance(v, str) and v.endswith("%"):
+                q = float(v[:-1]) / 100.0
+                return (minx + (maxx - minx) * q) if key in ("x1", "x2", "cx") else (miny + (maxy - miny) * q)
+            return float(v)
+        x1, y1 = coord("x1", 0.0), coord("y1", 0.0)
+        x2, y2 = coord("x2", 1.0), coord("y2", 0.0)
+        return self._lib.paint_fill_gradient_polygon(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                                     len(pts), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                     x1, y1, x2, y2, float(opacity))
 
     # ---- 位图笔尖（增量能力）----
     def add_tip(self, tip):

@@ -709,6 +709,60 @@ EXPORT void paint_clear_layer(void* p, int idx, float r, float g, float b, float
 }
 
 
+
+EXPORT int paint_fill_gradient_polygon(void* p, int layer, const float* pts, int n,
+                                       const float* stops, int ns,
+                                       float gx1, float gy1, float gx2, float gy2, float a) {
+    Ctx* c = (Ctx*)p;
+    if (!c || !pts || n < 3 || !stops || ns < 2) return 0;
+    if (layer < 0 || layer >= (int)c->layers.size()) return 0;
+    float al = a < 0 ? 0 : (a > 1 ? 1 : a);
+    if (al <= 0) return 0;
+    Layer& L = c->layers[layer];
+    float ymin = 1e30f, ymax = -1e30f;
+    for (int i = 0; i < n; ++i) { float y = pts[i*2+1]; ymin = std::min(ymin, y); ymax = std::max(ymax, y); }
+    int y0 = std::max(0, (int)std::floor(ymin));
+    int y1 = std::min(c->h - 1, (int)std::ceil(ymax));
+    float gx = gx2 - gx1, gy = gy2 - gy1, gl = gx*gx + gy*gy;
+    std::vector<float> xs;
+    for (int y = y0; y <= y1; ++y) {
+        float yy = y + 0.5f; xs.clear();
+        for (int i = 0; i < n; ++i) {
+            int j = (i + 1) % n;
+            float ax = pts[i*2], ay = pts[i*2+1];
+            float bx = pts[j*2], by = pts[j*2+1];
+            if ((ay <= yy && by > yy) || (by <= yy && ay > yy))
+                xs.push_back(ax + (yy - ay) * (bx - ax) / (by - ay));
+        }
+        std::sort(xs.begin(), xs.end());
+        for (size_t k = 0; k + 1 < xs.size(); k += 2) {
+            int xa = std::max(0, (int)std::ceil(xs[k] - 0.5f));
+            int xb = std::min(c->w - 1, (int)std::floor(xs[k+1] - 0.5f));
+            for (int x = xa; x <= xb; ++x) {
+                float t = gl > 1e-9f ? ((x + 0.5f - gx1)*gx + (y + 0.5f - gy1)*gy) / gl : 0.0f;
+                t = t < 0 ? 0 : (t > 1 ? 1 : t);
+                int k0 = 0; while (k0 + 1 < ns && stops[(k0+1)*5] < t) ++k0;
+                int k1 = std::min(ns - 1, k0 + 1);
+                float o0 = stops[k0*5], o1 = stops[k1*5];
+                float u = o1 > o0 ? (t - o0) / (o1 - o0) : 0.0f;
+                float cr = stops[k0*5+1] + (stops[k1*5+1] - stops[k0*5+1]) * u;
+                float cg = stops[k0*5+2] + (stops[k1*5+2] - stops[k0*5+2]) * u;
+                float cb = stops[k0*5+3] + (stops[k1*5+3] - stops[k0*5+3]) * u;
+                float ca = stops[k0*5+4] + (stops[k1*5+4] - stops[k0*5+4]) * u;
+                float sa = al * ca;
+                if (sa <= 0) continue;
+                float* d = L.px.data() + ((size_t)y * c->w + x) * 4;
+                float inv = 1.0f - sa;
+                d[0] = cr * sa + d[0] * inv;
+                d[1] = cg * sa + d[1] * inv;
+                d[2] = cb * sa + d[2] * inv;
+                d[3] = sa + d[3] * inv;
+            }
+        }
+    }
+    return 1;
+}
+
 EXPORT int paint_fill_polygon(void* p, int layer, const float* pts, int n,
                               float r, float g, float b, float a) {
     Ctx* c = (Ctx*)p;

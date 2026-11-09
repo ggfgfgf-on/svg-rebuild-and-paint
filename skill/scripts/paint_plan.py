@@ -33,6 +33,56 @@ def _color(c, default=(255, 255, 255)):
     return tuple(c)
 
 
+def _paint_color(paint, x, y, bbox):
+    stops = paint.get("stops") or []
+    if not stops:
+        return None
+    minx, miny, maxx, maxy = bbox
+    def val(k, d):
+        v = paint.get(k, d)
+        if isinstance(v, str) and v.endswith("%"):
+            q = float(v[:-1]) / 100.0
+            return minx + (maxx-minx)*q if k in ("x1", "x2", "cx", "fx") else miny + (maxy-miny)*q
+        return float(v)
+    if paint.get("type") == "radial":
+        cx, cy, r = val("cx", 0.5), val("cy", 0.5), max(1e-6, val("r", 0.5))
+        t = min(1.0, ((x-cx)**2 + (y-cy)**2) ** 0.5 / r)
+    else:
+        x1, y1, x2, y2 = val("x1", 0), val("y1", 0), val("x2", 1), val("y2", 0)
+        gx, gy = x2-x1, y2-y1
+        gl = gx*gx + gy*gy
+        t = 0.0 if gl < 1e-12 else ((x-x1)*gx + (y-y1)*gy) / gl
+        t = max(0.0, min(1.0, t))
+    k = 0
+    while k + 1 < len(stops) and stops[k+1][0] < t:
+        k += 1
+    a, b = stops[k], stops[min(k+1, len(stops)-1)]
+    u = 0.0 if b[0] == a[0] else (t-a[0]) / (b[0]-a[0])
+    return [a[1][i] + (b[1][i]-a[1][i])*u for i in range(3)]
+
+
+def _expand_paint(it):
+    pts = it.get("points") or []
+    if len(pts) < 2 or not isinstance(it.get("paint"), dict):
+        return [it]
+    xs = [float(p[0]) for p in pts]; ys = [float(p[1]) for p in pts]
+    bbox = (min(xs), min(ys), max(xs), max(ys))
+    out = []
+    for i in range(1, len(pts)):
+        p0, p1 = pts[i-1], pts[i]
+        n = 6
+        for k in range(n):
+            t0, t1 = k/n, (k+1)/n
+            a = [p0[0] + (p1[0]-p0[0])*t0, p0[1] + (p1[1]-p0[1])*t0, p0[2] if len(p0) > 2 else 1.0]
+            b = [p0[0] + (p1[0]-p0[0])*t1, p0[1] + (p1[1]-p0[1])*t1, p0[2] if len(p0) > 2 else 1.0]
+            c = _paint_color(it["paint"], (a[0]+b[0])/2, (a[1]+b[1])/2, bbox)
+            q = dict(it)
+            q["points"] = [a, b]
+            q["color"] = c or it.get("color")
+            q.pop("paint", None)
+            out.append(q)
+    return out
+
 def render_plan(plan, threads=8, brush=None, region=None):
     """按 plan 渲染，返回 (composite_rgba, layers[(name, rgba)])。"""
     w, h = plan["canvas"]
@@ -60,6 +110,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
             "hardness": s.get("hardness", 0.6),
             "spacing": s.get("spacing", 1.0),
             "region_id": int(s.get("region_id", 0)),
+            "paint": s.get("paint"),
         })
     # 分层按笔触所属层提交，保证层内顺序 = plan 顺序
     for layer in sorted(grouped):
@@ -71,9 +122,12 @@ def render_plan(plan, threads=8, brush=None, region=None):
                     buf = []
                 pts = [(float(q[0]), float(q[1])) for q in (it.get("points") or [])]
                 if len(pts) >= 3:
-                    p.fill_polygon(layer, pts, it.get("color"), it.get("opacity", 1.0))
+                    if isinstance(it.get("paint"), dict):
+                        p.fill_gradient(layer, pts, it["paint"], it.get("opacity", 1.0))
+                    else:
+                        p.fill_polygon(layer, pts, it.get("color"), it.get("opacity", 1.0))
             else:
-                buf.append(it)
+                buf.extend(_expand_paint(it))
         if buf:
             p.stroke_batch(layer, buf, nthreads=threads)
 
