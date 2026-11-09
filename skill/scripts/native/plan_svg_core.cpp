@@ -7,6 +7,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <sstream>
+#include <fstream>
+#include <sstream>
 #include <functional>
 #include <map>
 #include <string>
@@ -316,4 +320,28 @@ static char* dupstr(const std::string& s) {
 }
 EXPORT char* psvg_plan_to_svg(const char* in,int n){ try{return dupstr(svg_from_plan(std::string(in,n)));}catch(const std::exception&e){return dupstr(std::string("ERR:")+e.what());} }
 EXPORT char* psvg_svg_to_plan(const char* in,int n){ try{return dupstr(plan_from_svg(std::string(in,n)));}catch(const std::exception&e){return dupstr(std::string("ERR:")+e.what());} }
+static std::string read_all(const char* path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) throw std::runtime_error("open failed");
+    std::ostringstream ss; ss << f.rdbuf(); return ss.str();
+}
+static void write_all(const char* path, const std::string& s) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f) throw std::runtime_error("write failed");
+    f.write(s.data(), (std::streamsize)s.size());
+}
+EXPORT char* psvg_plan_file_to_svg(const char* plan_path, const char* svg_path) {
+    try {
+        std::string out = svg_from_plan(read_all(plan_path));
+        write_all(svg_path, out);
+        return dupstr(std::string("{\"ok\":true,\"bytes\":") + std::to_string(out.size()) + "}");
+    } catch (const std::exception& e) { return dupstr(std::string("ERR:") + e.what()); }
+}
+EXPORT char* psvg_svg_file_to_plan(const char* svg_path, const char* plan_path) {
+    try {
+        std::string out = plan_from_svg(read_all(svg_path));
+        write_all(plan_path, out);
+        return dupstr(std::string("{\"ok\":true,\"bytes\":") + std::to_string(out.size()) + "}");
+    } catch (const std::exception& e) { return dupstr(std::string("ERR:") + e.what()); }
+}
 EXPORT void psvg_free(char* p){ std::free(p); }

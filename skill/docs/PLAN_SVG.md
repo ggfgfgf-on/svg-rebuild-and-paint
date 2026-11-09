@@ -11,10 +11,10 @@
 
 | 方向 | 耗时 | 产物 |
 |---|---:|---|
-| plan → SVG | **0.28 s**（native）/ 0.41 s（Python） | 13.9–14.9 MB SVG |
-| SVG → plan | **0.44 s total**（native）/ 0.50 s（Python） | 8.7 MB plan |
+| plan → SVG | **0.28 s**（native 内存）/ **0.18 s**（native 文件直通）/ 0.41 s（Python） | 13.9–14.9 MB SVG |
+| SVG → plan | **0.44 s total**（native 内存）/ **0.29 s**（native 文件直通）/ 0.50 s（Python） | 8.7 MB plan |
 
-两个方向都在亚秒级；这是本机 44,589 笔 / 17 层 / 1200×900 的单次测量，不是跨机器基准；计时不含浏览器渲染。native 版是 Windows DLL（RapidJSON + pugixml）；Python 版是参考/回退实现。
+两个方向都在亚秒级；这是本机 44,589 笔 / 17 层 / 1200×900 的单次测量，不是跨机器基准；计时不含浏览器渲染。native 版是 Windows DLL（RapidJSON + pugixml）；文件直通版在 DLL 内读 plan、写 SVG / 读 SVG、写 plan，避免 Python JSON。
 
 ## Native（Windows，可选）
 
@@ -49,6 +49,11 @@ back = plan_svg.svg_to_plan(svg)         # dict(canvas/layers/strokes)
 
 plan_svg.dump_plan_svg("in.plan.json", "out.svg")
 plan_svg.load_svg_plan("out.svg", "back.plan.json")
+
+# native 文件直通（Windows DLL）：DLL 内读/写，不经 Python JSON
+import plan_svg_native as N
+N.plan_file_to_svg("in.plan.json", "out.svg")
+N.svg_file_to_plan("out.svg", "back.plan.json")
 ~~~
 
 `dump_plan_svg` 返回 `svg_s`（含写盘）；`load_svg_plan` 返回 `parse_s`（含解析 + dump plan）。

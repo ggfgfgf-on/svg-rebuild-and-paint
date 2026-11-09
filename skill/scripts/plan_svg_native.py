@@ -17,6 +17,10 @@ def _load():
     lib.psvg_plan_to_svg.restype = ctypes.c_void_p
     lib.psvg_svg_to_plan.argtypes = [ctypes.c_char_p, ctypes.c_int]
     lib.psvg_svg_to_plan.restype = ctypes.c_void_p
+    lib.psvg_plan_file_to_svg.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    lib.psvg_plan_file_to_svg.restype = ctypes.c_void_p
+    lib.psvg_svg_file_to_plan.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    lib.psvg_svg_file_to_plan.restype = ctypes.c_void_p
     lib.psvg_free.argtypes = [ctypes.c_void_p]
     lib.psvg_free.restype = None
     return lib
@@ -47,3 +51,26 @@ def plan_to_svg(doc) -> str:
 
 def svg_to_plan(svg_text: str):
     return json.loads(_call(_LIB.psvg_svg_to_plan, svg_text))
+
+
+def _call_paths(fn, a: str, b: str) -> str:
+    if _LIB is None:
+        raise RuntimeError("plan_svg_core.dll not found")
+    ptr = fn(a.encode("utf-8"), b.encode("utf-8"))
+    if not ptr:
+        raise RuntimeError("native bridge returned null")
+    try:
+        out = ctypes.string_at(ptr).decode("utf-8")
+    finally:
+        _LIB.psvg_free(ptr)
+    if out.startswith("ERR:"):
+        raise ValueError(out[4:])
+    return out
+
+
+def plan_file_to_svg(plan_path: str, svg_path: str) -> str:
+    return _call_paths(_LIB.psvg_plan_file_to_svg, plan_path, svg_path)
+
+
+def svg_file_to_plan(svg_path: str, plan_path: str) -> str:
+    return _call_paths(_LIB.psvg_svg_file_to_plan, svg_path, plan_path)
