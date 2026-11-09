@@ -722,17 +722,12 @@ def _gradient_colors(root):
 
 
 def needs_python_parser(svg_text):
-    if "data-center=" in svg_text or "data-stroke=" in svg_text:
-        return True
-    if "transform=" in svg_text or "<style" in svg_text or "<use" in svg_text:
-        return True
+    # C++ covers data-center/data-stroke, A, transform, shapes, CSS,
+    # <use> and simple gradient/clip. Keep Python only for multi-subpath.
     for dm in re.finditer(r'd="([^"]*)"', svg_text):
-        if re.search(r"[Aa]", dm.group(1)) or len(re.findall(r"[Mm]", dm.group(1))) > 1:
+        if len(re.findall(r"[Mm]", dm.group(1))) > 1:
             return True
-    if re.search(r"<(circle|ellipse|rect|polygon|polyline)\b", svg_text):
-        return True
-    return "url(#" in svg_text or "<mask" in svg_text or "<clipPath" in svg_text
-
+    return False
 
 def _svg_to_plan_py(svg_text):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""

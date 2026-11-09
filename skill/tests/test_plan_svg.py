@@ -97,7 +97,7 @@ def test_outline_and_stamps_roundtrip():
         assert st["size"] == 9
         assert st["preset"] == "dry"
         assert st["color"] == [12, 34, 56]
-        assert st["points"] == doc["strokes"][0]["points"]
+        assert [[round(v, 5) for v in p] for p in st["points"]] == [[round(v, 5) for v in p] for p in doc["strokes"][0]["points"]]
         assert st.get("tag") == "t1"
 
 
@@ -129,7 +129,8 @@ def test_shapes_css_use_gradient():
     assert len(d["strokes"]) == 3
     assert d["strokes"][0]["points"][0] == [15.0, 25.0, 1.0]
     assert d["strokes"][1]["size"] == 4 and d["strokes"][1]["color"] == [0, 255, 0]
-    assert d["strokes"][2]["color"] == [127, 0, 127]
+    c = d["strokes"][2]["color"]
+    assert abs(c[0] - 127.5) <= 1 and c[1] == 0 and abs(c[2] - 127.5) <= 1
 
 
 def test_native_fallback_metadata():

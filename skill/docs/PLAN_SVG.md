@@ -207,7 +207,8 @@ N.svg_file_to_plan("out.svg", "back.plan.json")
 - 逐点压力：保存在 `data-p`，SVG 视觉本身不按点变压力；
 - 任意 SVG 的曲线：读回时采样为折线；`A` 弧已采样；
 - 基础 `translate/scale/rotate/matrix` transform 在 Python 回退和 C++ `psvg_svg_to_plan` 里展开；
-- C++ `psvg_svg_to_plan` 已支持 `data-center`、A 弧、transform；
+- C++ `psvg_svg_to_plan` 已支持 `data-center`、A 弧、transform、基础图元、CSS、`<use>`、gradient 平均色和简单 clip；
+- 只有多 `M` 子路径仍走 Python 回退；
 - 基础 `circle/ellipse/rect/polygon/polyline` 读成折线；填充形状写 `preset="fill"`；
 - 多 `M` 子路径拆成多笔；
 - `clipPath/mask` 的简单多边形/矩形做几何裁剪（凸多边形近似）；
@@ -236,4 +237,4 @@ N.svg_file_to_plan("out.svg", "back.plan.json")
 python tests/test_plan_svg.py
 ~~~
 
-覆盖 roundtrip、层序/blend、tag、pressure、确定性、文件落盘、outline/stamps 中心线回退、A 弧、transform、基础图元、CSS/use/gradient、native 回退。
+覆盖 roundtrip、层序/blend、tag、pressure、确定性、文件落盘、outline/stamps 中心线回退、A 弧、transform、基础图元、CSS/use/gradient、clip/fill、native 回退与 C++ 直通。

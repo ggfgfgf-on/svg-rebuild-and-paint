@@ -365,6 +365,97 @@ static void add_layer(std::vector<std::string>& names, std::vector<std::string>&
     idx[n]=(int)names.size(); names.push_back(n); blends.push_back(b.empty()?"normal":b);
 }
 
+
+static std::map<std::string,std::map<std::string,std::string>> load_css(pugi::xml_node root) {
+    std::map<std::string,std::map<std::string,std::string>> css;
+    for (pugi::xpath_node xn : root.select_nodes("//style")) {
+        pugi::xml_node el=xn.node();
+        if (std::string(el.name())=="style") {
+            std::string t=el.text().as_string(); size_t i=0;
+            while ((i=t.find('{',i))!=std::string::npos) {
+                size_t e=t.find('}',i); if(e==std::string::npos)break;
+                std::string sels=t.substr(0,i), body=t.substr(i+1,e-i-1);
+                std::map<std::string,std::string> d;
+                size_t q=0;
+                while(q<body.size()){ size_t sc=body.find(';',q); if(sc==std::string::npos)sc=body.size(); std::string kv=body.substr(q,sc-q); size_t co=kv.find(':'); if(co!=std::string::npos){ std::string k=kv.substr(0,co),v=kv.substr(co+1); auto trim=[](std::string z){size_t a=z.find_first_not_of(" \t\r\n");size_t b=z.find_last_not_of(" \t\r\n");return a==std::string::npos?std::string():z.substr(a,b-a+1);}; d[trim(k)]=trim(v);} q=sc+1; }
+                size_t p=0;
+                while(p<sels.size()){ size_t c=sels.find(',',p); if(c==std::string::npos)c=sels.size(); std::string sel=sels.substr(p,c-p); auto trim=[](std::string z){size_t a=z.find_first_not_of(" \t\r\n");size_t b=z.find_last_not_of(" \t\r\n");return a==std::string::npos?std::string():z.substr(a,b-a+1);}; sel=trim(sel); if(!sel.empty()) for(auto&kv:d) css[sel][kv.first]=kv.second; p=c+1; }
+                i=e+1;
+            }
+        }
+    }
+    return css;
+}
+static bool selector_match(const std::string& sel, pugi::xml_node ch) {
+    if (sel=="*") return true;
+    if (sel.size()>1 && sel[0]=='.') { std::string c=ch.attribute("class").as_string(); return (" "+c+" ").find(" "+sel.substr(1)+" ")!=std::string::npos; }
+    if (sel.size()>1 && sel[0]=='#') return std::string(ch.attribute("id").as_string())==sel.substr(1);
+    return std::string(ch.name())==sel;
+}
+static std::string css_attr(pugi::xml_node ch, const std::map<std::string,std::map<std::string,std::string>>& css, const std::string& key) {
+    std::string v=ch.attribute(key.c_str()).as_string();
+    if(!v.empty()) return v;
+    std::string st=ch.attribute("style").as_string(); size_t q=0;
+    while(q<st.size()){ size_t sc=st.find(';',q); if(sc==std::string::npos)sc=st.size(); std::string kv=st.substr(q,sc-q); size_t co=kv.find(':'); if(co!=std::string::npos){ std::string k=kv.substr(0,co),x=kv.substr(co+1); auto trim=[](std::string z){size_t a=z.find_first_not_of(" \t\r\n");size_t b=z.find_last_not_of(" \t\r\n");return a==std::string::npos?std::string():z.substr(a,b-a+1);}; if(trim(k)==key)return trim(x);} q=sc+1; }
+    for(auto& r:css) if(selector_match(r.first,ch)){ auto it=r.second.find(key); if(it!=r.second.end()) return it->second; }
+    return "";
+}
+static std::map<std::string,std::string> load_grads(pugi::xml_node root) {
+    std::map<std::string,std::string> out;
+    std::function<void(pugi::xml_node)> scan=[&](pugi::xml_node n){ for(pugi::xml_node ch=n.first_child();ch;ch=ch.next_sibling()){ std::string tag=ch.name(); if(tag=="linearGradient"||tag=="radialGradient"){ std::string id=ch.attribute("id").as_string(); if(!id.empty()){ double r=0,g=0,b=0; int c=0; for(pugi::xml_node st=ch.first_child();st;st=st.next_sibling()){ if(std::string(st.name())=="stop"){ auto v=color_from(st.attribute("stop-color").as_string()); if(v.size()>=3){r+=v[0];g+=v[1];b+=v[2];c++;} } } if(c){ char hex[8]; std::snprintf(hex,sizeof(hex),"#%02x%02x%02x",(int)std::lround(r/c),(int)std::lround(g/c),(int)std::lround(b/c)); out[id]=hex; } } } scan(ch);} };
+    scan(root); return out;
+}
+static std::string resolve_paint(const std::string& v, const std::map<std::string,std::string>& grads) {
+    if(v.rfind("url(#",0)==0){ size_t e=v.find(')',5); std::string id=v.substr(5,e-5); auto it=grads.find(id); if(it!=grads.end())return it->second; }
+    return v;
+}
+static void shape_points(const std::string& tag, pugi::xml_node ch, const std::map<std::string,std::map<std::string,std::string>>& css, std::vector<double>& xs, std::vector<double>& ys) {
+    auto f=[&](const char*k,double d=0){ std::string v=css_attr(ch,css,k); return v.empty()?d:std::atof(v.c_str()); };
+    if(tag=="circle"){ double cx=f("cx"),cy=f("cy"),r=f("r"); for(int i=0;i<32;i++){xs.push_back(cx+r*std::cos(2*3.14159265358979323846*i/32));ys.push_back(cy+r*std::sin(2*3.14159265358979323846*i/32));} xs.push_back(cx+r);ys.push_back(cy); }
+    else if(tag=="ellipse"){ double cx=f("cx"),cy=f("cy"),rx=f("rx"),ry=f("ry"); for(int i=0;i<32;i++){xs.push_back(cx+rx*std::cos(2*3.14159265358979323846*i/32));ys.push_back(cy+ry*std::sin(2*3.14159265358979323846*i/32));} xs.push_back(cx+rx);ys.push_back(cy); }
+    else if(tag=="rect"){ double x=f("x"),y=f("y"),w=f("width"),h=f("height"); xs={x,x+w,x+w,x,x}; ys={y,y,y+h,y+h,y}; }
+    else if(tag=="polygon"||tag=="polyline"){ auto v=nums(css_attr(ch,css,"points")); for(size_t i=0;i+1<v.size();i+=2){xs.push_back(v[i]);ys.push_back(v[i+1]);} if(tag=="polygon"&&!xs.empty()){xs.push_back(xs[0]);ys.push_back(ys[0]);} }
+}
+
+
+typedef std::vector<std::pair<double,double>> Poly;
+static Poly clip_poly(const Poly& subj, const Poly& clip) {
+    if(subj.size()<3||clip.size()<3)return {};
+    double area=0; for(size_t i=0;i<clip.size();++i){auto a=clip[i],b=clip[(i+1)%clip.size()];area+=a.first*b.second-b.first*a.second;}
+    Poly poly=clip; if(area<0)std::reverse(poly.begin(),poly.end());
+    Poly out=subj;
+    for(size_t i=0;i<poly.size();++i){
+        auto a=poly[i], b=poly[(i+1)%poly.size()]; double ex=b.first-a.first, ey=b.second-a.second;
+        auto inside=[&](const std::pair<double,double>& p){return ex*(p.second-a.second)-ey*(p.first-a.first)>=-1e-9;};
+        auto crossp=[&](const std::pair<double,double>& p,const std::pair<double,double>& q){
+            double dx=q.first-p.first, dy=q.second-p.second, den=ex*dy-ey*dx;
+            if(std::fabs(den)<1e-12)return p;
+            double t=(ex*(a.second-p.second)-ey*(a.first-p.first))/den;
+            return std::make_pair(p.first+dx*t,p.second+dy*t);
+        };
+        Poly inp=out; out.clear(); if(inp.empty())break;
+        for(size_t j=0;j<inp.size();++j){auto cur=inp[j],prev=inp[(j+inp.size()-1)%inp.size()]; if(inside(cur)){if(!inside(prev))out.push_back(crossp(prev,cur));out.push_back(cur);} else if(inside(prev))out.push_back(crossp(prev,cur));}
+    }
+    return out;
+}
+static bool clip_seg(std::pair<double,double> p0,std::pair<double,double> p1,const Poly& clip,std::pair<double,double>& a,std::pair<double,double>& b){
+    double area=0; for(size_t i=0;i<clip.size();++i){auto u=clip[i],v=clip[(i+1)%clip.size()];area+=u.first*v.second-v.first*u.second;}
+    Poly poly=clip; if(area<0)std::reverse(poly.begin(),poly.end());
+    double t0=0,t1=1,dx=p1.first-p0.first,dy=p1.second-p0.second;
+    for(size_t i=0;i<poly.size();++i){auto u=poly[i],v=poly[(i+1)%poly.size()];double ex=v.first-u.first,ey=v.second-u.second;
+        double num=ex*(p0.second-u.second)-ey*(p0.first-u.first), den=ex*dy-ey*dx;
+        if(std::fabs(den)<1e-12){if(num<0)return false;continue;}
+        double t=-num/den; if(den>0){if(t>t1)return false;if(t>t0)t0=t;} else {if(t<t0)return false;if(t<t1)t1=t;}
+    }
+    if(t0>t1)return false; a={p0.first+dx*t0,p0.second+dy*t0}; b={p0.first+dx*t1,p0.second+dy*t1}; return true;
+}
+static std::map<std::string,std::vector<Poly>> load_clips(pugi::xml_node root){
+    std::map<std::string,std::vector<Poly>> out;
+    for(pugi::xpath_node xn:root.select_nodes("//*")){pugi::xml_node el=xn.node(); std::string tag=el.name(); if((tag!="clipPath"&&tag!="mask")||!el.attribute("id"))continue; std::vector<Poly> ps; for(pugi::xml_node ch=el.first_child();ch;ch=ch.next_sibling()){std::string t=ch.name(); std::vector<double> xs,ys; if(t=="path")parse_d(ch.attribute("d").as_string(),xs,ys); else if(t=="rect"||t=="circle"||t=="ellipse"||t=="polygon")shape_points(t,ch,{},xs,ys); if(xs.size()>=3){Poly q; for(size_t i=0;i<xs.size();++i)q.push_back({xs[i],ys[i]});ps.push_back(q);} } if(!ps.empty())out[el.attribute("id").as_string()]=ps;}
+    return out;
+}
+static std::string clip_url(const std::string& v){ if(v.rfind("url(#",0)==0){size_t e=v.find(')',5);return v.substr(5,e-5);} return ""; }
+
 static std::string plan_from_svg(const std::string& input) {
     pugi::xml_document doc;
     if (!doc.load_buffer(input.c_str(), input.size())) return "ERR: XML parse failed";
@@ -376,13 +467,24 @@ static std::string plan_from_svg(const std::string& input) {
     std::vector<std::string> names, blends;
     std::map<std::string,int> idx;
     std::vector<std::string> strokes;
-    auto at_of=[](pugi::xml_node ch,const char*k){ return std::string(ch.attribute(k).as_string()); };
+    auto css=load_css(root);
+    auto grads=load_grads(root);
+    auto clips=load_clips(root);
+    std::map<std::string,pugi::xml_node> ids;
+    std::function<void(pugi::xml_node)> collect_ids=[&](pugi::xml_node n){ for(pugi::xml_node q=n.first_child();q;q=q.next_sibling()){ std::string id=q.attribute("id").as_string(); if(!id.empty())ids[id]=q; collect_ids(q);} };
+    collect_ids(root);
+    auto at_of=[&](pugi::xml_node ch,const char*k){ std::string v=css_attr(ch,css,k); if(std::string(k)=="fill"||std::string(k)=="stroke")v=resolve_paint(v,grads); return v; };
     auto emit=[&](pugi::xml_node ch,const std::string& layer,const std::vector<double>& xs,const std::vector<double>& ys,const std::vector<double>& ps){
         std::string ct=at_of(ch,"data-color");
-        auto col=ct.empty()?color_from(at_of(ch,"stroke")):color_from(ct);
+        auto col=ct.empty()?color_from(at_of(ch,"stroke").empty()?at_of(ch,"fill"):at_of(ch,"stroke")):color_from(ct);
         std::string sj="{\"layer\":\""; jesc_to(sj,layer);
-        sj += "\",\"preset\":\""; jesc_to(sj,at_of(ch,"data-preset").empty()?"round_soft":at_of(ch,"data-preset"));
-        sj += "\",\"size\":"; sj += fmt(at_of(ch,"data-size").empty()?std::atof(at_of(ch,"stroke-width").c_str()):std::atof(at_of(ch,"data-size").c_str()));
+        std::string preset=at_of(ch,"data-preset");
+        bool shape=std::string(ch.name())=="circle"||std::string(ch.name())=="ellipse"||std::string(ch.name())=="rect"||std::string(ch.name())=="polygon"||std::string(ch.name())=="polyline";
+        bool fillOnly=shape && !at_of(ch,"fill").empty() && at_of(ch,"fill")!="none" && at_of(ch,"stroke").empty();
+        if(preset.empty())preset=fillOnly?"fill":"round_soft";
+        sj += "\",\"preset\":\""; jesc_to(sj,preset);
+        double sz=at_of(ch,"data-size").empty()?(shape?(at_of(ch,"stroke-width").empty()?1.0:std::atof(at_of(ch,"stroke-width").c_str())):std::atof(at_of(ch,"stroke-width").c_str())):std::atof(at_of(ch,"data-size").c_str());
+        sj += "\",\"size\":"; sj += fmt(sz);
         sj += ",\"opacity\":"; sj += fmt(at_of(ch,"data-opacity").empty()?1.0:std::atof(at_of(ch,"data-opacity").c_str()));
         sj += ",\"hardness\":"; sj += fmt(at_of(ch,"data-hardness").empty()?0.7:std::atof(at_of(ch,"data-hardness").c_str()));
         sj += ",\"color\":["; sj += fmt(col[0]); sj += ","; sj += fmt(col[1]); sj += ","; sj += fmt(col[2]); sj += "],\"points\":[";
@@ -392,10 +494,24 @@ static std::string plan_from_svg(const std::string& input) {
         sj += "}";
         strokes.push_back(sj);
     };
+    auto emit_any=[&](pugi::xml_node ch,const std::string& layer,const std::vector<double>& xs,const std::vector<double>& ys,const std::vector<double>& ps){
+        std::string ck=clip_url(at_of(ch,"clip-path")); if(ck.empty())ck=clip_url(at_of(ch,"mask"));
+        auto it=clips.find(ck);
+        if(ck.empty()||it==clips.end()){emit(ch,layer,xs,ys,ps);return;}
+        std::string fill=at_of(ch,"fill"), stroke=at_of(ch,"stroke");
+        bool filled=at_of(ch,"data-preset")=="fill" || (!fill.empty()&&fill!="none"&&stroke.empty());
+        for(const auto& poly:it->second){
+            if(filled){
+                Poly q; for(size_t i=0;i<xs.size();++i)q.push_back({xs[i],ys[i]});
+                Poly r=clip_poly(q,poly); if(r.size()>=3){std::vector<double> a,b,p(r.size(),1.0);for(auto&v:r){a.push_back(v.first);b.push_back(v.second);} emit(ch,layer,a,b,p);}
+            } else for(size_t i=1;i<xs.size();++i){std::pair<double,double> a,b; if(clip_seg({xs[i-1],ys[i-1]},{xs[i],ys[i]},poly,a,b)){emit(ch,layer,{a.first,b.first},{a.second,b.second},{1.0,1.0});}}
+        }
+    };
     std::function<void(pugi::xml_node,std::string,Mat)> walk = [&](pugi::xml_node node, std::string inherit, Mat parent) {
         for (pugi::xml_node ch=node.first_child(); ch; ch=ch.next_sibling()) {
             std::string tag=ch.name();
-            auto at=[&](const char* k){ return std::string(ch.attribute(k).as_string()); };
+            if(tag=="defs"||tag=="style"||tag=="clipPath"||tag=="mask"||tag=="linearGradient"||tag=="radialGradient"||tag=="symbol") continue;
+            auto at=[&](const char* k){ std::string v=css_attr(ch,css,k); if(std::string(k)=="fill"||std::string(k)=="stroke")v=resolve_paint(v,grads); return v; };
             if (tag=="g") {
                 std::string n=at("data-name"); if(n.empty())n=at("id"); if(n.empty())n=inherit.empty()?"layer":inherit;
                 add_layer(names,blends,idx,n,at("data-blend"));
@@ -406,7 +522,7 @@ static std::string plan_from_svg(const std::string& input) {
                     std::vector<double> xs,ys,ps;
                     parse_center(at("data-center"),xs,ys,ps);
                     for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
-                    if(!xs.empty()) emit(ch,layer,xs,ys,ps);
+                    if(!xs.empty()) emit_any(ch,layer,xs,ys,ps);
                     continue;
                 }
                 walk(ch,n,m);
@@ -419,7 +535,26 @@ static std::string plan_from_svg(const std::string& input) {
                 if(xs.empty())continue;
                 Mat m=mat_mul(parent,parse_transform(at("transform")));
                 for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
-                emit(ch,layer,xs,ys,ps);
+                emit_any(ch,layer,xs,ys,ps);
+            } else if (tag=="use") {
+                std::string href=at("href"); if(href.empty())href=std::string(ch.attribute("{http://www.w3.org/1999/xlink}href").as_string());
+                if(href.size()>1 && href[0]=='#'){
+                    auto it=ids.find(href.substr(1));
+                    if(it!=ids.end()){
+                        Mat m=mat_mul(parent,parse_transform(at("transform")));
+                        m=mat_mul(m,Mat{1,0,0,1,std::atof(at("x").c_str()),std::atof(at("y").c_str())});
+                        pugi::xml_document tmp; tmp.append_copy(it->second); walk(tmp,inherit,m);
+                    }
+                }
+            } else if (tag=="circle"||tag=="ellipse"||tag=="rect"||tag=="polygon"||tag=="polyline") {
+                std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
+                add_layer(names,blends,idx,layer,"");
+                std::vector<double> xs,ys; shape_points(tag,ch,css,xs,ys);
+                if(xs.empty())continue;
+                Mat m=mat_mul(parent,parse_transform(at("transform")));
+                for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
+                std::vector<double> ps(xs.size(),1.0);
+                emit_any(ch,layer,xs,ys,ps);
             } else walk(ch,inherit,parent);
         }
     };
@@ -477,8 +612,7 @@ EXPORT char* psvg_plan_file_to_svg(const char* plan_path, const char* svg_path) 
 EXPORT char* psvg_svg_file_to_plan(const char* svg_path, const char* plan_path) {
     try {
         std::string input = read_all(svg_path);
-        std::string bin; try { bin = scan_from_svg(input); } catch (...) { bin = bin_from_svg(input); }
-        std::string out = bin_to_plan_json((const unsigned char*)bin.data(), (int)bin.size());
+        std::string out = plan_from_svg(input);
         write_all(plan_path, out);
         return dupstr(std::string("{\"ok\":true,\"bytes\":") + std::to_string(out.size()) + "}");
     } catch (const std::exception& e) { return dupstr(std::string("ERR:") + e.what()); }
@@ -756,7 +890,7 @@ EXPORT char* psvg_bin_to_svg(const unsigned char* data, int n, int* out_len) {
     catch(const std::exception& e){ *out_len=(int)(std::string("ERR:")+e.what()).size(); return dupstr(std::string("ERR:")+e.what()); }
 }
 EXPORT char* psvg_svg_to_bin(const char* svg, int n, int* out_len) {
-    try { std::string s; try { s=scan_from_svg(std::string(svg,n)); } catch (...) { s=bin_from_svg(std::string(svg,n)); } *out_len=(int)s.size(); char* p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p; }
+    try { std::string in(svg,n), s; if (in.find("data-bridge=\"plan_svg\"")!=std::string::npos) { try { s=scan_from_svg(in); } catch (...) { s=bin_from_svg(in); } } else { s=svg_to_bin(in); } *out_len=(int)s.size(); char* p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p; }
     catch(const std::exception& e){ return dupstr(std::string("ERR:")+e.what()); }
 }
 
