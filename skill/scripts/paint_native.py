@@ -47,6 +47,8 @@ def load():
     lib.paint_add_layer.restype = ctypes.c_int
     lib.paint_add_layer.argtypes = [vp, ctypes.c_int]
     lib.paint_clear_layer.argtypes = [vp, ctypes.c_int] + [ctypes.c_float] * 4
+    lib.paint_fill_polygon.restype = ctypes.c_int
+    lib.paint_fill_polygon.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4
     lib.paint_stroke_l.restype = ctypes.c_int
     lib.paint_stroke_l.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 5 + [
         ctypes.c_int, ctypes.c_float, ctypes.c_float, i32, ctypes.c_int, f32, f32, ctypes.c_int]
@@ -239,6 +241,14 @@ class Painter:
     def clear_layer(self, idx, rgb=(0, 0, 0), a=1.0):
         r, g, b = rgb
         self._lib.paint_clear_layer(self._ctx, int(idx), r / 255.0, g / 255.0, b / 255.0, float(a))
+
+    def fill_polygon(self, layer, pts, rgb=(0, 0, 0), opacity=1.0):
+        pts = np.ascontiguousarray(pts, dtype=np.float32)
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError("fill points must be Nx2")
+        r, g, b = rgb
+        return self._lib.paint_fill_polygon(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                            len(pts), r / 255.0, g / 255.0, b / 255.0, float(opacity))
 
     # ---- 位图笔尖（增量能力）----
     def add_tip(self, tip):

@@ -238,3 +238,26 @@ python tests/test_plan_svg.py
 ~~~
 
 覆盖 roundtrip、层序/blend、tag、pressure、确定性、文件落盘、outline/stamps 中心线回退、A 弧、transform、基础图元、CSS/use/gradient、clip/fill、native 回退与 C++ 直通。
+
+## paint（真渐变）
+
+stroke 可带 `paint`：type/units/x1/y1/x2/y2/stops。`plan_to_svg` 输出 `<linearGradient>`/`<radialGradient>`；`svg_to_plan` 保留 gradient，不再只取平均色。`color` 仍是平均色 fallback。
+
+## fill renderer
+
+native `paint_core` 新增 `paint_fill_polygon(layer, points, color, opacity)`。`paint_plan` 遇到 `preset="fill"` 会调用它。
+
+## 凹 clip
+
+C++ / Python 均对凹多边形做耳切三角化，再逐三角形裁剪。
+
+## CSS 继承 / symbol
+
+C++ 支持 fill/stroke/stroke-width/opacity 继承；`<use href="#symbol">` 会展开 symbol；伪类仍不静态求值。
+
+## 仍缺
+
+- mask alpha/luminance：仍是二值几何裁剪；
+- 外部引用：无 base 路径/资源策略；
+- 复杂 CSS：伪类、优先级、!important；
+- 渐变在厚涂 renderer 中仍按平均色。

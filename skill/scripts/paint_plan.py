@@ -63,7 +63,19 @@ def render_plan(plan, threads=8, brush=None, region=None):
         })
     # 分层按笔触所属层提交，保证层内顺序 = plan 顺序
     for layer in sorted(grouped):
-        p.stroke_batch(layer, grouped[layer], nthreads=threads)
+        buf = []
+        for it in grouped[layer]:
+            if str(it.get("preset", "")) == "fill":
+                if buf:
+                    p.stroke_batch(layer, buf, nthreads=threads)
+                    buf = []
+                pts = [(float(q[0]), float(q[1])) for q in (it.get("points") or [])]
+                if len(pts) >= 3:
+                    p.fill_polygon(layer, pts, it.get("color"), it.get("opacity", 1.0))
+            else:
+                buf.append(it)
+        if buf:
+            p.stroke_batch(layer, buf, nthreads=threads)
 
     comp = p.composite()
     names = [spec.get("name", "layer%d" % i) for i, spec in enumerate(layers_spec)]

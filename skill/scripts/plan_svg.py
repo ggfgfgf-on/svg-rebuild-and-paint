@@ -93,9 +93,31 @@ def _filter_defs(ids):
     return "".join(out)
 
 
+
+def _paint_def(paint, gid):
+    kind = paint.get("type", "linear")
+    units = paint.get("units", "objectBoundingBox")
+    stops = []
+    for st in paint.get("stops") or []:
+        if len(st) < 2:
+            continue
+        off, col = st[0], st[1]
+        op = st[2] if len(st) > 2 else 1.0
+        stops.append('<stop offset="%s" stop-color="%s" stop-opacity="%s"/>' %
+                     (_f(max(0.0, min(1.0, float(off)))), _rgb(col), _f(float(op))))
+    if kind == "radial":
+        attrs = 'cx="%s" cy="%s" r="%s"' % (paint.get("cx", "50%"), paint.get("cy", "50%"), paint.get("r", "50%"))
+        tag = "radialGradient"
+    else:
+        attrs = 'x1="%s" y1="%s" x2="%s" y2="%s"' % (paint.get("x1", "0%"), paint.get("y1", "0%"),
+                                                       paint.get("x2", "100%"), paint.get("y2", "0%"))
+        tag = "linearGradient"
+    return '<%s id="%s" gradientUnits="%s" %s>%s</%s>' % (tag, gid, units, attrs, "".join(stops), tag)
+
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
-    if _native is not None and _native.available() and not filters:
+    if (_native is not None and _native.available() and not filters
+            and not any(isinstance(x.get("paint"), dict) for x in doc.get("strokes", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
     layers = doc.get("layers") or []
@@ -122,13 +144,20 @@ def plan_to_svg(doc, *, filters=False, title=None):
             if fid:
                 fids.add(_qhard(s.get("hardness", 0.7)))
 
+    paint_defs = []
+    paint_gid = {}
+    for st in doc.get("strokes", []):
+        if isinstance(st.get("paint"), dict):
+            gid = "paint%d" % len(paint_defs)
+            paint_gid[id(st)] = gid
+            paint_defs.append(_paint_def(st["paint"], gid))
     head = ['<?xml version="1.0" encoding="UTF-8"?>',
             '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" '
             'shape-rendering="geometricPrecision">' % (w, h, w, h)]
     if title:
         head.append("<title>%s</title>" % escape(str(title)))
-    if fids:
-        head.append("<defs>%s</defs>" % _filter_defs(fids))
+    if fids or paint_defs:
+        head.append("<defs>%s</defs>" % "".join(paint_defs + ([_filter_defs(fids)] if fids else [])))
     out = ["".join(head)]
     for li, name in enumerate(order):
         blend = blends.get(name, "normal")
@@ -143,15 +172,17 @@ def plan_to_svg(doc, *, filters=False, title=None):
             op = max(0.0, min(1.0, float(s.get("opacity", 1.0))))
             hard = max(0.0, min(1.0, float(s.get("hardness", 0.7))))
             preset = str(s.get("preset", "round_soft"))
+            gid = paint_gid.get(id(s))
+            paint_ref = ("url(#%s)" % gid) if gid else _rgb(s.get("color"))
             if preset == "fill":
                 out.append('<path d="%s Z" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
-                           (_path_d(pts), _rgb(s.get("color")), _f(op), _esc(name), _rgb_text(s.get("color")),
+                           (_path_d(pts), paint_ref, _f(op), _esc(name), _rgb_text(s.get("color")),
                             (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))
                 continue
             cap = "butt" if preset in ("flat", "bristle") else "round"
             attrs = ['d="%s"' % _path_d(pts),
                      'fill="none"',
-                     'stroke="%s"' % _rgb(s.get("color")),
+                     'stroke="%s"' % paint_ref,
                      'stroke-width="%s"' % _f(size),
                      'stroke-opacity="%s"' % _f(op),
                      'stroke-linecap="%s"' % cap,
@@ -584,6 +615,8 @@ def _stroke_from_attrs(ch, name, pts):
           "points": [[float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)] for p in pts]}
     if a.get("data-tag"):
         st["tag"] = str(a["data-tag"])
+    if a.get("_paint"):
+        st["paint"] = a["_paint"]
     return st
 
 def _style_decls(text):
@@ -653,6 +686,68 @@ def _clip_line(p0, p1, clip):
     return [[p0[0]+dx*t0, p0[1]+dy*t0], [p0[0]+dx*t1, p0[1]+dy*t1]]
 
 
+
+def _is_convex(poly):
+    pts = [(float(x), float(y)) for x, y in poly]
+    if len(pts) > 3 and pts[0] == pts[-1]:
+        pts.pop()
+    n = len(pts)
+    sign = 0
+    for i in range(n):
+        a, b, c = pts[i], pts[(i+1) % n], pts[(i+2) % n]
+        cr = (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
+        if abs(cr) < 1e-12:
+            continue
+        s = 1 if cr > 0 else -1
+        if sign and s != sign:
+            return False
+        sign = s
+    return True
+
+def _triangulate(poly):
+    pts = [(float(x), float(y)) for x, y in poly]
+    if len(pts) > 3 and pts[0] == pts[-1]:
+        pts.pop()
+    n = len(pts)
+    if n < 3:
+        return []
+    area = sum(pts[i][0]*pts[(i+1) % n][1] - pts[(i+1) % n][0]*pts[i][1] for i in range(n))
+    if area < 0:
+        pts.reverse()
+    idx = list(range(n))
+    tris = []
+    guard = 0
+    while len(idx) > 3 and guard < n*n:
+        guard += 1
+        ear = False
+        for k in range(len(idx)):
+            i0, i1, i2 = idx[k-1], idx[k], idx[(k+1) % len(idx)]
+            a, b, c = pts[i0], pts[i1], pts[i2]
+            cross = (b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0])
+            if cross <= 1e-12:
+                continue
+            inside = False
+            for j in idx:
+                if j in (i0, i1, i2):
+                    continue
+                q = pts[j]
+                d1 = (b[0]-a[0])*(q[1]-a[1]) - (b[1]-a[1])*(q[0]-a[0])
+                d2 = (c[0]-b[0])*(q[1]-b[1]) - (c[1]-b[1])*(q[0]-b[0])
+                d3 = (a[0]-c[0])*(q[1]-c[1]) - (a[1]-c[1])*(q[0]-c[0])
+                if d1 >= 0 and d2 >= 0 and d3 >= 0:
+                    inside = True
+                    break
+            if not inside:
+                tris.append([a, b, c])
+                idx.pop(k)
+                ear = True
+                break
+        if not ear:
+            break
+    if len(idx) == 3:
+        tris.append([pts[i] for i in idx])
+    return tris
+
 def _clip_geoms(root):
     out = {}
     for el in root.iter():
@@ -693,7 +788,7 @@ def _selector_match(sel, ch):
     return _local(ch.tag) == sel if hasattr(ch, "tag") else False
 
 
-def _resolved_attrs(ch, css, grads):
+def _resolved_attrs(ch, css, grads, paints=None):
     a = dict(ch.attrib)
     for sel, d in css.items():
         if _selector_match(sel, a):
@@ -703,10 +798,45 @@ def _resolved_attrs(ch, css, grads):
         a[k] = v
     for key in ("fill", "stroke"):
         m = re.match(r"url\(#([^)]+)\)", str(a.get(key, "")))
-        if m and m.group(1) in grads:
-            a[key] = grads[m.group(1)]
+        if not m:
+            continue
+        gid = m.group(1)
+        if gid in grads:
+            a[key] = grads[gid]
+        if paints and gid in paints:
+            a["_paint"] = paints[gid]
     return a
 
+
+def _gradient_paints(root):
+    out = {}
+    for el in root.iter():
+        tag = _local(el.tag)
+        if tag not in ("linearGradient", "radialGradient") or not el.get("id"):
+            continue
+        stops = []
+        for st in list(el):
+            if _local(st.tag) != "stop":
+                continue
+            off = str(st.get("offset", "0")).strip()
+            try:
+                off = float(off[:-1]) / 100.0 if off.endswith("%") else float(off)
+            except Exception:
+                off = 0.0
+            stops.append([off, _color(st.get("stop-color", "#000"), (0, 0, 0)),
+                          max(0.0, min(1.0, float(st.get("stop-opacity", 1.0))))])
+        if not stops:
+            continue
+        p = {"type": "linear" if tag == "linearGradient" else "radial",
+             "units": el.get("gradientUnits", "objectBoundingBox"), "stops": stops}
+        if tag == "linearGradient":
+            for k in ("x1", "y1", "x2", "y2"):
+                p[k] = el.get(k, "0%" if k in ("x1", "y1") else "100%")
+        else:
+            for k in ("cx", "cy", "r", "fx", "fy"):
+                p[k] = el.get(k, "50%" if k in ("cx", "cy") else "50%")
+        out[el.get("id")] = p
+    return out
 
 def _gradient_colors(root):
     out = {}
@@ -722,7 +852,8 @@ def _gradient_colors(root):
 
 
 def needs_python_parser(svg_text):
-    # C++ now covers the bridge fallback features we support.
+    if "linearGradient" in svg_text or "radialGradient" in svg_text:
+        return True
     return False
 
 def _svg_to_plan_py(svg_text):
@@ -733,6 +864,7 @@ def _svg_to_plan_py(svg_text):
     layers, strokes = [], []
     css = _load_css(root)
     grads = _gradient_colors(root)
+    paints = _gradient_paints(root)
     clips = _clip_geoms(root)
     by_id = {el.get("id"): el for el in root.iter() if el.get("id")}
 
@@ -751,23 +883,25 @@ def _svg_to_plan_py(svg_text):
             strokes.append(_stroke_from_attrs(a, name, pts)); return
         if a.get("data-preset") == "fill" or (a.get("fill") and a.get("fill") != "none" and not a.get("stroke")):
             for poly in polys:
-                q = _clip_poly([(p[0], p[1]) for p in pts], [(p[0], p[1]) for p in poly])
-                if len(q) >= 3:
-                    st = _stroke_from_attrs(a, name, [[x, y, 1.0] for x, y in q])
-                    st["preset"] = "fill"; st.pop("size", None); st.pop("hardness", None)
-                    strokes.append(st)
+                for tri in ([poly] if _is_convex(poly) else (_triangulate(poly) or [poly])):
+                    q = _clip_poly([(p[0], p[1]) for p in pts], [(p[0], p[1]) for p in tri])
+                    if len(q) >= 3:
+                        st = _stroke_from_attrs(a, name, [[x, y, 1.0] for x, y in q])
+                        st["preset"] = "fill"; st.pop("size", None); st.pop("hardness", None)
+                        strokes.append(st)
             return
         for poly in polys:
-            for i in range(1, len(pts)):
-                seg = _clip_line((pts[i-1][0], pts[i-1][1]), (pts[i][0], pts[i][1]), [(p[0], p[1]) for p in poly])
-                if seg:
-                    strokes.append(_stroke_from_attrs(a, name, [[seg[0][0], seg[0][1], pts[i-1][2] if len(pts[i-1]) > 2 else 1.0],
-                                                                [seg[1][0], seg[1][1], pts[i][2] if len(pts[i]) > 2 else 1.0]]))
+            for tri in (_triangulate(poly) or [poly]):
+                for i in range(1, len(pts)):
+                    seg = _clip_line((pts[i-1][0], pts[i-1][1]), (pts[i][0], pts[i][1]), [(p[0], p[1]) for p in tri])
+                    if seg:
+                        strokes.append(_stroke_from_attrs(a, name, [[seg[0][0], seg[0][1], pts[i-1][2] if len(pts[i-1]) > 2 else 1.0],
+                                                                    [seg[1][0], seg[1][1], pts[i][2] if len(pts[i]) > 2 else 1.0]]))
 
     def visit(ch, inherited_layer=None, parent=(1, 0, 0, 1, 0, 0), active=None):
         active = active or set()
         tag = _local(ch.tag)
-        a = _resolved_attrs(ch, css, grads)
+        a = _resolved_attrs(ch, css, grads, paints)
         if tag == "use":
             href = a.get("{http://www.w3.org/1999/xlink}href") or a.get("href") or ""
             if href.startswith("#") and href[1:] not in active and href[1:] in by_id:

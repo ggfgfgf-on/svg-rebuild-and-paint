@@ -158,6 +158,22 @@ def test_clip_fill_multi_subpath():
     assert len(d["strokes"][2]["points"]) == 2 and len(d["strokes"][3]["points"]) == 2
 
 
+
+
+def test_gradient_paint_roundtrip():
+    doc = {"canvas": [100, 100], "layers": [{"name": "l"}],
+           "strokes": [{"layer": "l", "preset": "fill", "color": [128, 0, 128],
+                        "points": [[0, 0], [10, 0], [10, 10]],
+                        "paint": {"type": "linear", "units": "objectBoundingBox",
+                                  "stops": [[0, [255, 0, 0], 1], [1, [0, 0, 255], 1]],
+                                  "x1": "0%", "y1": "0%", "x2": "100%", "y2": "0%"}}]}
+    svg = plan_svg.plan_to_svg(doc)
+    assert "linearGradient" in svg and "url(#paint0)" in svg
+    back = plan_svg.svg_to_plan(svg)
+    assert back["strokes"][0]["paint"]["stops"][0][1] == [255, 0, 0]
+    assert back["strokes"][0]["paint"]["stops"][1][1] == [0, 0, 255]
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -168,4 +184,5 @@ if __name__ == "__main__":
     test_shapes_css_use_gradient()
     test_native_fallback_metadata()
     test_clip_fill_multi_subpath()
+    test_gradient_paint_roundtrip()
     print("all plan_svg tests passed")

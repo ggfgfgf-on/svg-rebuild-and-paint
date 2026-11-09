@@ -430,6 +430,43 @@ static void shape_points(const std::string& tag, pugi::xml_node ch, const std::m
 
 
 typedef std::vector<std::pair<double,double>> Poly;
+
+
+static bool is_convex(const Poly& poly){
+    Poly p=poly; if(p.size()>3&&p[0]==p.back())p.pop_back(); int n=(int)p.size(); int sign=0;
+    for(int i=0;i<n;++i){auto a=p[i],b=p[(i+1)%n],c=p[(i+2)%n];double cr=(b.first-a.first)*(c.second-a.second)-(b.second-a.second)*(c.first-a.first);if(std::fabs(cr)<1e-12)continue;int sg=cr>0?1:-1;if(sign&&sg!=sign)return false;sign=sg;}
+    return true;
+}
+
+static std::vector<Poly> triangulate(const Poly& poly) {
+    Poly pts=poly; if(pts.size()>3 && pts[0]==pts.back())pts.pop_back();
+    int n=(int)pts.size(); if(n<3)return {};
+    double area=0; for(int i=0;i<n;++i){auto a=pts[i],b=pts[(i+1)%n];area+=a.first*b.second-b.first*a.second;}
+    if(area<0)std::reverse(pts.begin(),pts.end());
+    std::vector<int> idx(n); for(int i=0;i<n;++i)idx[i]=i;
+    std::vector<Poly> out; int guard=0;
+    while((int)idx.size()>3 && guard<n*n){
+        guard++; bool ear=false;
+        for(size_t k=0;k<idx.size();++k){
+            int i0=idx[(k+idx.size()-1)%idx.size()], i1=idx[k], i2=idx[(k+1)%idx.size()];
+            auto a=pts[i0],b=pts[i1],c=pts[i2];
+            double cross=(b.first-a.first)*(c.second-a.second)-(b.second-a.second)*(c.first-a.first);
+            if(cross<=1e-12)continue;
+            bool inside=false;
+            for(int j:idx){ if(j==i0||j==i1||j==i2)continue; auto q=pts[j];
+                double d1=(b.first-a.first)*(q.second-a.second)-(b.second-a.second)*(q.first-a.first);
+                double d2=(c.first-b.first)*(q.second-b.second)-(c.second-b.second)*(q.first-b.first);
+                double d3=(a.first-c.first)*(q.second-c.second)-(a.second-c.second)*(q.first-c.first);
+                if(d1>=0&&d2>=0&&d3>=0){inside=true;break;}
+            }
+            if(!inside){out.push_back({a,b,c}); idx.erase(idx.begin()+k); ear=true; break;}
+        }
+        if(!ear)break;
+    }
+    if(idx.size()==3)out.push_back({pts[idx[0]],pts[idx[1]],pts[idx[2]]});
+    return out;
+}
+
 static Poly clip_poly(const Poly& subj, const Poly& clip) {
     if(subj.size()<3||clip.size()<3)return {};
     double area=0; for(size_t i=0;i<clip.size();++i){auto a=clip[i],b=clip[(i+1)%clip.size()];area+=a.first*b.second-b.first*a.second;}
@@ -514,10 +551,13 @@ static std::string plan_from_svg(const std::string& input) {
         std::string fill=at_of(ch,"fill"), stroke=at_of(ch,"stroke");
         bool filled=at_of(ch,"data-preset")=="fill" || (!fill.empty()&&fill!="none"&&stroke.empty());
         for(const auto& poly:it->second){
-            if(filled){
-                Poly q; for(size_t i=0;i<xs.size();++i)q.push_back({xs[i],ys[i]});
-                Poly r=clip_poly(q,poly); if(r.size()>=3){std::vector<double> a,b,p(r.size(),1.0);for(auto&v:r){a.push_back(v.first);b.push_back(v.second);} emit(ch,layer,a,b,p,inh);}
-            } else for(size_t i=1;i<xs.size();++i){std::pair<double,double> a,b; if(clip_seg({xs[i-1],ys[i-1]},{xs[i],ys[i]},poly,a,b)){emit(ch,layer,{a.first,b.first},{a.second,b.second},{1.0,1.0},inh);}}
+            std::vector<Poly> tris; if(is_convex(poly)) tris.push_back(poly); else { tris=triangulate(poly); if(tris.empty())tris.push_back(poly); }
+            for(const auto& tri:tris){
+                if(filled){
+                    Poly q; for(size_t i=0;i<xs.size();++i)q.push_back({xs[i],ys[i]});
+                    Poly r=clip_poly(q,tri); if(r.size()>=3){std::vector<double> a,b,p(r.size(),1.0);for(auto&v:r){a.push_back(v.first);b.push_back(v.second);} emit(ch,layer,a,b,p,inh);}
+                } else for(size_t i=1;i<xs.size();++i){std::pair<double,double> a,b; if(clip_seg({xs[i-1],ys[i-1]},{xs[i],ys[i]},tri,a,b)){emit(ch,layer,{a.first,b.first},{a.second,b.second},{1.0,1.0},inh);}}
+            }
         }
     };
     std::function<void(pugi::xml_node,std::string,Mat,std::map<std::string,std::string>)> walk = [&](pugi::xml_node node, std::string inherit, Mat parent, std::map<std::string,std::string> inh) {
