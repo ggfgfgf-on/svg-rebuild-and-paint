@@ -18,7 +18,11 @@ def main():
         import plan_io
         doc, _, _ = plan_io.load_plan(a.plan)
         t0 = time.perf_counter()
-        svg = plan_svg.plan_to_svg_stamps(doc)
+        try:
+            import plan_svg_native as N
+            svg = N.plan_to_svg_stamps(doc) if N.available() else plan_svg.plan_to_svg_stamps(doc)
+        except Exception:
+            svg = plan_svg.plan_to_svg_stamps(doc)
         Path(a.out).write_text(svg, encoding="utf-8")
         print(json.dumps({"plan": a.plan, "svg": a.out, "svg_bytes": len(svg.encode("utf-8")),
                           "svg_s": round(time.perf_counter() - t0, 4), "mode": "stamps"}, ensure_ascii=False))

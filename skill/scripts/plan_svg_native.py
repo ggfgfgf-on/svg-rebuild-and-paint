@@ -26,7 +26,7 @@ def _load():
             f.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
         else:
             f.argtypes = [ctypes.c_char_p, ctypes.c_int]
-    for n in ("psvg_bin_to_svg", "psvg_svg_to_bin", "psvg_plan_json_to_bin", "psvg_bin_to_plan_json"):
+    for n in ("psvg_bin_to_svg", "psvg_svg_to_bin", "psvg_plan_json_to_bin", "psvg_bin_to_plan_json", "psvg_bin_to_svg_stamps"):
         f = getattr(lib, n)
         f.restype = ctypes.c_void_p
         f.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
@@ -126,9 +126,63 @@ def _unpack_plan_py(data: bytes):
     return {"canvas": [w, h], "layers": [{"name": n, "blend": b} for n, b in zip(names, blends)],
             "strokes": strokes, "count": len(strokes)}
 
+
+_TOP_KNOWN = {"canvas", "layers", "strokes", "count"}
+_LAYER_KNOWN = {"name", "blend"}
+_STROKE_KNOWN = {"layer", "preset", "size", "opacity", "hardness", "color", "points", "tag"}
+
+
+def _extra_blob(doc):
+    extra = {}
+    top = {k: v for k, v in doc.items() if k not in _TOP_KNOWN}
+    if top:
+        extra["top"] = top
+    ls = []
+    for i, l in enumerate(doc.get("layers") or []):
+        e = {k: v for k, v in l.items() if k not in _LAYER_KNOWN}
+        if e:
+            ls.append({"i": i, "extra": e})
+    if ls:
+        extra["layers"] = ls
+    ss = []
+    for i, s in enumerate(doc.get("strokes") or []):
+        e = {k: v for k, v in s.items() if k not in _STROKE_KNOWN}
+        if e:
+            ss.append({"i": i, "extra": e})
+    if ss:
+        extra["strokes"] = ss
+    return extra
+
+
+def _merge_extra(doc, extra):
+    if extra.get("top"):
+        doc.update(extra["top"])
+    for e in extra.get("layers") or []:
+        i = e.get("i")
+        if isinstance(i, int) and 0 <= i < len(doc.get("layers") or []):
+            doc["layers"][i].update(e.get("extra") or {})
+    for e in extra.get("strokes") or []:
+        i = e.get("i")
+        if isinstance(i, int) and 0 <= i < len(doc.get("strokes") or []):
+            doc["strokes"][i].update(e.get("extra") or {})
+    return doc
+
+
+def _attach_extra(core: bytes, doc) -> bytes:
+    extra = _extra_blob(doc)
+    if not extra:
+        return core
+    payload = json.dumps(extra, separators=(",", ":")).encode("utf-8")
+    b = bytearray(core)
+    b[4:8] = struct.pack("<I", 2)
+    b += payload
+    b += struct.pack("<I", len(payload))
+    return bytes(b)
+
+
 def pack_plan(doc) -> bytes:
     if _ext is not None:
-        return _ext.pack_plan(doc)
+        return _attach_extra(_ext.pack_plan(doc), doc)
     if _LIB is not None:
         b = json.dumps(doc, separators=(",", ":")).encode("utf-8")
         n = ctypes.c_int(0)
@@ -140,12 +194,20 @@ def pack_plan(doc) -> bytes:
                 _free(ptr)
             if not raw.startswith(b"ERR:"):
                 return raw
-    return _pack_plan_py(doc)
+    return _attach_extra(_pack_plan_py(doc), doc)
 
 
 def unpack_plan(data: bytes):
+    extra = None
+    core = data
+    if len(data) >= 4 and data[4:8] == struct.pack("<I", 2):
+        n = struct.unpack_from("<I", data, len(data) - 4)[0]
+        core = data[:len(data) - 4 - n]
+        extra = json.loads(data[len(data) - 4 - n:len(data) - 4].decode("utf-8"))
+        core = bytearray(core); core[4:8] = struct.pack("<I", 1); core = bytes(core)
     if _ext is not None:
-        return _ext.unpack_plan(data)
+        doc = _ext.unpack_plan(core)
+        return _merge_extra(doc, extra) if extra else doc
     if _LIB is not None:
         n = ctypes.c_int(0)
         ptr = _LIB.psvg_bin_to_plan_json(ctypes.c_char_p(data), len(data), ctypes.byref(n))
@@ -156,7 +218,8 @@ def unpack_plan(data: bytes):
                 _free(ptr)
             if not raw.startswith(b"ERR:"):
                 return json.loads(raw.decode("utf-8"))
-    return _unpack_plan_py(data)
+    doc = _unpack_plan_py(core)
+    return _merge_extra(doc, extra) if extra else doc
 
 
 
@@ -219,3 +282,18 @@ def pack_plan_file(plan_path: str, bin_path: str) -> str:
 
 def unpack_plan_file(bin_path: str, plan_path: str) -> str:
     return _call_paths(_LIB.psvg_bin_file_to_plan, bin_path, plan_path)
+
+
+def plan_to_svg_stamps(doc) -> str:
+    data = pack_plan(doc)
+    n = ctypes.c_int(0)
+    ptr = _LIB.psvg_bin_to_svg_stamps(ctypes.c_char_p(data), len(data), ctypes.byref(n))
+    if not ptr:
+        raise RuntimeError("native stamps returned null")
+    try:
+        raw = ctypes.string_at(ptr, n.value)
+    finally:
+        _free(ptr)
+    if raw.startswith(b"ERR:"):
+        raise ValueError(raw[4:].decode("utf-8", "replace"))
+    return raw.decode("utf-8")

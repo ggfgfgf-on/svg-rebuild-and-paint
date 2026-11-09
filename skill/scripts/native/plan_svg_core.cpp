@@ -393,7 +393,7 @@ struct BStroke { int layer; std::string preset, tag; float size, opacity, hardne
 static std::string bin_to_svg(const unsigned char* data, int len) {
     BR b(data, len);
     if (b.u32() != 0x42565350) throw std::runtime_error("bad binary magic");
-    if (b.u32() != 1) throw std::runtime_error("bad binary version");
+    { uint32_t v=b.u32(); if (v != 1 && v != 2) throw std::runtime_error("bad binary version"); }
     int w=b.i32(), h=b.i32(), lc=b.i32(), sc=b.i32();
     std::vector<std::string> names(lc), blends(lc);
     for (int i=0;i<lc;++i){ blends[i]=b.str16(); names[i]=b.str16(); }
@@ -630,7 +630,7 @@ static std::string plan_json_to_bin(const std::string& input) {
 static std::string bin_to_plan_json(const unsigned char* data, int len) {
     BR b(data,len);
     if(b.u32()!=0x42565350) throw std::runtime_error("bad binary magic");
-    if(b.u32()!=1) throw std::runtime_error("bad binary version");
+    { uint32_t v=b.u32(); if(v!=1&&v!=2) throw std::runtime_error("bad binary version"); }
     int w=b.i32(),h=b.i32(),lc=b.i32(),sc=b.i32();
     std::vector<std::string> names(lc),blends(lc);
     for(int i=0;i<lc;++i){ blends[i]=b.str16(); names[i]=b.str16(); }
@@ -658,6 +658,60 @@ EXPORT char* psvg_plan_json_to_bin(const char* in,int n,int* out_len){
 }
 EXPORT char* psvg_bin_to_plan_json(const char* in,int n,int* out_len){
     try{std::string s=bin_to_plan_json((const unsigned char*)in,n);*out_len=(int)s.size();char*p=(char*)std::malloc(s.size());if(p)std::memcpy(p,s.data(),s.size());return p;}
+    catch(const std::exception&e){*out_len=(int)(std::string("ERR:")+e.what()).size();return dupstr(std::string("ERR:")+e.what());}
+}
+
+
+static std::string bin_to_svg_stamps(const unsigned char* data, int len) {
+    BR b(data,len);
+    if(b.u32()!=0x42565350) throw std::runtime_error("bad PSVB");
+    { uint32_t v=b.u32(); if(v!=1&&v!=2) throw std::runtime_error("bad PSVB version"); }
+    int w=b.i32(),h=b.i32(),lc=b.i32(),sc=b.i32();
+    std::vector<std::string> names(lc),blends(lc);
+    for(int i=0;i<lc;++i){ blends[i]=b.str16(); names[i]=b.str16(); }
+    std::vector<BStroke> strokes; strokes.reserve(sc);
+    for(int k=0;k<sc;++k){
+        BStroke s; s.layer=b.u16(); s.preset=b.str16();
+        s.size=b.f32(); s.opacity=b.f32(); s.hardness=b.f32();
+        s.r=b.f32(); s.g=b.f32(); s.b=b.f32();
+        int pc=b.u16(); s.pts.reserve(pc*3);
+        for(int j=0;j<pc;++j){ s.pts.push_back(b.f32()); s.pts.push_back(b.f32()); s.pts.push_back(b.f32()); }
+        s.tag=b.str16(); strokes.push_back(std::move(s));
+    }
+    std::string out; out.reserve(64*1024*1024);
+    out += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + std::to_string(w) + "\" height=\"" + std::to_string(h) + "\" viewBox=\"0 0 " + std::to_string(w) + " " + std::to_string(h) + "\" data-bridge=\"plan_svg_stamps\" shape-rendering=\"geometricPrecision\">\n";
+    for(int li=0;li<lc;++li){
+        out += "<g data-name=\"" + names[li] + "\" data-blend=\"" + blends[li] + "\">\n";
+        for(const auto& s:strokes) if(s.layer==li){
+            const float baseR=s.size*0.5f;
+            float total=0;
+            for(size_t i=1;i+2<s.pts.size();i+=3) total += std::sqrt((s.pts[i]-s.pts[i-3])*(s.pts[i]-s.pts[i-3])+(s.pts[i+1]-s.pts[i-2])*(s.pts[i+1]-s.pts[i-2]));
+            float arc=0;
+            for(size_t i=3;i+2<s.pts.size();i+=3){
+                float x0=s.pts[i-3], y0=s.pts[i-2], p0=s.pts[i-1];
+                float x1=s.pts[i], y1=s.pts[i+1], p1=s.pts[i+2];
+                float dx=x1-x0, dy=y1-y0, ln=std::sqrt(dx*dx+dy*dy);
+                float step=std::max(0.6f, baseR*0.30f);
+                int steps=(int)std::floor(ln/step); if(steps<1)steps=1;
+                for(int k=0;k<=steps;++k){
+                    float t=(float)k/(float)steps;
+                    float x=x0+dx*t,y=y0+dy*t,press=p0+(p1-p0)*t;
+                    float pr=0.30f+0.70f*press, pa=0.15f+0.85f*press;
+                    float rr=baseR*pr, op=std::max(0.0f,std::min(1.0f,s.opacity*pa));
+                    if(rr<=0)continue;
+                    char hex[8]; std::snprintf(hex,sizeof(hex),"#%02x%02x%02x",(int)std::lround(s.r),(int)std::lround(s.g),(int)std::lround(s.b));
+                    out += "<circle cx=\""+fmt(x)+"\" cy=\""+fmt(y)+"\" r=\""+fmt(rr)+"\" fill=\""+hex+"\" fill-opacity=\""+fmt(op)+"\"/>\n";
+                }
+                arc+=ln;
+            }
+        }
+        out += "</g>\n";
+    }
+    out += "</svg>\n";
+    return out;
+}
+EXPORT char* psvg_bin_to_svg_stamps(const char* data,int n,int* out_len){
+    try{std::string s=bin_to_svg_stamps((const unsigned char*)data,n);*out_len=(int)s.size();char*p=(char*)std::malloc(s.size());if(p)std::memcpy(p,s.data(),s.size());return p;}
     catch(const std::exception&e){*out_len=(int)(std::string("ERR:")+e.what()).size();return dupstr(std::string("ERR:")+e.what());}
 }
 

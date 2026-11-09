@@ -58,7 +58,7 @@ bridge 输出带 `data-bridge="plan_svg"` 时，native 不再走 pugixml DOM，�
 
 这是当前 bridge 路径的最快解析。
 
-## `--stamps`（可选）
+## `--stamps`（可选，native）
 
 ```powershell
 python scripts/plan_to_svg.py plan.json out.svg --stamps
@@ -66,9 +66,30 @@ python scripts/plan_to_svg.py plan.json out.svg --stamps
 
 每个 brush stamp 输出一个 `<circle>`：
 
+- C++ 直接读 PSVB 生成；
 - 不整条高斯模糊；
 - 软边仍是圆/透明度近似；
 - 文件会显著变大，默认关闭。
+
+demo 359 笔：0.0505 s / 4.1 MB。
+
+## PSVB v2 extra（未知字段）
+
+PSVB v2 在末尾追加：
+
+```text
+主结构（v1）
++ extra_json bytes
++ u32 extra_len
+```
+
+`extra_json` 保存：
+
+- 顶层未知字段；
+- layer 的未知字段；
+- stroke 的未知字段。
+
+例如 `region_id`、`subject_layers`、自定义 metadata。没有未知字段时不追加，仍是 v1。
 
 ## 二进制协议（native 内存）
 
