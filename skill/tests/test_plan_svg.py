@@ -174,6 +174,17 @@ def test_gradient_paint_roundtrip():
     assert back["strokes"][0]["paint"]["stops"][1][1] == [0, 0, 255]
 
 
+
+
+def test_mask_layer_alpha():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">'
+           '<defs><mask id="m"><rect x="0" y="0" width="50" height="50" fill="white"/></mask></defs>'
+           '<rect x="0" y="0" width="100" height="50" fill="#ff0000" mask="url(#m)"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert any(isinstance(x.get("mask"), dict) and x["mask"].get("encoding") == "png-base64"
+               for x in d["layers"])
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -185,4 +196,5 @@ if __name__ == "__main__":
     test_native_fallback_metadata()
     test_clip_fill_multi_subpath()
     test_gradient_paint_roundtrip()
+    test_mask_layer_alpha()
     print("all plan_svg tests passed")

@@ -14,7 +14,7 @@ plan = {
 用法: python paint_plan.py plan.json out.png [--kra a.kra] [--psd a.psd]
 """
 from __future__ import annotations
-import json, sys
+import base64, io, json, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -83,6 +83,17 @@ def _expand_paint(it):
             out.append(q)
     return out
 
+def _mask_alpha(spec, w, h):
+    m = spec.get("mask")
+    if not isinstance(m, dict):
+        return None
+    if m.get("encoding") == "png-base64" and m.get("data"):
+        im = Image.open(io.BytesIO(base64.b64decode(m["data"]))).convert("L")
+        if im.size != (w, h):
+            im = im.resize((w, h), Image.BILINEAR)
+        return np.asarray(im, dtype=np.uint8)
+    return None
+
 def render_plan(plan, threads=8, brush=None, region=None):
     """按 plan 渲染，返回 (composite_rgba, layers[(name, rgba)])。"""
     w, h = plan["canvas"]
@@ -100,8 +111,12 @@ def render_plan(plan, threads=8, brush=None, region=None):
     brush = brush if brush is not None else paint_native.Painter.load_brush()
 
     grouped = {}
+    layer_index = {str(spec.get("name", "layer%d" % i)): i for i, spec in enumerate(layers_spec)}
     for s in plan.get("strokes", []):
-        grouped.setdefault(int(s.get("layer", 0)), []).append({
+        li = s.get("layer", 0)
+        if isinstance(li, str):
+            li = layer_index.get(li, 0)
+        grouped.setdefault(int(li), []).append({
             "points": s.get("points") or s.get("pts"),
             "size": s.get("size", 8.0),
             "opacity": s.get("opacity", 1.0),
@@ -130,6 +145,11 @@ def render_plan(plan, threads=8, brush=None, region=None):
                 buf.extend(_expand_paint(it))
         if buf:
             p.stroke_batch(layer, buf, nthreads=threads)
+
+    for i, spec in enumerate(layers_spec):
+        alpha = _mask_alpha(spec, int(w), int(h))
+        if alpha is not None:
+            p.apply_mask(i, alpha)
 
     comp = p.composite()
     names = [spec.get("name", "layer%d" % i) for i, spec in enumerate(layers_spec)]

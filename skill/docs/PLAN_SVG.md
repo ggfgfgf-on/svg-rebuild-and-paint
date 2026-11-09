@@ -262,3 +262,9 @@ C++ 支持 fill/stroke/stroke-width/opacity 继承；`<use href="#symbol">` 会�
 - 复杂 CSS：伪类、优先级、!important；
 - 厚涂 fill 渐变：native `paint_fill_gradient_polygon` 逐像素插值；
 - 厚涂 stroke 渐变：按段拆笔近似，不是连续渐变。
+
+## layer mask（alpha/luminance）
+
+layer 可带 `mask`：`{"encoding":"png-base64","data":"...","luminance":true}`。bridge 会把 `<mask>` 栅格化为灰度 PNG；`paint_plan` 在合成前调用 native `paint_apply_layer_mask` 乘 alpha。
+
+仍限：mask 内 gradient fill 目前取平均亮度，不是逐像素 gradient；mask 只能作用于 layer，不是任意单笔。

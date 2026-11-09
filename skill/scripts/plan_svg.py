@@ -12,7 +12,9 @@ Fidelity notes:
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
 import json
 import math
 import re
@@ -808,6 +810,62 @@ def _resolved_attrs(ch, css, grads, paints=None):
     return a
 
 
+def _mask_png(im):
+    from PIL import Image
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+def _raster_masks(root, w, h):
+    from PIL import Image, ImageDraw
+    out = {}
+    for el in root.iter():
+        if _local(el.tag) != "mask" or not el.get("id"):
+            continue
+        im = Image.new("L", (w, h), 0)
+        draw = ImageDraw.Draw(im)
+        def lum(ch):
+            fill = str(ch.get("fill", "#fff")).lower()
+            if fill.startswith("url("):
+                return 255
+            if fill in ("white", "#fff", "#ffffff"):
+                return 255
+            if fill in ("black", "#000", "#000000"):
+                return 0
+            c = _color(fill, (255, 255, 255))
+            a = max(0.0, min(1.0, float(ch.get("fill-opacity", ch.get("opacity", 1.0)))))
+            return int(round((0.299*c[0] + 0.587*c[1] + 0.114*c[2]) * a))
+        def draw_node(ch):
+            tag = _local(ch.tag)
+            if tag == "g":
+                for q in list(ch):
+                    draw_node(q)
+                return
+            val = lum(ch)
+            if tag == "rect":
+                x = float(ch.get("x", 0)); y = float(ch.get("y", 0))
+                draw.rectangle([x, y, x+float(ch.get("width", 0)), y+float(ch.get("height", 0))], fill=val)
+            elif tag == "circle":
+                cx = float(ch.get("cx", 0)); cy = float(ch.get("cy", 0)); r = float(ch.get("r", 0))
+                draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=val)
+            elif tag == "ellipse":
+                cx = float(ch.get("cx", 0)); cy = float(ch.get("cy", 0))
+                rx = float(ch.get("rx", 0)); ry = float(ch.get("ry", 0))
+                draw.ellipse([cx-rx, cy-ry, cx+rx, cy+ry], fill=val)
+            elif tag in ("polygon", "polyline"):
+                v = [float(x) for x in _NUM.findall(ch.get("points", ""))]
+                pts = [(v[i], v[i+1]) for i in range(0, len(v)-1, 2)]
+                if len(pts) >= 3:
+                    draw.polygon(pts, fill=val)
+            elif tag == "path":
+                for pts in _parse_d_subpaths(ch.get("d", "")):
+                    if len(pts) >= 3:
+                        draw.polygon([(q[0], q[1]) for q in pts], fill=val)
+        for ch in list(el):
+            draw_node(ch)
+        out[el.get("id")] = {"encoding": "png-base64", "data": _mask_png(im), "luminance": True}
+    return out
+
 def _gradient_paints(root):
     out = {}
     for el in root.iter():
@@ -854,6 +912,8 @@ def _gradient_colors(root):
 def needs_python_parser(svg_text):
     if "linearGradient" in svg_text or "radialGradient" in svg_text:
         return True
+    if "<mask" in svg_text or "mask=\"url(" in svg_text:
+        return True
     return False
 
 def _svg_to_plan_py(svg_text):
@@ -865,16 +925,22 @@ def _svg_to_plan_py(svg_text):
     css = _load_css(root)
     grads = _gradient_colors(root)
     paints = _gradient_paints(root)
+    masks = _raster_masks(root, w, h)
     clips = _clip_geoms(root)
     by_id = {el.get("id"): el for el in root.iter() if el.get("id")}
 
     def add_layer(name, blend):
         if name not in [x["name"] for x in layers]:
             layers.append({"name": name, "blend": blend or "normal"})
+        return next(x for x in layers if x["name"] == name)
+
+    def set_mask(name, mid):
+        if mid in masks:
+            add_layer(name, "normal")["mask"] = masks[mid]
 
     def emit(a, name, pts):
         key = None
-        for attr in ("clip-path", "mask"):
+        for attr in ("clip-path",):
             m = re.match(r"url\(#([^)]+)\)", str(a.get(attr, "")))
             if m:
                 key = m.group(1); break
@@ -914,6 +980,9 @@ def _svg_to_plan_py(svg_text):
             name = a.get("data-name") or a.get("id") or inherited_layer or "layer"
             blend = a.get("data-blend") or "normal"
             add_layer(name, blend)
+            mm = re.match(r"url\(#([^)]+)\)", str(a.get("mask", "")))
+            if mm:
+                set_mask(name, mm.group(1))
             m = _mat_mul(parent, _parse_transform(a.get("transform")))
             if a.get("data-stroke") or (a.get("data-center") and not a.get("data-name")):
                 ln = a.get("data-layer") or inherited_layer or "layer"
@@ -928,7 +997,12 @@ def _svg_to_plan_py(svg_text):
             return
         if tag == "path":
             name = a.get("data-layer") or inherited_layer or "layer"
+            mm = re.match(r"url\(#([^)]+)\)", str(a.get("mask", "")))
+            if mm and mm.group(1) in masks:
+                name = name + "__masked%d" % len(layers)
             add_layer(name, "normal")
+            if mm:
+                set_mask(name, mm.group(1))
             center = a.get("data-center")
             dval = a.get("d", "")
             if center and a.get("data-d-hash") and _d_hash(dval) != a.get("data-d-hash"):
@@ -951,7 +1025,12 @@ def _svg_to_plan_py(svg_text):
             return
         if tag in ("circle", "ellipse", "rect", "polygon", "polyline"):
             name = a.get("data-layer") or inherited_layer or "layer"
+            mm = re.match(r"url\(#([^)]+)\)", str(a.get("mask", "")))
+            if mm and mm.group(1) in masks:
+                name = name + "__masked%d" % len(layers)
             add_layer(name, "normal")
+            if mm:
+                set_mask(name, mm.group(1))
             pts = _shape_points(tag, a)
             if pts:
                 m = _mat_mul(parent, _parse_transform(a.get("transform")))
