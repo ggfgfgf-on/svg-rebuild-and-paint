@@ -368,3 +368,24 @@ render_util.luma_of(arr) -> float
 | `--quiet` | 不打印逐轮日志 |
 
 返回 JSON 增加 `render_s`（含 load/render/save）；示例见 [USAGE.md](USAGE.md) 附录 B。
+
+### 6.7 `paint_cli.py` CLI
+
+`paint_cli.py` 是改画/编译/视频的总入口；`plan` 都是位置参数，不是 `--plan`。
+
+| 子命令 | 参数 |
+|---|---|
+| `edit` | `plan --ops <json> --mask-file <json> --rect x0,y0,x1,y1 --feather N --hard-mask --gpu --save-plan <path> --instruction <text> --provider <name> --model <name> --out <png> --video <mp4> --frames N --fps N --fast` |
+| `compile` | `plan --instruction <text> --provider <name> --model <name> --mask-file <json> --out <ops.json> --image <png> --thumb` |
+| `video` | `plan --ops <json> --mask-file <json> --rect ... --feather N --hard-mask --gpu --save-plan <path> --out <mp4> --frames N --fps N` |
+| `eval` | `plan expected.json compiled.json` |
+
+`planner_8layer.py` 是库，不是 CLI；`render_video.py` 是低层视频入口，生产入口用 `paint_cli.py video`。
+
+### 6.8 `plan_io.py` CLI
+
+| 子命令 | 用法 |
+|---|---|
+| `check` | `python scripts/plan_io.py check plan.json`；输出 canvas/strokes/layers/non_formula_presets/count_bad |
+| `render` | `python scripts/plan_io.py render plan.json out.png [--threads N]` |
+| `presets` | `python scripts/plan_io.py presets`；列出公式笔刷名 |
