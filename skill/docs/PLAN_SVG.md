@@ -11,10 +11,24 @@
 
 | 方向 | 耗时 | 产物 |
 |---|---:|---|
-| plan → SVG | **0.41 s** | 14.9 MB SVG |
-| SVG → plan | **0.50 s total**（parse 0.39 s + 写 plan） | 8.7 MB plan |
+| plan → SVG | **0.28 s**（native）/ 0.41 s（Python） | 13.9–14.9 MB SVG |
+| SVG → plan | **0.44 s total**（native）/ 0.50 s（Python） | 8.7 MB plan |
 
-两个方向都在亚秒级；这是本机 44,589 笔 / 17 层 / 1200×900 的单次测量，不是跨机器基准；计时不含浏览器渲染。写回 plan 走快速 JSON 路径，已用 `plan_io.py check` 验证；bridge SVG 的 M/L 路径走快速解析。
+两个方向都在亚秒级；这是本机 44,589 笔 / 17 层 / 1200×900 的单次测量，不是跨机器基准；计时不含浏览器渲染。native 版是 Windows DLL（RapidJSON + pugixml）；Python 版是参考/回退实现。
+
+## Native（Windows，可选）
+
+~~~text
+native\plan_svg_core.dll   (RapidJSON + pugixml)
+~~~
+
+`plan_svg.py` 检测到 DLL 时自动走 native；没有 DLL 时回退纯 Python。构建：
+
+~~~powershell
+powershell -File scripts/native/build_plan_svg.ps1
+~~~
+
+native 只改变解析/序列化速度，不改变外部 `plan.json` / SVG 格式；XML 由 pugixml 解析；复杂 `transform`/`use`/外部引用不展开。
 
 ## CLI
 

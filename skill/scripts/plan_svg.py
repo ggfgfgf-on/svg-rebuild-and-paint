@@ -24,6 +24,11 @@ from xml.sax.saxutils import escape, quoteattr
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import plan_io
 
+try:
+    import plan_svg_native as _native
+except Exception:
+    _native = None
+
 
 def _esc(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
@@ -89,6 +94,8 @@ def _filter_defs(ids):
 
 def plan_to_svg(doc, *, filters=True, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
+    if _native is not None and _native.available():
+        return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
     layers = doc.get("layers") or []
     order = []
@@ -297,6 +304,8 @@ def _color(s, default=(217, 180, 90)):
 
 def svg_to_plan(svg_text):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
+    if _native is not None and _native.available():
+        return _native.svg_to_plan(svg_text)
     root = ET.fromstring(svg_text)
     vb = root.attrib.get("viewBox", "0 0 1200 900").replace(",", " ").split()
     w, h = (int(float(vb[2])), int(float(vb[3]))) if len(vb) >= 4 else (1200, 900)
