@@ -389,3 +389,33 @@ render_util.luma_of(arr) -> float
 | `check` | `python scripts/plan_io.py check plan.json`；输出 canvas/strokes/layers/non_formula_presets/count_bad |
 | `render` | `python scripts/plan_io.py render plan.json out.png [--threads N]` |
 | `presets` | `python scripts/plan_io.py presets`；列出公式笔刷名 |
+
+### 6.9 `compile_ops.py` CLI
+
+| 子命令 | 用法 | 输出 |
+|---|---|---|
+| `summarize` | `compile_ops.py summarize plan.json` | 计划摘要 JSON |
+| `prompt` | `compile_ops.py prompt plan.json "<instruction>" [--mask mask.json]` | 给模型看的提示词文本 |
+| `validate` | `compile_ops.py validate plan.json --ops ops.json`（也接受位置参数 ops） | `{ok:true, ops:N}`；非法键/越界会报错 |
+| `brief` | `compile_ops.py brief plan.json "<instruction>" [--thumb] [--no-gpu] [--out brief.json]` | `{plan, canvas, thumb, prompt}`；`--thumb` 写临时 `compile_thumb.png` |
+| `compile` | `compile_ops.py compile plan.json "<instruction>" [--provider X] [--model X] [--mask-file f] [--image png] [--thumb] [--out ops.json] [--verbose] [--no-gpu]` | ops JSON；先 validate 再输出 |
+
+`compile`/`brief` 的 `plan` 和 `instruction` 都是位置参数；没有 `--plan`。
+
+### 6.10 `render_video.py`（低层 SVG 过程视频）
+
+~~~python
+render_video.py in.svg out.mp4 [frames=600] [fps=30]
+~~~
+
+输入是带 `<g class="batch" data-seq/data-t>` 的 SVG，不是 plan；输出 mp4，并在 `out.mp4.final.png` 保留末帧。`GROUPS` 环境变量控制关键帧数（默认 90）。打印 JSON：`keyframes/frames/fps/render_s/encode_s/total_s/mb/...`。
+
+计划出视频请走 `paint_cli.py video`；`render_video.py` 只用于 SVG 过程回放。
+
+### 6.11 `selfcheck.py`
+
+~~~powershell
+python scripts/selfcheck.py [--frames 60] [--fps 30] [--keep] [--json]
+~~~
+
+跑三条真实主线：位图→SVG、空画布→draw、plan→视频。`--json` 输出 `{ok, root, checks:[{name,ok,sec,detail}]}`；非 JSON 输出每行 `[OK/FAIL] 名称 秒 详情`，末行 `RESULT OK|FAIL`；退出码 0/1。`--keep` 保留临时产物目录。
