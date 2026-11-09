@@ -362,8 +362,10 @@ def load_svg_plan(svg_path, plan_path):
     doc = load_plan_svg(svg_path)
     dt = time.perf_counter() - t0
     Path(plan_path).parent.mkdir(parents=True, exist_ok=True)
-    count = plan_io.dump_plan(str(plan_path), int(doc["canvas"][0]), int(doc["canvas"][1]),
-                              doc["strokes"], layer_blends={l["name"]: l.get("blend", "normal") for l in doc["layers"]},
-                              layer_order=[l["name"] for l in doc["layers"]])
-    return {"svg": str(svg_path), "plan": str(plan_path), "strokes": count,
-            "layers": len(doc["layers"]), "parse_s": round(dt, 4)}
+    out = {"canvas": [int(doc["canvas"][0]), int(doc["canvas"][1])],
+           "layers": doc["layers"], "strokes": doc["strokes"],
+           "count": len(doc["strokes"])}
+    Path(plan_path).write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+    return {"svg": str(svg_path), "plan": str(plan_path), "strokes": len(doc["strokes"]),
+            "layers": len(doc["layers"]), "parse_s": round(dt, 4),
+            "total_s": round(time.perf_counter() - t0, 4)}
