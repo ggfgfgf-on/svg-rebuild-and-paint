@@ -13,6 +13,8 @@ def main():
     ap.add_argument("--stamps", action="store_true", help="stamp 级 SVG：每个 stamp 一个 circle，文件大")
     ap.add_argument("--stamps-tip", action="store_true", help="stamp 级 + 近似 brush tip/radial gradient（Python）")
     ap.add_argument("--outline", action="store_true", help="一笔一个 capsule 轮廓 path")
+    ap.add_argument("--texture", action="store_true", help="outline 叠加噪声纹理")
+    ap.add_argument("--soft", action="store_true", help="outline 软边 filter")
     ap.add_argument("--compact", action="store_true", help="写完后做无损路径压缩")
     a = ap.parse_args()
     if a.outline:
@@ -21,7 +23,7 @@ def main():
         import plan_io
         doc, _, _ = plan_io.load_plan(a.plan)
         t0 = time.perf_counter()
-        svg = plan_svg.plan_to_svg_outline(doc)
+        svg = plan_svg.plan_to_svg_outline(doc, texture=a.texture, soft=a.soft)
         Path(a.out).write_text(svg, encoding="utf-8")
         if a.compact:
             import svg_compact

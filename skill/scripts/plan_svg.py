@@ -390,7 +390,7 @@ def _capsule(p0, p1, r0, r1, steps=8):
         pts.append((x0 + math.cos(t)*r0, y0 + math.sin(t)*r0))
     return pts
 
-def plan_to_svg_outline(doc, title=None):
+def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
     """One path per stroke: capsule subpaths unioned by nonzero fill."""
     w, h = [int(v) for v in doc["canvas"]]
     layers = doc.get("layers") or []
@@ -410,7 +410,7 @@ def plan_to_svg_outline(doc, title=None):
     if title:
         out.append("<title>%s</title>" % escape(str(title)))
     for name in order:
-        out.append('<g data-name=%s data-blend=%s>' % (quoteattr(name), quoteattr(blends[name])))
+        out.append('<g data-name=%s data-blend=%s%s>' % (quoteattr(name), quoteattr(blends[name]), ' filter="url(#soft)"' if soft else ""))
         for st in by.get(name, []):
             pts = st.get("points") or []
             if not pts:

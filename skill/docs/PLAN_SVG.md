@@ -78,7 +78,7 @@ lighthouse 44k：
 2.07 s（Python）
 ```
 
-视觉明显比 stroke 级接近，边缘仍是硬边；软边/纹理还需 gradient/pattern。
+可选：
 
 ## `--stamps`（可选，native）
 
