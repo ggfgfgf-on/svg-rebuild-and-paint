@@ -485,58 +485,62 @@ static std::string plan_from_svg(const std::string& input) {
     std::function<void(pugi::xml_node)> collect_ids=[&](pugi::xml_node n){ for(pugi::xml_node q=n.first_child();q;q=q.next_sibling()){ std::string id=q.attribute("id").as_string(); if(!id.empty())ids[id]=q; collect_ids(q);} };
     collect_ids(root);
     auto at_of=[&](pugi::xml_node ch,const char*k){ std::string v=css_attr(ch,css,k); if(std::string(k)=="fill"||std::string(k)=="stroke")v=resolve_paint(v,grads); return v; };
-    auto emit=[&](pugi::xml_node ch,const std::string& layer,const std::vector<double>& xs,const std::vector<double>& ys,const std::vector<double>& ps){
-        std::string ct=at_of(ch,"data-color");
-        auto col=ct.empty()?color_from(at_of(ch,"stroke").empty()?at_of(ch,"fill"):at_of(ch,"stroke")):color_from(ct);
+    auto emit=[&](pugi::xml_node ch,const std::string& layer,const std::vector<double>& xs,const std::vector<double>& ys,const std::vector<double>& ps, const std::map<std::string,std::string>& inh){
+        auto av=[&](const char* k){ std::string v=at_of(ch,k); if(v.empty()){auto it=inh.find(k); if(it!=inh.end())v=it->second;} return v; };
+        std::string ct=av("data-color");
+        auto col=ct.empty()?color_from(av("stroke").empty()?av("fill"):av("stroke")):color_from(ct);
         std::string sj="{\"layer\":\""; jesc_to(sj,layer);
-        std::string preset=at_of(ch,"data-preset");
+        std::string preset=av("data-preset");
         bool shape=std::string(ch.name())=="circle"||std::string(ch.name())=="ellipse"||std::string(ch.name())=="rect"||std::string(ch.name())=="polygon"||std::string(ch.name())=="polyline";
-        bool fillOnly=shape && !at_of(ch,"fill").empty() && at_of(ch,"fill")!="none" && at_of(ch,"stroke").empty();
+        bool fillOnly=shape && !av("fill").empty() && av("fill")!="none" && av("stroke").empty();
         if(preset.empty())preset=fillOnly?"fill":"round_soft";
         sj += "\",\"preset\":\""; jesc_to(sj,preset);
-        double sz=at_of(ch,"data-size").empty()?(shape?(at_of(ch,"stroke-width").empty()?1.0:std::atof(at_of(ch,"stroke-width").c_str())):std::atof(at_of(ch,"stroke-width").c_str())):std::atof(at_of(ch,"data-size").c_str());
+        double sz=av("data-size").empty()?(shape?(av("stroke-width").empty()?1.0:std::atof(av("stroke-width").c_str())):std::atof(av("stroke-width").c_str())):std::atof(av("data-size").c_str());
         sj += "\",\"size\":"; sj += fmt(sz);
-        sj += ",\"opacity\":"; sj += fmt(at_of(ch,"data-opacity").empty()?1.0:std::atof(at_of(ch,"data-opacity").c_str()));
-        sj += ",\"hardness\":"; sj += fmt(at_of(ch,"data-hardness").empty()?0.7:std::atof(at_of(ch,"data-hardness").c_str()));
+        sj += ",\"opacity\":"; sj += fmt(av("data-opacity").empty()?1.0:std::atof(av("data-opacity").c_str()));
+        sj += ",\"hardness\":"; sj += fmt(av("data-hardness").empty()?0.7:std::atof(av("data-hardness").c_str()));
         sj += ",\"color\":["; sj += fmt(col[0]); sj += ","; sj += fmt(col[1]); sj += ","; sj += fmt(col[2]); sj += "],\"points\":[";
         for(size_t i=0;i<xs.size();++i){ if(i)sj += ","; sj += "["; sj += fmt(xs[i]); sj += ","; sj += fmt(ys[i]); sj += ","; sj += fmt(i<ps.size()?ps[i]:1.0); sj += "]"; }
         sj += "]";
-        if(!at_of(ch,"data-tag").empty()){ sj += ",\"tag\":\""; jesc_to(sj,at_of(ch,"data-tag")); sj += "\""; }
+        if(!av("data-tag").empty()){ sj += ",\"tag\":\""; jesc_to(sj,av("data-tag")); sj += "\""; }
         sj += "}";
         strokes.push_back(sj);
     };
-    auto emit_any=[&](pugi::xml_node ch,const std::string& layer,const std::vector<double>& xs,const std::vector<double>& ys,const std::vector<double>& ps){
+    auto emit_any=[&](pugi::xml_node ch,const std::string& layer,const std::vector<double>& xs,const std::vector<double>& ys,const std::vector<double>& ps,const std::map<std::string,std::string>& inh){
+        auto av=[&](const char*k){std::string v=at_of(ch,k); if(v.empty()){auto q=inh.find(k);if(q!=inh.end())v=q->second;}return v;};
         std::string ck=clip_url(at_of(ch,"clip-path")); if(ck.empty())ck=clip_url(at_of(ch,"mask"));
         auto it=clips.find(ck);
-        if(ck.empty()||it==clips.end()){emit(ch,layer,xs,ys,ps);return;}
+        if(ck.empty()||it==clips.end()){emit(ch,layer,xs,ys,ps,inh);return;}
         std::string fill=at_of(ch,"fill"), stroke=at_of(ch,"stroke");
         bool filled=at_of(ch,"data-preset")=="fill" || (!fill.empty()&&fill!="none"&&stroke.empty());
         for(const auto& poly:it->second){
             if(filled){
                 Poly q; for(size_t i=0;i<xs.size();++i)q.push_back({xs[i],ys[i]});
-                Poly r=clip_poly(q,poly); if(r.size()>=3){std::vector<double> a,b,p(r.size(),1.0);for(auto&v:r){a.push_back(v.first);b.push_back(v.second);} emit(ch,layer,a,b,p);}
-            } else for(size_t i=1;i<xs.size();++i){std::pair<double,double> a,b; if(clip_seg({xs[i-1],ys[i-1]},{xs[i],ys[i]},poly,a,b)){emit(ch,layer,{a.first,b.first},{a.second,b.second},{1.0,1.0});}}
+                Poly r=clip_poly(q,poly); if(r.size()>=3){std::vector<double> a,b,p(r.size(),1.0);for(auto&v:r){a.push_back(v.first);b.push_back(v.second);} emit(ch,layer,a,b,p,inh);}
+            } else for(size_t i=1;i<xs.size();++i){std::pair<double,double> a,b; if(clip_seg({xs[i-1],ys[i-1]},{xs[i],ys[i]},poly,a,b)){emit(ch,layer,{a.first,b.first},{a.second,b.second},{1.0,1.0},inh);}}
         }
     };
-    std::function<void(pugi::xml_node,std::string,Mat)> walk = [&](pugi::xml_node node, std::string inherit, Mat parent) {
+    std::function<void(pugi::xml_node,std::string,Mat,std::map<std::string,std::string>)> walk = [&](pugi::xml_node node, std::string inherit, Mat parent, std::map<std::string,std::string> inh) {
         for (pugi::xml_node ch=node.first_child(); ch; ch=ch.next_sibling()) {
             std::string tag=ch.name();
             if(tag=="defs"||tag=="style"||tag=="clipPath"||tag=="mask"||tag=="linearGradient"||tag=="radialGradient"||tag=="symbol") continue;
-            auto at=[&](const char* k){ std::string v=css_attr(ch,css,k); if(std::string(k)=="fill"||std::string(k)=="stroke")v=resolve_paint(v,grads); return v; };
+            auto at=[&](const char* k){ std::string v=css_attr(ch,css,k); if(v.empty()){auto ii=inh.find(k); if(ii!=inh.end())v=ii->second;} if(std::string(k)=="fill"||std::string(k)=="stroke")v=resolve_paint(v,grads); return v; };
             if (tag=="g") {
                 std::string n=at("data-name"); if(n.empty())n=at("id"); if(n.empty())n=inherit.empty()?"layer":inherit;
                 add_layer(names,blends,idx,n,at("data-blend"));
                 Mat m=mat_mul(parent,parse_transform(at("transform")));
+                std::map<std::string,std::string> my=inh;
+                for(const char* key: {"fill","stroke","stroke-width","opacity","fill-opacity"}){std::string v=at(key); if(!v.empty())my[key]=v;}
                 if(!at("data-stroke").empty() || (!at("data-center").empty() && at("data-name").empty())){
                     std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
                     add_layer(names,blends,idx,layer,"");
                     std::vector<double> xs,ys,ps;
                     parse_center(at("data-center"),xs,ys,ps);
                     for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
-                    if(!xs.empty()) emit_any(ch,layer,xs,ys,ps);
+                    if(!xs.empty()) emit_any(ch,layer,xs,ys,ps,inh);
                     continue;
                 }
-                walk(ch,n,m);
+                walk(ch,n,m,my);
             } else if (tag=="path") {
                 std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
                 add_layer(names,blends,idx,layer,"");
@@ -546,14 +550,14 @@ static std::string plan_from_svg(const std::string& input) {
                     if(xs.empty())continue;
                     Mat m=mat_mul(parent,parse_transform(at("transform")));
                     for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
-                    emit_any(ch,layer,xs,ys,ps);
+                    emit_any(ch,layer,xs,ys,ps,inh);
                 } else {
                     Mat m=mat_mul(parent,parse_transform(at("transform")));
                     for(const auto& part:split_d_subpaths(at("d"))){
                         xs.clear();ys.clear();parse_d(part,xs,ys); if(xs.empty())continue;
                         ps.assign(xs.size(),1.0);
                         for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
-                        emit_any(ch,layer,xs,ys,ps);
+                        emit_any(ch,layer,xs,ys,ps,inh);
                     }
                 }
             } else if (tag=="use") {
@@ -563,7 +567,7 @@ static std::string plan_from_svg(const std::string& input) {
                     if(it!=ids.end()){
                         Mat m=mat_mul(parent,parse_transform(at("transform")));
                         m=mat_mul(m,Mat{1,0,0,1,std::atof(at("x").c_str()),std::atof(at("y").c_str())});
-                        pugi::xml_document tmp; tmp.append_copy(it->second); walk(tmp,inherit,m);
+                        pugi::xml_document tmp; auto cp=tmp.append_copy(it->second); if(std::string(cp.name())=="symbol")cp.set_name("g"); walk(tmp,inherit,m,inh);
                     }
                 }
             } else if (tag=="circle"||tag=="ellipse"||tag=="rect"||tag=="polygon"||tag=="polyline") {
@@ -574,11 +578,11 @@ static std::string plan_from_svg(const std::string& input) {
                 Mat m=mat_mul(parent,parse_transform(at("transform")));
                 for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
                 std::vector<double> ps(xs.size(),1.0);
-                emit_any(ch,layer,xs,ys,ps);
-            } else walk(ch,inherit,parent);
+                emit_any(ch,layer,xs,ys,ps,inh);
+            } else walk(ch,inherit,parent,inh);
         }
     };
-    walk(root,"",Mat());
+    walk(root,"",Mat(),std::map<std::string,std::string>());
     std::string out="{\"canvas\":["; out+=std::to_string(W); out+=","; out+=std::to_string(H); out+="],\"layers\":[";
     for(size_t i=0;i<names.size();++i){ if(i)out+=","; out+="{\"name\":\""; jesc_to(out,names[i]); out+="\",\"blend\":\""; jesc_to(out,blends[i]); out+="\"}"; }
     out += "],\"strokes\":[";
