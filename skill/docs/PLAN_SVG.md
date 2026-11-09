@@ -58,6 +58,28 @@ bridge 输出带 `data-bridge="plan_svg"` 时，native 不再走 pugixml DOM，�
 
 这是当前 bridge 路径的最快解析。
 
+## `--outline`（生产候选）
+
+```powershell
+python scripts/plan_to_svg.py plan.json out.svg --outline
+```
+
+一笔一个 `<path>`：
+
+- 每段生成 capsule 子路径；
+- 同一笔的所有子路径放进一个 path；
+- `fill-rule="nonzero"` 做并集；
+- 不再输出 428k circle。
+
+lighthouse 44k：
+
+```text
+14.9 MB
+2.07 s（Python）
+```
+
+视觉明显比 stroke 级接近，边缘仍是硬边；软边/纹理还需 gradient/pattern。
+
 ## `--stamps`（可选，native）
 
 `--stamps-tip` 是 Python 的近似 brush tip 版：

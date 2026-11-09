@@ -366,6 +366,74 @@ def plan_to_svg_stamps(doc, title=None):
     out.extend(body); out.append("</svg>")
     return "\n".join(out) + "\n"
 
+
+def _capsule(p0, p1, r0, r1, steps=8):
+    x0, y0 = p0; x1, y1 = p1
+    dx, dy = x1 - x0, y1 - y0
+    ln = math.hypot(dx, dy)
+    if ln < 1e-9:
+        a = math.atan2(dy, dx)
+        ux, uy = 1.0, 0.0
+    else:
+        ux, uy = dx / ln, dy / ln
+    nx, ny = -uy, ux
+    left0 = (x0 + nx*r0, y0 + ny*r0); left1 = (x1 + nx*r1, y1 + ny*r1)
+    right1 = (x1 - nx*r1, y1 - ny*r1); right0 = (x0 - nx*r0, y0 - ny*r0)
+    a = math.atan2(uy, ux)
+    pts = [left0, left1]
+    for k in range(1, steps):
+        t = a + math.pi/2 - math.pi * (k / steps)
+        pts.append((x1 + math.cos(t)*r1, y1 + math.sin(t)*r1))
+    pts += [right1, right0]
+    for k in range(1, steps):
+        t = a - math.pi/2 - math.pi * (k / steps)
+        pts.append((x0 + math.cos(t)*r0, y0 + math.sin(t)*r0))
+    return pts
+
+def plan_to_svg_outline(doc, title=None):
+    """One path per stroke: capsule subpaths unioned by nonzero fill."""
+    w, h = [int(v) for v in doc["canvas"]]
+    layers = doc.get("layers") or []
+    order, blends = [], {}
+    for l in layers:
+        n = str(l.get("name", "layer"))
+        if n not in blends:
+            order.append(n); blends[n] = str(l.get("blend", "normal"))
+    by = {}
+    for s in doc.get("strokes") or []:
+        n = str(s.get("layer", "layer"))
+        if n not in blends:
+            order.append(n); blends[n] = "normal"
+        by.setdefault(n, []).append(s)
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" data-bridge="plan_svg_outline" shape-rendering="geometricPrecision">' % (w, h, w, h)]
+    if title:
+        out.append("<title>%s</title>" % escape(str(title)))
+    for name in order:
+        out.append('<g data-name=%s data-blend=%s>' % (quoteattr(name), quoteattr(blends[name])))
+        for st in by.get(name, []):
+            pts = st.get("points") or []
+            if not pts:
+                continue
+            size = float(st.get("size", 8.0)); base = size * 0.5
+            ps = [(float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)) for p in pts]
+            radii = [max(0.3, base * (0.30 + 0.70 * p[2])) for p in ps]
+            if len(ps) == 1:
+                x, y = ps[0][0], ps[0][1]; r = radii[0]
+                d = "M %s %s m -%s 0 a %s %s 0 1 0 %s 0 a %s %s 0 1 0 -%s 0 Z" % (_f(x), _f(y), _f(r), _f(r), _f(r), _f(2*r), _f(r), _f(r), _f(2*r))
+            else:
+                parts = []
+                for i in range(1, len(ps)):
+                    seg = _capsule((ps[i-1][0], ps[i-1][1]), (ps[i][0], ps[i][1]), radii[i-1], radii[i])
+                    parts.append("M " + " L ".join("%s %s" % (_f(x), _f(y)) for x, y in seg) + " Z")
+                d = " ".join(parts)
+            out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer=%s data-preset=%s/>' %
+                       (d, _rgb(st.get("color")), _f(st.get("opacity", 1.0)), quoteattr(name), quoteattr(str(st.get("preset", "round_soft")))))
+        out.append("</g>")
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
 def svg_to_plan(svg_text):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
     if _native is not None and _native.available():

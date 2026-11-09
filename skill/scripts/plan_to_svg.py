@@ -12,8 +12,24 @@ def main():
     ap.add_argument("--pure", action="store_true", help="强制纯 Python 路径")
     ap.add_argument("--stamps", action="store_true", help="stamp 级 SVG：每个 stamp 一个 circle，文件大")
     ap.add_argument("--stamps-tip", action="store_true", help="stamp 级 + 近似 brush tip/radial gradient（Python）")
+    ap.add_argument("--outline", action="store_true", help="一笔一个 capsule 轮廓 path")
     ap.add_argument("--compact", action="store_true", help="写完后做无损路径压缩")
     a = ap.parse_args()
+    if a.outline:
+        import time
+        from pathlib import Path
+        import plan_io
+        doc, _, _ = plan_io.load_plan(a.plan)
+        t0 = time.perf_counter()
+        svg = plan_svg.plan_to_svg_outline(doc)
+        Path(a.out).write_text(svg, encoding="utf-8")
+        if a.compact:
+            import svg_compact
+            svg = svg_compact.compact_svg(svg)
+            Path(a.out).write_text(svg, encoding="utf-8")
+        print(json.dumps({"plan": a.plan, "svg": a.out, "svg_bytes": len(svg.encode("utf-8")),
+                          "svg_s": round(time.perf_counter() - t0, 4), "mode": "outline"}, ensure_ascii=False))
+        return
     if a.stamps_tip:
         import time
         from pathlib import Path
