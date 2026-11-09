@@ -211,7 +211,24 @@ static void addpt(std::vector<double>& xs, std::vector<double>& ys, double x, do
     if (!xs.empty() && std::fabs(xs.back()-x)<1e-9 && std::fabs(ys.back()-y)<1e-9) return;
     xs.push_back(x); ys.push_back(y);
 }
+
+static std::vector<double> fast_nums(const std::string& s) {
+    std::vector<double> v; const char* p=s.c_str();
+    while(*p){
+        if(*p=='M'||*p=='L'||*p=='m'||*p=='l'||*p==' '||*p==','||*p=='\t'||*p=='\r'||*p=='\n'){ ++p; continue; }
+        char* q=nullptr; double x=std::strtod(p,&q);
+        if(q==p){ ++p; continue; }
+        v.push_back(x); p=q;
+    }
+    return v;
+}
+
 static void parse_d(const std::string& d, std::vector<double>& xs, std::vector<double>& ys) {
+    if (!d.empty() && d[0] == 'M' && d.find_first_of("CcSsQqTtAaHhVvZz") == std::string::npos) {
+        auto v = fast_nums(d);
+        for (size_t i = 0; i + 1 < v.size(); i += 2) { xs.push_back(v[i]); ys.push_back(v[i+1]); }
+        return;
+    }
     PP q(d); char c=0, prev=0;
     double cx=0,cy=0,sx=0,sy=0,px=0,py=0;
     while (true) {
