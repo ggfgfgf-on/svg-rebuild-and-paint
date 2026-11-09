@@ -60,6 +60,20 @@ bridge 输出带 `data-bridge="plan_svg"` 时，native 不再走 pugixml DOM，�
 
 ## `--stamps`（可选，native）
 
+`--stamps-tip` 是 Python 的近似 brush tip 版：
+
+```powershell
+python scripts/plan_to_svg.py plan.json out.svg --stamps-tip
+```
+
+- preset 形状：flat/bristle 用旋转 ellipse；
+- soft 用按颜色/硬度分档的 radialGradient；
+- 压力仍用近似曲线；
+- 纹理仍没有。
+
+lighthouse 44k：约 39.8 MB，0.858 s。
+
+
 ```powershell
 python scripts/plan_to_svg.py plan.json out.svg --stamps
 ```

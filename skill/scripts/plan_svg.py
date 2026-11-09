@@ -304,11 +304,10 @@ def _color(s, default=(217, 180, 90)):
 
 
 def plan_to_svg_stamps(doc, title=None):
-    """Stamp-level SVG: one <circle> per brush stamp. Large but closer than stroke-level."""
+    """Stamp-level SVG with approximate brush tip gradients/shapes (debug/visual reference)."""
     w, h = [int(v) for v in doc["canvas"]]
     layers = doc.get("layers") or []
-    order = []
-    blends = {}
+    order, blends = [], {}
     for l in layers:
         n = str(l.get("name", "layer"))
         if n not in blends:
@@ -319,45 +318,53 @@ def plan_to_svg_stamps(doc, title=None):
         if n not in blends:
             order.append(n); blends[n] = "normal"
         by.setdefault(n, []).append(s)
-    out = ['<?xml version="1.0" encoding="UTF-8"?>',
-           '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" data-bridge="plan_svg_stamps" shape-rendering="geometricPrecision">' % (w, h, w, h)]
-    if title:
-        out.append("<title>%s</title>" % escape(str(title)))
+    defs = []; used = {}; body = []
+    def grad_id(col, hard):
+        q = max(0.0, min(1.0, hard)); q = round(q * 4.0) / 4.0
+        if q >= 0.95:
+            return None
+        key = (col, q)
+        if key in used:
+            return used[key]
+        gid = "t%d" % len(used); used[key] = gid
+        mid = 0.55 if q <= 0.25 else (0.7 if q <= 0.5 else 0.82)
+        defs.append('<radialGradient id="%s"><stop offset="0" stop-color="%s" stop-opacity="1"/><stop offset="%s" stop-color="%s" stop-opacity="0.55"/><stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>' % (gid, col, _f(mid), col, col))
+        return gid
     for name in order:
-        out.append('<g data-name=%s data-blend=%s>' % (quoteattr(name), quoteattr(blends[name])))
+        body.append('<g data-name=%s data-blend=%s>' % (quoteattr(name), quoteattr(blends[name])))
         for st in by.get(name, []):
             pts = st.get("points") or []
             if not pts:
                 continue
             size = float(st.get("size", 8.0)); base = size * 0.5
             col = _rgb(st.get("color")); op0 = max(0.0, min(1.0, float(st.get("opacity", 1.0))))
-            total = 0.0
-            for i in range(1, len(pts)):
-                total += math.hypot(float(pts[i][0]) - float(pts[i-1][0]), float(pts[i][1]) - float(pts[i-1][1]))
-            arc = 0.0
+            preset = str(st.get("preset", "round_soft")); hard = float(st.get("hardness", 0.7))
             for i in range(1, len(pts)):
                 x0, y0, p0 = float(pts[i-1][0]), float(pts[i-1][1]), float(pts[i-1][2] if len(pts[i-1]) > 2 else 1.0)
                 x1, y1, p1 = float(pts[i][0]), float(pts[i][1]), float(pts[i][2] if len(pts[i]) > 2 else 1.0)
-                ln = math.hypot(x1-x0, y1-y0)
-                step = max(0.6, base * 0.30)
-                steps = max(1, int(math.floor(ln / step)))
+                dx, dy = x1-x0, y1-y0; ln = math.hypot(dx, dy); ang = math.degrees(math.atan2(dy, dx))
+                step = max(0.6, base * 0.30); steps = max(1, int(math.floor(ln / step)))
                 for k in range(steps + 1):
-                    t = k / float(steps)
-                    x = x0 + (x1-x0)*t; y = y0 + (y1-y0)*t
-                    press = p0 + (p1-p0)*t
-                    pr = 0.30 + 0.70*press
-                    pa = 0.15 + 0.85*press
+                    t = k / float(steps); x = x0 + dx*t; y = y0 + dy*t
+                    press = p0 + (p1-p0)*t; pr = 0.30 + 0.70*press; pa = 0.15 + 0.85*press
                     r = base * pr
                     if r <= 0:
                         continue
-                    op = max(0.0, min(1.0, op0 * pa))
-                    out.append('<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="%s"/>' %
-                               (_f(x), _f(y), _f(r), col, _f(op)))
-                arc += ln
-        out.append("</g>")
-    out.append("</svg>")
+                    op = max(0.0, min(1.0, op0 * pa)); gid = grad_id(col, hard)
+                    fill = ("url(#%s)" % gid) if gid else col
+                    if preset in ("flat", "bristle"):
+                        body.append('<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill="%s" fill-opacity="%s" transform="rotate(%s %s %s)"/>' % (_f(x), _f(y), _f(r), _f(max(0.8, r * 0.35)), fill, _f(op), _f(ang), _f(x), _f(y)))
+                    else:
+                        body.append('<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="%s"/>' % (_f(x), _f(y), _f(r), fill, _f(op)))
+        body.append("</g>")
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" data-bridge="plan_svg_stamps" shape-rendering="geometricPrecision">' % (w, h, w, h)]
+    if title:
+        out.append("<title>%s</title>" % escape(str(title)))
+    if defs:
+        out.append("<defs>%s</defs>" % "\n".join(defs))
+    out.extend(body); out.append("</svg>")
     return "\n".join(out) + "\n"
-
 
 def svg_to_plan(svg_text):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
