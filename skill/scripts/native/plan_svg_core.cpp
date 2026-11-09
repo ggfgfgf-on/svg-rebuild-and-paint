@@ -337,6 +337,24 @@ static void write_all(const char* path, const std::string& s) {
     if (!f) throw std::runtime_error("write failed");
     f.write(s.data(), (std::streamsize)s.size());
 }
+static std::string plan_json_to_bin(const std::string&);
+static std::string bin_to_plan_json(const unsigned char*, int);
+
+EXPORT char* psvg_plan_file_to_bin(const char* plan_path, const char* bin_path) {
+    try {
+        std::string out = plan_json_to_bin(read_all(plan_path));
+        write_all(bin_path, out);
+        return dupstr(std::string("{\"ok\":true,\"bytes\":") + std::to_string(out.size()) + "}");
+    } catch (const std::exception& e) { return dupstr(std::string("ERR:") + e.what()); }
+}
+EXPORT char* psvg_bin_file_to_plan(const char* bin_path, const char* plan_path) {
+    try {
+        std::string input = read_all(bin_path);
+        std::string out = bin_to_plan_json((const unsigned char*)input.data(), (int)input.size());
+        write_all(plan_path, out);
+        return dupstr(std::string("{\"ok\":true,\"bytes\":") + std::to_string(out.size()) + "}");
+    } catch (const std::exception& e) { return dupstr(std::string("ERR:") + e.what()); }
+}
 EXPORT char* psvg_plan_file_to_svg(const char* plan_path, const char* svg_path) {
     try {
         std::string out = svg_from_plan(read_all(plan_path));
@@ -608,6 +626,65 @@ EXPORT char* psvg_bin_to_svg(const unsigned char* data, int n, int* out_len) {
 EXPORT char* psvg_svg_to_bin(const char* svg, int n, int* out_len) {
     try { std::string s=bin_from_svg(std::string(svg,n)); *out_len=(int)s.size(); char* p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p; }
     catch(const std::exception& e){ return dupstr(std::string("ERR:")+e.what()); }
+}
+
+
+static std::string plan_json_to_bin(const std::string& input) {
+    Document d; d.Parse(input.c_str(), input.size());
+    if (d.HasParseError() || !d.IsObject()) throw std::runtime_error("invalid plan json");
+    int w=d["canvas"][0].GetInt(), h=d["canvas"][1].GetInt();
+    const Value& ls=d["layers"]; const Value& ss=d["strokes"];
+    std::map<std::string,int> idx;
+    for (rapidjson::SizeType i=0;i<ls.Size();++i) idx[get_str(ls[i],"name","layer")]=(int)i;
+    std::vector<unsigned char> v; v.reserve(2*1024*1024);
+    v.insert(v.end(), {'P','S','V','B'}); wr32(v,1);
+    wr32(v,(uint32_t)w); wr32(v,(uint32_t)h); wr32(v,(uint32_t)ls.Size()); wr32(v,(uint32_t)ss.Size());
+    for(const auto& l : ls.GetArray()){ wrstr(v,get_str(l,"blend","normal")); wrstr(v,get_str(l,"name","layer")); }
+    for(const auto& s : ss.GetArray()){
+        wr16(v,(uint16_t)idx[get_str(s,"layer","layer")]); wrstr(v,get_str(s,"preset","round_soft"));
+        wrf(v,(float)get_num(s,"size",8.0)); wrf(v,(float)get_num(s,"opacity",1.0)); wrf(v,(float)get_num(s,"hardness",0.7));
+        auto ci=s.FindMember("color"); double r=217,g=180,b=90;
+        if(ci!=s.MemberEnd()&&ci->value.IsArray()&&ci->value.Size()>=3){r=ci->value[0].GetDouble();g=ci->value[1].GetDouble();b=ci->value[2].GetDouble();}
+        wrf(v,(float)r); wrf(v,(float)g); wrf(v,(float)b);
+        const Value& pts=s["points"]; wr16(v,(uint16_t)pts.Size());
+        for(const auto& p : pts.GetArray()){ wrf(v,(float)p[0].GetDouble()); wrf(v,(float)p[1].GetDouble()); wrf(v,(float)(p.Size()>2?p[2].GetDouble():1.0)); }
+        wrstr(v, s.HasMember("tag")?s["tag"].GetString():"");
+    }
+    return std::string((const char*)v.data(), v.size());
+}
+
+static std::string bin_to_plan_json(const unsigned char* data, int len) {
+    BR b(data,len);
+    if(b.u32()!=0x42565350) throw std::runtime_error("bad binary magic");
+    if(b.u32()!=1) throw std::runtime_error("bad binary version");
+    int w=b.i32(),h=b.i32(),lc=b.i32(),sc=b.i32();
+    std::vector<std::string> names(lc),blends(lc);
+    for(int i=0;i<lc;++i){ blends[i]=b.str16(); names[i]=b.str16(); }
+    std::string out="{\"canvas\":["; out+=std::to_string(w); out+=","; out+=std::to_string(h); out+="],\"layers\":[";
+    for(int i=0;i<lc;++i){ if(i)out+=","; out+="{\"name\":\""; jesc_to(out,names[i]); out+="\",\"blend\":\""; jesc_to(out,blends[i]); out+="\"}"; }
+    out+="],\"strokes\":[";
+    for(int k=0;k<sc;++k){
+        if(k)out+=",";
+        int li=b.u16(); std::string preset=b.str16();
+        float size=b.f32(),op=b.f32(),hard=b.f32(),r=b.f32(),g=b.f32(),bl=b.f32();
+        int pc=b.u16();
+        out+="{\"layer\":\""; jesc_to(out,names[li]); out+="\",\"preset\":\""; jesc_to(out,preset);
+        out+="\",\"size\":"+fmt(size)+",\"opacity\":"+fmt(op)+",\"hardness\":"+fmt(hard)+",\"color\":["+fmt(r)+","+fmt(g)+","+fmt(bl)+"],\"points\":[";
+        for(int j=0;j<pc;++j){ if(j)out+=","; float x=b.f32(),y=b.f32(),pr=b.f32(); out+="["+fmt(x)+","+fmt(y)+","+fmt(pr)+"]"; }
+        out+="]";
+        std::string tag=b.str16(); if(!tag.empty()){ out+=",\"tag\":\""; jesc_to(out,tag); out+="\""; }
+        out+="}";
+    }
+    out+="],\"count\":"+std::to_string(sc)+"}";
+    return out;
+}
+EXPORT char* psvg_plan_json_to_bin(const char* in,int n,int* out_len){
+    try{std::string s=plan_json_to_bin(std::string(in,n));*out_len=(int)s.size();char*p=(char*)std::malloc(s.size());if(p)std::memcpy(p,s.data(),s.size());return p;}
+    catch(const std::exception&e){*out_len=(int)(std::string("ERR:")+e.what()).size();return dupstr(std::string("ERR:")+e.what());}
+}
+EXPORT char* psvg_bin_to_plan_json(const char* in,int n,int* out_len){
+    try{std::string s=bin_to_plan_json((const unsigned char*)in,n);*out_len=(int)s.size();char*p=(char*)std::malloc(s.size());if(p)std::memcpy(p,s.data(),s.size());return p;}
+    catch(const std::exception&e){*out_len=(int)(std::string("ERR:")+e.what()).size();return dupstr(std::string("ERR:")+e.what());}
 }
 
 EXPORT void psvg_free(char* p){ std::free(p); }

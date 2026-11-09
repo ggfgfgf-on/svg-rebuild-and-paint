@@ -14,14 +14,14 @@ def available():
 
 def _load():
     lib = ctypes.CDLL(str(_DLL))
-    for n in ("psvg_plan_to_svg", "psvg_svg_to_plan", "psvg_plan_file_to_svg", "psvg_svg_file_to_plan"):
+    for n in ("psvg_plan_to_svg", "psvg_svg_to_plan", "psvg_plan_file_to_svg", "psvg_svg_file_to_plan", "psvg_plan_file_to_bin", "psvg_bin_file_to_plan"):
         f = getattr(lib, n)
         f.restype = ctypes.c_void_p
-        if n.endswith("_file_to_svg") or n.endswith("_file_to_plan"):
+        if n in ("psvg_plan_file_to_svg", "psvg_svg_file_to_plan", "psvg_plan_file_to_bin", "psvg_bin_file_to_plan"):
             f.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
         else:
             f.argtypes = [ctypes.c_char_p, ctypes.c_int]
-    for n in ("psvg_bin_to_svg", "psvg_svg_to_bin"):
+    for n in ("psvg_bin_to_svg", "psvg_svg_to_bin", "psvg_plan_json_to_bin", "psvg_bin_to_plan_json"):
         f = getattr(lib, n)
         f.restype = ctypes.c_void_p
         f.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
@@ -56,7 +56,7 @@ def _call_text(fn, text: str) -> str:
     return s.decode("utf-8", "replace")
 
 
-def pack_plan(doc) -> bytes:
+def _pack_plan_py(doc) -> bytes:
     layers = doc.get("layers") or []
     order, blend = [], {}
     for l in layers:
@@ -91,7 +91,7 @@ def pack_plan(doc) -> bytes:
     return bytes(out)
 
 
-def unpack_plan(data: bytes):
+def _unpack_plan_py(data: bytes):
     p = 4
     ver, w, h, lc, sc = struct.unpack_from("<IIiii", data, p); p += 20
     blends, names = [], []
@@ -120,6 +120,35 @@ def unpack_plan(data: bytes):
         strokes.append(st)
     return {"canvas": [w, h], "layers": [{"name": n, "blend": b} for n, b in zip(names, blends)],
             "strokes": strokes, "count": len(strokes)}
+
+def pack_plan(doc) -> bytes:
+    if _LIB is not None:
+        b = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+        n = ctypes.c_int(0)
+        ptr = _LIB.psvg_plan_json_to_bin(ctypes.c_char_p(b), len(b), ctypes.byref(n))
+        if ptr:
+            try:
+                raw = ctypes.string_at(ptr, n.value)
+            finally:
+                _free(ptr)
+            if not raw.startswith(b"ERR:"):
+                return raw
+    return _pack_plan_py(doc)
+
+
+def unpack_plan(data: bytes):
+    if _LIB is not None:
+        n = ctypes.c_int(0)
+        ptr = _LIB.psvg_bin_to_plan_json(ctypes.c_char_p(data), len(data), ctypes.byref(n))
+        if ptr:
+            try:
+                raw = ctypes.string_at(ptr, n.value)
+            finally:
+                _free(ptr)
+            if not raw.startswith(b"ERR:"):
+                return json.loads(raw.decode("utf-8"))
+    return _unpack_plan_py(data)
+
 
 
 def plan_to_svg(doc) -> str:
@@ -158,7 +187,12 @@ def _call_paths(fn, a: str, b: str) -> str:
     ptr = fn(a.encode("utf-8"), b.encode("utf-8"))
     if not ptr:
         raise RuntimeError("native bridge returned null")
-    s = _err(ptr, 4096)
+    try:
+        s = ctypes.string_at(ptr)
+    finally:
+        _free(ptr)
+    if s.startswith(b"ERR:"):
+        raise ValueError(s[4:].decode("utf-8", "replace"))
     return s.decode("utf-8", "replace")
 
 
@@ -168,3 +202,11 @@ def plan_file_to_svg(plan_path: str, svg_path: str) -> str:
 
 def svg_file_to_plan(svg_path: str, plan_path: str) -> str:
     return _call_paths(_LIB.psvg_svg_file_to_plan, svg_path, plan_path)
+
+
+def pack_plan_file(plan_path: str, bin_path: str) -> str:
+    return _call_paths(_LIB.psvg_plan_file_to_bin, plan_path, bin_path)
+
+
+def unpack_plan_file(bin_path: str, plan_path: str) -> str:
+    return _call_paths(_LIB.psvg_bin_file_to_plan, bin_path, plan_path)

@@ -16,6 +16,17 @@
 
 两个方向都在亚秒级；这是本机 44,589 笔 / 17 层 / 1200×900 的单次测量，不是跨机器基准；计时不含浏览器渲染。native 版是 Windows DLL（RapidJSON + pugixml）；文件直通版在 DLL 内读 plan、写 SVG / 读 SVG、写 plan，避免 Python JSON。
 
+## DLL 打包/解包（文件级）
+
+44,589 笔实测：
+
+| 操作 | 耗时 | 产物 |
+|---|---:|---|
+| `pack_plan_file(plan.json, plan.psvb)` | **0.057 s** | 2.8 MB PSVB |
+| `unpack_plan_file(plan.psvb, plan.json)` | **0.117 s** | 7.1 MB plan JSON |
+
+这两个都是 DLL 直接读/写文件，不经 Python 45k 循环。
+
 ## 二进制协议（native 内存）
 
 `plan_svg_native.py` 不再把 plan 序列化成 JSON 给 DLL，而是打包成 `PSVB`：
