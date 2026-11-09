@@ -52,7 +52,7 @@ python scripts/plan_to_svg.py plan.json out.svg
 python scripts/svg_to_plan.py out.svg back.plan.json
 ~~~
 
-`plan_to_svg.py` 默认写柔边 filter；`--no-filters` 更快、更小，但软笔刷视觉上更硬。
+`plan_to_svg.py` 默认**不加** Gaussian filter；需要旧版柔边近似时加 `--soft-filter`，会更糊。`--pure` 强制走纯 Python 参考实现。
 
 ## API
 

@@ -92,9 +92,9 @@ def _filter_defs(ids):
     return "".join(out)
 
 
-def plan_to_svg(doc, *, filters=True, title=None):
+def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
-    if _native is not None and _native.available():
+    if _native is not None and _native.available() and not filters:
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
     layers = doc.get("layers") or []

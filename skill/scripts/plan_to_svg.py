@@ -8,9 +8,23 @@ def main():
     ap = argparse.ArgumentParser(description="plan.json -> SVG")
     ap.add_argument("plan")
     ap.add_argument("out")
-    ap.add_argument("--no-filters", action="store_true", help="不写柔边 filter（更快、更小）")
+    ap.add_argument("--soft-filter", action="store_true", help="添加柔边 Gaussian filter（默认不加，避免整笔发糊）")
+    ap.add_argument("--pure", action="store_true", help="强制纯 Python 路径")
     a = ap.parse_args()
-    print(json.dumps(plan_svg.dump_plan_svg(a.plan, a.out, filters=not a.no_filters), ensure_ascii=False))
+    if not a.pure:
+        try:
+            import plan_svg_native as N
+            if N.available():
+                import time
+                from pathlib import Path
+                t0 = time.perf_counter()
+                N.plan_file_to_svg(a.plan, a.out)
+                print(json.dumps({"plan": a.plan, "svg": a.out, "svg_bytes": Path(a.out).stat().st_size,
+                                  "svg_s": round(time.perf_counter() - t0, 4)}, ensure_ascii=False))
+                return
+        except Exception:
+            pass
+    print(json.dumps(plan_svg.dump_plan_svg(a.plan, a.out, filters=a.soft_filter), ensure_ascii=False))
 
 if __name__ == "__main__":
     main()
