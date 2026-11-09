@@ -16,6 +16,25 @@
 
 两个方向都在亚秒级；这是本机 44,589 笔 / 17 层 / 1200×900 的单次测量，不是跨机器基准；计时不含浏览器渲染。native 版是 Windows DLL（RapidJSON + pugixml）；文件直通版在 DLL 内读 plan、写 SVG / 读 SVG、写 plan，避免 Python JSON。
 
+## CPython `.pyd`（dict 直读，Windows）
+
+`plan_svg_ext.pyd` 直接读 `PyObject*`，不再 `json.dumps`：
+
+| 操作 | 耗时（44,589 笔） |
+|---|---:|
+| `plan_svg_ext.pack_plan(doc)` | **0.019 s** |
+| `plan_svg_native.plan_to_svg(doc)` | **0.157 s** |
+
+`plan_svg_native.pack_plan(doc)` 检测到 `.pyd` 时优先走它；否则回退 C++ JSON 路径。
+
+构建：
+
+~~~powershell
+powershell -File scripts/native/build_plan_svg_ext.ps1
+~~~
+
+`.pyd` 只解决 Python dict → bytes 的边界；`unpack_plan` 仍走 C++ 二进制 → JSON → Python。
+
 ## DLL 打包/解包（文件级）
 
 44,589 笔实测：

@@ -5,6 +5,11 @@ import json
 import struct
 from pathlib import Path
 
+try:
+    import plan_svg_ext as _ext
+except Exception:
+    _ext = None
+
 _DLL = Path(__file__).resolve().parent / "native" / "plan_svg_core.dll"
 
 
@@ -122,6 +127,8 @@ def _unpack_plan_py(data: bytes):
             "strokes": strokes, "count": len(strokes)}
 
 def pack_plan(doc) -> bytes:
+    if _ext is not None:
+        return _ext.pack_plan(doc)
     if _LIB is not None:
         b = json.dumps(doc, separators=(",", ":")).encode("utf-8")
         n = ctypes.c_int(0)
