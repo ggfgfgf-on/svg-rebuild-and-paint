@@ -336,6 +336,8 @@ static void write_all(const char* path, const std::string& s) {
 }
 static std::string plan_json_to_bin(const std::string&);
 static std::string bin_to_plan_json(const unsigned char*, int);
+static std::string scan_from_svg(const std::string&);
+static std::string bin_from_svg(const std::string&);
 
 EXPORT char* psvg_plan_file_to_bin(const char* plan_path, const char* bin_path) {
     try {
@@ -361,7 +363,9 @@ EXPORT char* psvg_plan_file_to_svg(const char* plan_path, const char* svg_path) 
 }
 EXPORT char* psvg_svg_file_to_plan(const char* svg_path, const char* plan_path) {
     try {
-        std::string out = plan_from_svg(read_all(svg_path));
+        std::string input = read_all(svg_path);
+        std::string bin; try { bin = scan_from_svg(input); } catch (...) { bin = bin_from_svg(input); }
+        std::string out = bin_to_plan_json((const unsigned char*)bin.data(), (int)bin.size());
         write_all(plan_path, out);
         return dupstr(std::string("{\"ok\":true,\"bytes\":") + std::to_string(out.size()) + "}");
     } catch (const std::exception& e) { return dupstr(std::string("ERR:") + e.what()); }
@@ -431,6 +435,86 @@ static std::string bin_to_svg(const unsigned char* data, int len) {
 
 struct BinStroke { int layer; std::string preset, tag; float size, opacity, hardness, r, g, b; std::vector<float> pts; };
 
+
+
+struct EP {
+    std::vector<std::string> names, blends, stack;
+    std::map<std::string,int> idx;
+    std::vector<BinStroke> strokes;
+    int W = 1200, H = 900;
+};
+
+static std::string scan_attr(const std::string& tag, const char* name) {
+    std::string key = std::string(name) + "=\"";
+    size_t p = tag.find(key);
+    if (p == std::string::npos) return "";
+    p += key.size();
+    size_t q = tag.find('"', p);
+    return q == std::string::npos ? "" : tag.substr(p, q - p);
+}
+
+static std::string scan_from_svg(const std::string& input) {
+    if (input.find("data-bridge=\"plan_svg\"") == std::string::npos)
+        throw std::runtime_error("not bridge svg");
+    EP e;
+    size_t pos = 0;
+    while ((pos = input.find('<', pos)) != std::string::npos) {
+        if (input.compare(pos, 2, "</") == 0) {
+            if (input.compare(pos, 4, "</g>") == 0 && !e.stack.empty()) e.stack.pop_back();
+            pos += 2; continue;
+        }
+        size_t end = input.find('>', pos + 1);
+        if (end == std::string::npos) break;
+        std::string tag = input.substr(pos, end - pos + 1);
+        if (tag.compare(0, 4, "<svg") == 0) {
+            auto v = nums(scan_attr(tag, "viewBox"));
+            if (v.size() >= 4) { e.W = (int)v[2]; e.H = (int)v[3]; }
+            else {
+                std::string ws = scan_attr(tag, "width"), hs = scan_attr(tag, "height");
+                if (!ws.empty()) e.W = std::atoi(ws.c_str());
+                if (!hs.empty()) e.H = std::atoi(hs.c_str());
+            }
+        } else if (tag.compare(0, 3, "<g ") == 0 || tag.compare(0, 3, "<g>") == 0) {
+            std::string n = scan_attr(tag, "data-name");
+            if (n.empty()) n = scan_attr(tag, "id");
+            if (n.empty()) n = e.stack.empty() ? "layer" : e.stack.back();
+            add_layer(e.names, e.blends, e.idx, n, scan_attr(tag, "data-blend"));
+            e.stack.push_back(n);
+        } else if (tag.compare(0, 6, "<path ") == 0) {
+            std::string layer = scan_attr(tag, "data-layer");
+            if (layer.empty()) layer = e.stack.empty() ? "layer" : e.stack.back();
+            add_layer(e.names, e.blends, e.idx, layer, "");
+            std::vector<double> xs, ys; parse_d(scan_attr(tag, "d"), xs, ys);
+            if (!xs.empty()) {
+                auto ps = nums(scan_attr(tag, "data-p")); if (ps.size() != xs.size()) ps.assign(xs.size(), 1.0);
+                std::string ct = scan_attr(tag, "data-color");
+                auto col = ct.empty() ? color_from(scan_attr(tag, "stroke")) : color_from(ct);
+                BinStroke st; st.layer = e.idx[layer];
+                st.preset = scan_attr(tag, "data-preset").empty() ? "round_soft" : scan_attr(tag, "data-preset");
+                st.size = (float)(scan_attr(tag, "data-size").empty() ? std::atof(scan_attr(tag, "stroke-width").c_str()) : std::atof(scan_attr(tag, "data-size").c_str()));
+                if (!(st.size > 0)) st.size = 8.0f;
+                st.opacity = (float)(scan_attr(tag, "data-opacity").empty() ? 1.0 : std::atof(scan_attr(tag, "data-opacity").c_str()));
+                st.hardness = (float)(scan_attr(tag, "data-hardness").empty() ? 0.7 : std::atof(scan_attr(tag, "data-hardness").c_str()));
+                st.r=(float)col[0]; st.g=(float)col[1]; st.b=(float)col[2]; st.tag=scan_attr(tag,"data-tag");
+                for (size_t i=0;i<xs.size();++i){ st.pts.push_back((float)xs[i]); st.pts.push_back((float)ys[i]); st.pts.push_back((float)ps[i]); }
+                e.strokes.push_back(std::move(st));
+            }
+        }
+        pos = end + 1;
+    }
+    std::vector<unsigned char> v; v.reserve(2*1024*1024);
+    v.insert(v.end(), {'P','S','V','B'}); wr32(v,1);
+    wr32(v,(uint32_t)e.W); wr32(v,(uint32_t)e.H); wr32(v,(uint32_t)e.names.size()); wr32(v,(uint32_t)e.strokes.size());
+    for(size_t i=0;i<e.names.size();++i){ wrstr(v,e.blends[i]); wrstr(v,e.names[i]); }
+    for(const auto& st:e.strokes){
+        wr16(v,(uint16_t)st.layer); wrstr(v,st.preset);
+        wrf(v,st.size); wrf(v,st.opacity); wrf(v,st.hardness); wrf(v,st.r); wrf(v,st.g); wrf(v,st.b);
+        wr16(v,(uint16_t)(st.pts.size()/3));
+        for(float x:st.pts)wrf(v,x);
+        wrstr(v,st.tag);
+    }
+    return std::string((const char*)v.data(), v.size());
+}
 
 static std::string bin_from_svg(const std::string& input) {
     pugi::xml_document doc;
@@ -514,7 +598,7 @@ EXPORT char* psvg_bin_to_svg(const unsigned char* data, int n, int* out_len) {
     catch(const std::exception& e){ *out_len=(int)(std::string("ERR:")+e.what()).size(); return dupstr(std::string("ERR:")+e.what()); }
 }
 EXPORT char* psvg_svg_to_bin(const char* svg, int n, int* out_len) {
-    try { std::string s=bin_from_svg(std::string(svg,n)); *out_len=(int)s.size(); char* p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p; }
+    try { std::string s; try { s=scan_from_svg(std::string(svg,n)); } catch (...) { s=bin_from_svg(std::string(svg,n)); } *out_len=(int)s.size(); char* p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p; }
     catch(const std::exception& e){ return dupstr(std::string("ERR:")+e.what()); }
 }
 

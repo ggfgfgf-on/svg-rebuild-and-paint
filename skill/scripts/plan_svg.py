@@ -302,6 +302,63 @@ def _color(s, default=(217, 180, 90)):
     return [float(x) for x in s.replace(";", ",").split(",")[:3]]
 
 
+
+def plan_to_svg_stamps(doc, title=None):
+    """Stamp-level SVG: one <circle> per brush stamp. Large but closer than stroke-level."""
+    w, h = [int(v) for v in doc["canvas"]]
+    layers = doc.get("layers") or []
+    order = []
+    blends = {}
+    for l in layers:
+        n = str(l.get("name", "layer"))
+        if n not in blends:
+            order.append(n); blends[n] = str(l.get("blend", "normal"))
+    by = {}
+    for s in doc.get("strokes") or []:
+        n = str(s.get("layer", "layer"))
+        if n not in blends:
+            order.append(n); blends[n] = "normal"
+        by.setdefault(n, []).append(s)
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" data-bridge="plan_svg_stamps" shape-rendering="geometricPrecision">' % (w, h, w, h)]
+    if title:
+        out.append("<title>%s</title>" % escape(str(title)))
+    for name in order:
+        out.append('<g data-name=%s data-blend=%s>' % (quoteattr(name), quoteattr(blends[name])))
+        for st in by.get(name, []):
+            pts = st.get("points") or []
+            if not pts:
+                continue
+            size = float(st.get("size", 8.0)); base = size * 0.5
+            col = _rgb(st.get("color")); op0 = max(0.0, min(1.0, float(st.get("opacity", 1.0))))
+            total = 0.0
+            for i in range(1, len(pts)):
+                total += math.hypot(float(pts[i][0]) - float(pts[i-1][0]), float(pts[i][1]) - float(pts[i-1][1]))
+            arc = 0.0
+            for i in range(1, len(pts)):
+                x0, y0, p0 = float(pts[i-1][0]), float(pts[i-1][1]), float(pts[i-1][2] if len(pts[i-1]) > 2 else 1.0)
+                x1, y1, p1 = float(pts[i][0]), float(pts[i][1]), float(pts[i][2] if len(pts[i]) > 2 else 1.0)
+                ln = math.hypot(x1-x0, y1-y0)
+                step = max(0.6, base * 0.30)
+                steps = max(1, int(math.floor(ln / step)))
+                for k in range(steps + 1):
+                    t = k / float(steps)
+                    x = x0 + (x1-x0)*t; y = y0 + (y1-y0)*t
+                    press = p0 + (p1-p0)*t
+                    pr = 0.30 + 0.70*press
+                    pa = 0.15 + 0.85*press
+                    r = base * pr
+                    if r <= 0:
+                        continue
+                    op = max(0.0, min(1.0, op0 * pa))
+                    out.append('<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="%s"/>' %
+                               (_f(x), _f(y), _f(r), col, _f(op)))
+                arc += ln
+        out.append("</g>")
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
 def svg_to_plan(svg_text):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
     if _native is not None and _native.available():

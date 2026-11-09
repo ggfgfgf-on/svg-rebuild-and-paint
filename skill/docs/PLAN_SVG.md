@@ -47,6 +47,29 @@ powershell -File scripts/native/build_plan_svg_ext.ps1
 
 这两个都是 DLL 直接读/写文件，不经 Python 45k 循环。
 
+## 轻量 XML 扫描器（bridge SVG）
+
+bridge 输出带 `data-bridge="plan_svg"` 时，native 不再走 pugixml DOM，而是逐字节扫描 `<g>/<path>`：
+
+- 不建 XML 树；
+- 不处理命名空间/DTD/实体；
+- 只认 bridge 的 `data-*` 属性；
+- 非 bridge SVG 仍回退 DOM。
+
+这是当前 bridge 路径的最快解析。
+
+## `--stamps`（可选）
+
+```powershell
+python scripts/plan_to_svg.py plan.json out.svg --stamps
+```
+
+每个 brush stamp 输出一个 `<circle>`：
+
+- 不整条高斯模糊；
+- 软边仍是圆/透明度近似；
+- 文件会显著变大，默认关闭。
+
 ## 二进制协议（native 内存）
 
 `plan_svg_native.py` 不再把 plan 序列化成 JSON 给 DLL，而是打包成 `PSVB`：

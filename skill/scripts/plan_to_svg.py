@@ -10,7 +10,19 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--soft-filter", action="store_true", help="添加柔边 Gaussian filter（默认不加，避免整笔发糊）")
     ap.add_argument("--pure", action="store_true", help="强制纯 Python 路径")
+    ap.add_argument("--stamps", action="store_true", help="stamp 级 SVG：每个 stamp 一个 circle，文件大")
     a = ap.parse_args()
+    if a.stamps:
+        import time
+        from pathlib import Path
+        import plan_io
+        doc, _, _ = plan_io.load_plan(a.plan)
+        t0 = time.perf_counter()
+        svg = plan_svg.plan_to_svg_stamps(doc)
+        Path(a.out).write_text(svg, encoding="utf-8")
+        print(json.dumps({"plan": a.plan, "svg": a.out, "svg_bytes": len(svg.encode("utf-8")),
+                          "svg_s": round(time.perf_counter() - t0, 4), "mode": "stamps"}, ensure_ascii=False))
+        return
     if not a.pure:
         try:
             import plan_svg_native as N
