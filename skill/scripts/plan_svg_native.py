@@ -144,6 +144,8 @@ def pack_plan(doc) -> bytes:
 
 
 def unpack_plan(data: bytes):
+    if _ext is not None:
+        return _ext.unpack_plan(data)
     if _LIB is not None:
         n = ctypes.c_int(0)
         ptr = _LIB.psvg_bin_to_plan_json(ctypes.c_char_p(data), len(data), ctypes.byref(n))

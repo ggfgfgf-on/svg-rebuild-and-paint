@@ -12,7 +12,7 @@
 | 方向 | 耗时 | 产物 |
 |---|---:|---|
 | plan → SVG | **0.19 s**（native 二进制）/ **0.18 s**（文件直通）/ 0.41 s（Python） | 13.9–14.9 MB SVG |
-| SVG → plan | **0.33 s total**（native 二进制）/ **0.29 s**（文件直通）/ 0.50 s（Python） | 8.7 MB plan |
+| SVG → plan | **0.21 s total**（pyd 直转）/ **0.29 s**（文件直通）/ 0.50 s（Python） | 8.7 MB plan |
 
 两个方向都在亚秒级；这是本机 44,589 笔 / 17 层 / 1200×900 的单次测量，不是跨机器基准；计时不含浏览器渲染。native 版是 Windows DLL（RapidJSON + pugixml）；文件直通版在 DLL 内读 plan、写 SVG / 读 SVG、写 plan，避免 Python JSON。
 
@@ -24,6 +24,7 @@
 |---|---:|
 | `plan_svg_ext.pack_plan(doc)` | **0.019 s** |
 | `plan_svg_native.plan_to_svg(doc)` | **0.157 s** |
+| `unpack_plan(bytes) -> dict` | **0.207 s** |
 
 `plan_svg_native.pack_plan(doc)` 检测到 `.pyd` 时优先走它；否则回退 C++ JSON 路径。
 
@@ -33,7 +34,7 @@
 powershell -File scripts/native/build_plan_svg_ext.ps1
 ~~~
 
-`.pyd` 只解决 Python dict → bytes 的边界；`unpack_plan` 仍走 C++ 二进制 → JSON → Python。
+`.pyd` 同时覆盖 dict → PSVB 和 PSVB → dict；反向不再经过 JSON。
 
 ## DLL 打包/解包（文件级）
 
