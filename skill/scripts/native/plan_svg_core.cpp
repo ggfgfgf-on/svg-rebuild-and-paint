@@ -344,4 +344,155 @@ EXPORT char* psvg_svg_file_to_plan(const char* svg_path, const char* plan_path) 
         return dupstr(std::string("{\"ok\":true,\"bytes\":") + std::to_string(out.size()) + "}");
     } catch (const std::exception& e) { return dupstr(std::string("ERR:") + e.what()); }
 }
+
+struct BR {
+    const unsigned char* p; int n, i;
+    BR(const unsigned char* d, int len) : p(d), n(len), i(0) {}
+    void need(int k) { if (i + k > n) throw std::runtime_error("short binary"); }
+    unsigned char u8() { need(1); return p[i++]; }
+    uint16_t u16() { need(2); uint16_t v; std::memcpy(&v,p+i,2); i+=2; return v; }
+    uint32_t u32() { need(4); uint32_t v; std::memcpy(&v,p+i,4); i+=4; return v; }
+    int32_t i32() { need(4); int32_t v; std::memcpy(&v,p+i,4); i+=4; return v; }
+    float f32() { need(4); float v; std::memcpy(&v,p+i,4); i+=4; return v; }
+    std::string str16() { int n=u16(); need(n); std::string s((const char*)p+i,n); i+=n; return s; }
+};
+static void wr8(std::vector<unsigned char>& v, unsigned char x){ v.push_back(x); }
+static void wr16(std::vector<unsigned char>& v, uint16_t x){ const unsigned char* p=(const unsigned char*)&x; v.insert(v.end(),p,p+2); }
+static void wr32(std::vector<unsigned char>& v, uint32_t x){ const unsigned char* p=(const unsigned char*)&x; v.insert(v.end(),p,p+4); }
+static void wrf(std::vector<unsigned char>& v, float x){ const unsigned char* p=(const unsigned char*)&x; v.insert(v.end(),p,p+4); }
+static void wrstr(std::vector<unsigned char>& v, const std::string& s){ wr16(v,(uint16_t)s.size()); v.insert(v.end(),s.begin(),s.end()); }
+
+struct BStroke { int layer; std::string preset, tag; float size, opacity, hardness, r,g,b; std::vector<float> pts; };
+
+static std::string bin_to_svg(const unsigned char* data, int len) {
+    BR b(data, len);
+    if (b.u32() != 0x42565350) throw std::runtime_error("bad binary magic");
+    if (b.u32() != 1) throw std::runtime_error("bad binary version");
+    int w=b.i32(), h=b.i32(), lc=b.i32(), sc=b.i32();
+    std::vector<std::string> names(lc), blends(lc);
+    for (int i=0;i<lc;++i){ blends[i]=b.str16(); names[i]=b.str16(); }
+    std::vector<BStroke> strokes; strokes.reserve(sc);
+    for (int k=0;k<sc;++k) {
+        BStroke s; s.layer=b.u16(); s.preset=b.str16();
+        s.size=b.f32(); s.opacity=b.f32(); s.hardness=b.f32();
+        s.r=b.f32(); s.g=b.f32(); s.b=b.f32();
+        int pc=b.u16(); s.pts.reserve(pc*3);
+        for(int j=0;j<pc;++j){ s.pts.push_back(b.f32()); s.pts.push_back(b.f32()); s.pts.push_back(b.f32()); }
+        s.tag=b.str16(); strokes.push_back(std::move(s));
+    }
+    std::string out; out.reserve(16*1024*1024);
+    out += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + std::to_string(w) + "\" height=\"" + std::to_string(h) + "\" viewBox=\"0 0 " + std::to_string(w) + " " + std::to_string(h) + "\" data-bridge=\"plan_svg\" shape-rendering=\"geometricPrecision\">\n";
+    for (int li=0; li<lc; ++li) {
+        out += "<g id=\"L" + std::to_string(li) + "\" data-name=\""; esc_to(out,names[li]);
+        out += "\" data-blend=\""; esc_to(out,blends[li]);
+        out += "\" style=\"isolation:isolate;mix-blend-mode:"; esc_to(out,blends[li]); out += "\">\n";
+        for (const auto& s : strokes) if (s.layer == li) {
+            std::string d; bool first=true;
+            for (size_t j=0;j+2<s.pts.size();j+=3){ d += first?"M ":" L "; d += fmt(s.pts[j])+" "+fmt(s.pts[j+1]); first=false; }
+            out += "<path d=\"" + d + "\" fill=\"none\" stroke=\"#";
+            char hx[8]; std::snprintf(hx,sizeof(hx),"%02x%02x%02x",(int)std::lround(s.r),(int)std::lround(s.g),(int)std::lround(s.b)); out += hx;
+            out += "\" stroke-width=\"" + fmt(s.size) + "\" stroke-opacity=\"" + fmt(s.opacity);
+            out += "\" stroke-linecap=\"" + std::string((s.preset=="flat"||s.preset=="bristle")?"butt":"round") + "\" stroke-linejoin=\"round\" data-layer=\""; esc_to(out,names[li]);
+            out += "\" data-preset=\""; esc_to(out,s.preset); out += "\" data-size=\""+fmt(s.size)+"\" data-opacity=\""+fmt(s.opacity)+"\" data-hardness=\""+fmt(s.hardness);
+            out += "\" data-color=\""+fmt(s.r)+","+fmt(s.g)+","+fmt(s.b)+"\" data-p=\"";
+            for(size_t j=0;j+2<s.pts.size();j+=3){ if(j)out+=","; out+=fmt(s.pts[j+2]); }
+            out += "\"";
+            if(!s.tag.empty()){ out+=" data-tag=\""; esc_to(out,s.tag); out+="\""; }
+            out += "/>\n";
+        }
+        out += "</g>\n";
+    }
+    out += "</svg>\n";
+    return out;
+}
+
+
+struct BinStroke { int layer; std::string preset, tag; float size, opacity, hardness, r, g, b; std::vector<float> pts; };
+
+static std::string bin_from_svg(const std::string& input) {
+    pugi::xml_document doc;
+    if (!doc.load_buffer(input.c_str(), input.size())) throw std::runtime_error("XML parse failed");
+    pugi::xml_node root = doc.document_element();
+    int W=1200,H=900;
+    auto vb=nums(root.attribute("viewBox").as_string());
+    if(vb.size()>=4){W=(int)vb[2];H=(int)vb[3];}
+    else { if(root.attribute("width"))W=root.attribute("width").as_int(); if(root.attribute("height"))H=root.attribute("height").as_int(); }
+    std::vector<std::string> names, blends;
+    std::map<std::string,int> idx;
+    std::vector<BinStroke> strokes;
+    std::function<void(pugi::xml_node,std::string)> walk=[&](pugi::xml_node node,std::string inherit){
+        for(pugi::xml_node ch=node.first_child(); ch; ch=ch.next_sibling()){
+            std::string tag=ch.name();
+            auto at=[&](const char*k){return std::string(ch.attribute(k).as_string());};
+            if(tag=="g"){
+                std::string n=at("data-name"); if(n.empty())n=at("id"); if(n.empty())n=inherit.empty()?"layer":inherit;
+                add_layer(names,blends,idx,n,at("data-blend")); walk(ch,n);
+            } else if(tag=="path"){
+                std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
+                add_layer(names,blends,idx,layer,"");
+                std::vector<double> xs,ys; parse_d(at("d"),xs,ys); if(xs.empty())continue;
+                auto ps=nums(at("data-p")); if(ps.size()!=xs.size())ps.assign(xs.size(),1.0);
+                std::string ct=at("data-color"); auto col=ct.empty()?color_from(at("stroke")):color_from(ct);
+                BinStroke st; st.layer=idx[layer]; st.preset=at("data-preset").empty()?"round_soft":at("data-preset");
+                st.size=(float)(at("data-size").empty()?std::atof(at("stroke-width").c_str()):std::atof(at("data-size").c_str()));
+                if(!(st.size>0))st.size=8.0f;
+                st.opacity=(float)(at("data-opacity").empty()?1.0:std::atof(at("data-opacity").c_str()));
+                st.hardness=(float)(at("data-hardness").empty()?0.7:std::atof(at("data-hardness").c_str()));
+                st.r=(float)col[0]; st.g=(float)col[1]; st.b=(float)col[2]; st.tag=at("data-tag");
+                for(size_t i=0;i<xs.size();++i){ st.pts.push_back((float)xs[i]); st.pts.push_back((float)ys[i]); st.pts.push_back((float)ps[i]); }
+                strokes.push_back(std::move(st));
+            } else walk(ch,inherit);
+        }
+    };
+    walk(root,"");
+    std::vector<unsigned char> v; v.reserve(2*1024*1024);
+    v.insert(v.end(), {'P','S','V','B'}); wr32(v,1);
+    wr32(v,(uint32_t)W); wr32(v,(uint32_t)H); wr32(v,(uint32_t)names.size()); wr32(v,(uint32_t)strokes.size());
+    for(size_t i=0;i<names.size();++i){ wrstr(v,blends[i]); wrstr(v,names[i]); }
+    for(const auto& st:strokes){
+        wr16(v,(uint16_t)st.layer); wrstr(v,st.preset);
+        wrf(v,st.size); wrf(v,st.opacity); wrf(v,st.hardness); wrf(v,st.r); wrf(v,st.g); wrf(v,st.b);
+        wr16(v,(uint16_t)(st.pts.size()/3));
+        for(float x:st.pts)wrf(v,x);
+        wrstr(v,st.tag);
+    }
+    return std::string((const char*)v.data(), v.size());
+}
+
+static std::string svg_to_bin(const std::string& input) {
+    // Reuse the XML/JSON path, then encode to binary.
+    std::string js = plan_from_svg(input);
+    Document d; d.Parse(js.c_str(), js.size());
+    if (d.HasParseError()) throw std::runtime_error("plan json parse failed");
+    std::vector<unsigned char> v; v.reserve(2*1024*1024);
+    v.insert(v.end(), {'P','S','V','B'});
+    wr32(v, 1);
+    int w=d["canvas"][0].GetInt(), h=d["canvas"][1].GetInt();
+    const Value& ls=d["layers"]; const Value& ss=d["strokes"];
+    std::map<std::string,int> idx;
+    for(rapidjson::SizeType i=0;i<ls.Size();++i) idx[get_str(ls[i],"name","layer")]=(int)i;
+    v.clear(); v.insert(v.end(), {'P','S','V','B'}); wr32(v,1); wr32(v,(uint32_t)w); wr32(v,(uint32_t)h); wr32(v,(uint32_t)ls.Size()); wr32(v,(uint32_t)ss.Size());
+    for(const auto& l : ls.GetArray()){ wrstr(v,get_str(l,"blend","normal")); wrstr(v,get_str(l,"name","layer")); }
+    for(const auto& s : ss.GetArray()){
+        wr16(v,(uint16_t)idx[get_str(s,"layer","layer")]);
+        wrstr(v,get_str(s,"preset","round_soft"));
+        wrf(v,(float)get_num(s,"size",8.0)); wrf(v,(float)get_num(s,"opacity",1.0)); wrf(v,(float)get_num(s,"hardness",0.7));
+        auto ci=s.FindMember("color"); double r=217,g=180,b=90;
+        if(ci!=s.MemberEnd()&&ci->value.IsArray()&&ci->value.Size()>=3){r=ci->value[0].GetDouble();g=ci->value[1].GetDouble();b=ci->value[2].GetDouble();}
+        wrf(v,(float)r); wrf(v,(float)g); wrf(v,(float)b);
+        const Value& pts=s["points"]; wr16(v,(uint16_t)pts.Size());
+        for(const auto& p : pts.GetArray()){ wrf(v,(float)p[0].GetDouble()); wrf(v,(float)p[1].GetDouble()); wrf(v,(float)(p.Size()>2?p[2].GetDouble():1.0)); }
+        wrstr(v, s.HasMember("tag")?s["tag"].GetString():"");
+    }
+    return std::string((const char*)v.data(), v.size());
+}
+EXPORT char* psvg_bin_to_svg(const unsigned char* data, int n, int* out_len) {
+    try { std::string s=bin_to_svg(data,n); *out_len=(int)s.size(); char* p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p; }
+    catch(const std::exception& e){ *out_len=(int)(std::string("ERR:")+e.what()).size(); return dupstr(std::string("ERR:")+e.what()); }
+}
+EXPORT char* psvg_svg_to_bin(const char* svg, int n, int* out_len) {
+    try { std::string s=bin_from_svg(std::string(svg,n)); *out_len=(int)s.size(); char* p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p; }
+    catch(const std::exception& e){ return dupstr(std::string("ERR:")+e.what()); }
+}
+
 EXPORT void psvg_free(char* p){ std::free(p); }

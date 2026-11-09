@@ -11,10 +11,25 @@
 
 | 方向 | 耗时 | 产物 |
 |---|---:|---|
-| plan → SVG | **0.28 s**（native 内存）/ **0.18 s**（native 文件直通）/ 0.41 s（Python） | 13.9–14.9 MB SVG |
-| SVG → plan | **0.44 s total**（native 内存）/ **0.29 s**（native 文件直通）/ 0.50 s（Python） | 8.7 MB plan |
+| plan → SVG | **0.19 s**（native 二进制）/ **0.18 s**（文件直通）/ 0.41 s（Python） | 13.9–14.9 MB SVG |
+| SVG → plan | **0.33 s total**（native 二进制）/ **0.29 s**（文件直通）/ 0.50 s（Python） | 8.7 MB plan |
 
 两个方向都在亚秒级；这是本机 44,589 笔 / 17 层 / 1200×900 的单次测量，不是跨机器基准；计时不含浏览器渲染。native 版是 Windows DLL（RapidJSON + pugixml）；文件直通版在 DLL 内读 plan、写 SVG / 读 SVG、写 plan，避免 Python JSON。
+
+## 二进制协议（native 内存）
+
+`plan_svg_native.py` 不再把 plan 序列化成 JSON 给 DLL，而是打包成 `PSVB`：
+
+```text
+magic PSVB | version | canvas | layers | strokes | points | tags
+```
+
+- `pack_plan(doc)`：Python 扁平打包；
+- `unpack_plan(bytes)`：Python 还原 plan；
+- `psvg_bin_to_svg(buf,len)`：C++ 直接生成 SVG；
+- `psvg_svg_to_bin(svg,len)`：C++ 直接返回二进制 plan。
+
+外部文件仍是 `plan.json` / SVG；二进制只存在于 Python ↔ DLL 的内存边界。
 
 ## Native（Windows，可选）
 
