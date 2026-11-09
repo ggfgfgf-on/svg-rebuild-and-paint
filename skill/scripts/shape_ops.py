@@ -59,6 +59,29 @@ def _signed_area(pts):
     return 0.5 * s
 
 
+
+def _dist_point_segment(px, py, ax, ay, bx, by):
+    dx, dy = bx - ax, by - ay
+    den = dx * dx + dy * dy
+    if den <= 1e-12:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / den))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def _edge_distance(px, py, rings):
+    best = float("inf")
+    for ring in rings:
+        n = len(ring)
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            d = _dist_point_segment(px, py, ax, ay, bx, by)
+            if d < best:
+                best = d
+    return best
+
+
 def ribbon(points, widths):
     """把中心线 + 宽度变成有体积的闭合多边形，供 fill_polygon 填充。
 
@@ -117,7 +140,7 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
                  opacity=1.0, preset="round_soft", spacing=None, jitter=0.35,
                  angle=0.0, gradient_angle=0.0, hardness=0.7, blend="normal",
                  tag=None, guidance=1.0, seed=0, edge=True, edge_inset=0.0,
-                 pressure=1.0, holes=None):
+                 pressure=1.0, holes=None, clip=False):
     """在多边形内用笔触撒点填充；只在多边形内的点落笔。
 
     Args:
@@ -145,12 +168,14 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
         edge_inset: 边圈向多边形内缩的像素；0 表示边笔中心仍在边界上。
             想避免笔尖越过剪影，可设 edge_inset≈size*0.5，但轮廓会略缩。
         pressure: 0..1，写入每笔点的压力；默认 1.0。
+        clip: True 时按笔刷半径内缩：只保留离多边形/洞边界至少 size/2 的撒点，并跳过 edge 边圈；轮廓会比输入小约 size/2。
 
     Returns:
         同一个 doc（已追加笔触）。
 
     Notes:
         * 这是“笔刷堆叠填充”，不是矢量填充；边缘由笔刷半径决定。
+        * clip=True 只做“中心内缩”，不是像素级遮罩；它能阻止笔刷外溢，但会让轮廓缩一圈。
         * holes 是挖洞，不做路径布尔；多个不相交的块面请多次调用。
         * 要颜色/体积分层，调用多次、每次换 polygon/color/color2/opacity，
           或把不同遍写到不同 layer；不要指望一次 fill 产生体积。
@@ -206,6 +231,8 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
                 continue
             if any(_point_in_polygon(px, py, h) for h in hole_pts):
                 continue
+            if clip and _edge_distance(px, py, [pts] + hole_pts) < size * 0.5:
+                continue
             a = th + (O._u(layer, ix, iy, seed, "a") - 0.5) * math.pi * 2.0 * jitter
             ln = max(0.5, size * 0.20)
             qx, qy = px + math.cos(a) * ln, py + math.sin(a) * ln
@@ -217,7 +244,7 @@ def fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.
                 s["tag"] = str(tag)
             doc["strokes"].append(s)
 
-    if edge:
+    if edge and not clip:
         sign = 1.0 if _signed_area(pts) > 0 else -1.0
         for i in range(len(pts)):
             ax, ay = pts[i]
@@ -248,7 +275,7 @@ def assemble_parts(doc, layer, parts, color=(217, 180, 90), color2=None,
                    size=8.0, opacity=1.0, preset="round_soft", spacing=None,
                    jitter=0.35, angle=0.0, gradient_angle=0.0, hardness=0.7,
                    blend="normal", guidance=1.0, seed=0, edge=True,
-                   edge_inset=0.0, far_near_delta=0.0):
+                   edge_inset=0.0, far_near_delta=0.0, clip=False):
     """Fill a model-authored list of parts in z order; no body-part schema.
 
     parts: list of dicts. Each dict may contain:
@@ -309,6 +336,7 @@ def assemble_parts(doc, layer, parts, color=(217, 180, 90), color2=None,
             edge_inset=part.get("edge_inset", edge_inset),
             pressure=part.get("pressure", 1.0),
             holes=part.get("holes"),
+            clip=clip,
         )
     return doc
 

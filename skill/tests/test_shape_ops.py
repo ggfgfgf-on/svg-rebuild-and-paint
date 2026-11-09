@@ -201,6 +201,22 @@ def test_checkpoint():
     print("PASS checkpoint dump + optional render")
 
 
+def test_fill_clip():
+    poly = [[40, 40], [160, 40], [160, 160], [40, 160]]
+    doc = shape_ops.fill_polygon(empty_doc(), "body", poly, color="#c08060",
+                                 size=12.0, opacity=1.0, preset="round_hard",
+                                 spacing=4.0, jitter=0.0, clip=True)
+    assert doc["strokes"]
+    with tempfile.TemporaryDirectory() as td:
+        plan = Path(td) / "clip.plan.json"
+        plan_io.dump_plan(str(plan), 200, 200, doc["strokes"], layer_blends={"body": "normal"})
+        arr = RU.render_arr(plan_io.load_plan(str(plan))[0], gpu=False, nthreads=4)
+        assert float(arr[100, 100, 3]) >= 254, float(arr[100, 100, 3])
+        assert float(arr[100, 34, 3]) == 0, float(arr[100, 34, 3])
+        assert float(arr[100, 166, 3]) == 0, float(arr[100, 166, 3])
+    print("PASS fill_polygon clip=True keeps stamps inside", len(doc["strokes"]))
+
+
 if __name__ == "__main__":
     test_fill_polygon()
     test_fill_guidance_zero()
@@ -213,4 +229,5 @@ if __name__ == "__main__":
     test_assemble_parts()
     test_ribbon()
     test_checkpoint()
+    test_fill_clip()
     print("all shape_ops tests passed")

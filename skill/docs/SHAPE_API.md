@@ -61,7 +61,7 @@ fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.0,
              opacity=1.0, preset="round_soft", spacing=None, jitter=0.35,
              angle=0.0, gradient_angle=0.0, hardness=0.7, blend="normal",
              tag=None, guidance=1.0, seed=0, edge=True, edge_inset=0.0,
-             pressure=1.0, holes=None)
+             pressure=1.0, holes=None, clip=False)
 ~~~
 
 ### 1.1 它到底做什么
@@ -100,6 +100,7 @@ fill_polygon(doc, layer, polygon, color=(217, 180, 90), color2=None, size=8.0,
 | edge | bool=True | 是否补边圈 | True 减少圆笔触锯齿 |
 | edge_inset | float=0 | 边圈内缩像素 | 只移动边圈；内部撒点仍会向外溢出约 0.5×size |
 | pressure | float=1 | 笔触压力 | 0..1；写入每笔 points；渲染器读取 |
+| clip | bool=False | 按笔刷半径内缩 | True 时只保留离边界≥size/2 的中心点，跳过 edge；轮廓会缩约 size/2 |
 
 ### 1.3 color2 的真实语义
 
@@ -128,7 +129,7 @@ opacity 是**单笔**不透明度，不是整层统一 alpha。
 - 凹角/尖角处是逐边平移，不做 miter 连接；极端尖角可能仍有缺口；
 - 要完全控制在剪影内，可 edge=False，自己用更小的 polygon 或后续收边。
 
-**边界契约（实测）**：`fill_polygon` **没有 clip/mask 参数**。填充笔触的**中心**落在 polygon 内，但笔刷半径仍会向外画出约 0.5×size；edge_inset 只移动边圈，不会裁掉内部撒点的溢出。相邻硬边色带若直接共用边界，会出现 8–10px 的锯齿毛边。要干净硬边：edge=False，每个 polygon 向内缩约一个笔刷半径（size/2），边缘用连续 tapered_stroke 或单独窄层补。这不是 bug，是圆笔刷覆盖的语义；要像素级剪影，只能缩 polygon 或后处理。
+**边界契约（实测）**：默认 `clip=False`，填充笔触的**中心**落在 polygon 内，但笔刷半径仍会向外画出约 0.5×size；edge_inset 只移动边圈，不会裁掉内部撒点的溢出。要硬边可传 `clip=True`：中心点离边界至少 size/2、自动跳过 edge；代价是轮廓缩约 size/2，需要再补 contour。它不是像素级遮罩。相邻硬边色带若直接共用边界，会出现 8–10px 的锯齿毛边。要干净硬边：edge=False，每个 polygon 向内缩约一个笔刷半径（size/2），边缘用连续 tapered_stroke 或单独窄层补。这不是 bug，是圆笔刷覆盖的语义；要像素级剪影，只能缩 polygon 或后处理。
 
 ### 1.6 组合时看哪些参数（不是步骤）
 
@@ -337,10 +338,10 @@ load_plan(path) -> (doc, w, h)
 assemble_parts(doc, layer, parts, color=(217,180,90), color2=None, size=8.0,
                opacity=1.0, preset="round_soft", spacing=None, jitter=0.35,
                angle=0.0, gradient_angle=0.0, hardness=0.7, blend="normal",
-               guidance=1.0, seed=0, edge=True, edge_inset=0.0, far_near_delta=0.0)
+               guidance=1.0, seed=0, edge=True, edge_inset=0.0, far_near_delta=0.0, clip=False)
 ~~~
 
-`parts` 是 dict 列表；每项可用：`polygon`（必需）、`name`、`z`、`value`、`color`、`color2`、`size`、`opacity`、`preset`、`spacing`、`jitter`、`angle`、`gradient_angle`、`hardness`、`seed`、`edge`、`edge_inset`、`holes`、`tag`、`pressure`。缺省键回落到函数参数；`z` 只改本次 fill 顺序，不改层序。
+`parts` 是 dict 列表；每项可用：`polygon`（必需）、`name`、`z`、`value`、`color`、`color2`、`size`、`opacity`、`preset`、`spacing`、`jitter`、`angle`、`gradient_angle`、`hardness`、`seed`、`edge`、`edge_inset`、`holes`、`tag`、`pressure`。缺省键回落到函数参数；`clip` 是函数级参数，不按 part 覆盖；`z` 只改本次 fill 顺序，不改层序。
 
 这是旧 parts 列表接口的兼容 helper，不是默认 driver 路径；新代码优先 `fill_polygon` + `ribbon`。
 

@@ -117,19 +117,7 @@ git clone https://github.com/ggfgfgf-on/svg-rebuild-and-paint.git
 ./svg-rebuild-and-paint/skill/install.sh
 ```
 
-```powershell
-# 1) 位图 → SVG / 步骤播放器
-python skill/scripts/vectorize.py ref.png out.html 192
-python skill/scripts/metric.py   ref.png shot.png          # mean / <=5 / uncovered
-
-# 2) 绘画引擎：分层计划 → PNG / 30fps 视频
-python skill/scripts/render_plan.py plan.json --out out.png
-python skill/scripts/paint_cli.py video plan.json --out out.mp4
-
-# 3) 计划空间改画：指令 → 算子 → 只重算脏区域
-python skill/scripts/paint_cli.py compile plan.json --instruction "把花瓣调深一点" --out ops.json
-python skill/scripts/paint_cli.py edit plan.json --ops ops.json --out out.png
-```
+快速开始与命令以安装包内的 [skill/README.md](skill/README.md) 为唯一来源；这里不重复维护，避免根 README 与 skill README 漂移。
 
 入口手册：`skill/SKILL.md`；辅助函数签名（自动生成）：`skill/docs/API.md`；设计与测量：`skill/IMPLEMENTATION.md`。
 
