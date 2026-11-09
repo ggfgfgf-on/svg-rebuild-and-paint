@@ -4,9 +4,6 @@
 #define NOMINMAX
 #endif
 #include "pugixml.hpp"
-#include <xmllite.h>
-#include <shlwapi.h>
-#include <comdef.h>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -434,113 +431,6 @@ static std::string bin_to_svg(const unsigned char* data, int len) {
 
 struct BinStroke { int layer; std::string preset, tag; float size, opacity, hardness, r, g, b; std::vector<float> pts; };
 
-
-static std::string w2u(const WCHAR* w, UINT n) {
-    if (!w) return "";
-    int k = WideCharToMultiByte(CP_UTF8, 0, w, (int)n, nullptr, 0, nullptr, nullptr);
-    std::string s(k, 0);
-    WideCharToMultiByte(CP_UTF8, 0, w, (int)n, &s[0], k, nullptr, nullptr);
-    return s;
-}
-
-static std::string bin_from_svg_sax(const std::string& input) {
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    IStream* stream = SHCreateMemStream((const BYTE*)input.data(), (UINT)input.size());
-    if (!stream) { CoUninitialize(); throw std::runtime_error("stream failed"); }
-    IXmlReader* reader = nullptr;
-    HRESULT hr = CreateXmlReader(__uuidof(IXmlReader), (void**)&reader, nullptr);
-    if (FAILED(hr) || !reader) { stream->Release(); CoUninitialize(); throw std::runtime_error("xmllite create failed"); }
-    reader->SetInput(stream);
-    reader->SetProperty(XmlReaderProperty_DtdProcessing, DtdProcessing_Prohibit);
-    std::vector<std::string> names, blends;
-    std::map<std::string,int> idx;
-    std::vector<BinStroke> strokes;
-    std::vector<std::string> stack;
-    std::vector<std::string> stack_names;
-    auto cur_layer = [&]() -> std::string { return stack.empty() ? "layer" : stack.back(); };
-    std::map<std::string,std::string> attrs;
-    auto load_attrs = [&]() {
-        attrs.clear();
-        if (reader->MoveToFirstAttribute() == S_OK) {
-            do {
-                const WCHAR* an = nullptr; UINT alen = 0;
-                const WCHAR* av = nullptr; UINT vlen = 0;
-                if (reader->GetLocalName(&an, &alen) == S_OK && reader->GetValue(&av, &vlen) == S_OK)
-                    attrs[w2u(an, alen)] = w2u(av, vlen);
-            } while (reader->MoveToNextAttribute() == S_OK);
-            reader->MoveToElement();
-        }
-    };
-    auto get_attr = [&](const WCHAR* name) -> std::string {
-        std::string k = w2u(name, (UINT)wcslen(name));
-        auto it = attrs.find(k);
-        return it == attrs.end() ? "" : it->second;
-    };
-    int W = 1200, H = 900;
-    XmlNodeType type;
-    while (reader->Read(&type) == S_OK) {
-        if (type == XmlNodeType_Element) {
-            const WCHAR* ln = nullptr; UINT llen = 0;
-            reader->GetLocalName(&ln, &llen);
-            std::string tag = w2u(ln, llen);
-            load_attrs();
-            if (tag == "svg") {
-                std::string vb = get_attr(L"viewBox");
-                auto v = nums(vb);
-                if (v.size() >= 4) { W = (int)v[2]; H = (int)v[3]; }
-                else {
-                    std::string ws = get_attr(L"width"), hs = get_attr(L"height");
-                    if (!ws.empty()) W = std::atoi(ws.c_str());
-                    if (!hs.empty()) H = std::atoi(hs.c_str());
-                }
-            } else if (tag == "g") {
-                std::string n = get_attr(L"data-name");
-                if (n.empty()) n = get_attr(L"id");
-                if (n.empty()) n = cur_layer();
-                add_layer(names, blends, idx, n, get_attr(L"data-blend"));
-                stack.push_back(n);
-            } else if (tag == "path") {
-                std::string layer = get_attr(L"data-layer");
-                if (layer.empty()) layer = cur_layer();
-                add_layer(names, blends, idx, layer, "");
-                std::vector<double> xs, ys; parse_d(get_attr(L"d"), xs, ys);
-                if (!xs.empty()) {
-                    auto ps = nums(get_attr(L"data-p")); if (ps.size() != xs.size()) ps.assign(xs.size(), 1.0);
-                    std::string ct = get_attr(L"data-color");
-                    auto col = ct.empty() ? color_from(get_attr(L"stroke")) : color_from(ct);
-                    BinStroke st; st.layer = idx[layer];
-                    st.preset = get_attr(L"data-preset").empty() ? "round_soft" : get_attr(L"data-preset");
-                    st.size = (float)(get_attr(L"data-size").empty() ? std::atof(get_attr(L"stroke-width").c_str()) : std::atof(get_attr(L"data-size").c_str()));
-                    if (!(st.size > 0)) st.size = 8.0f;
-                    st.opacity = (float)(get_attr(L"data-opacity").empty() ? 1.0 : std::atof(get_attr(L"data-opacity").c_str()));
-                    st.hardness = (float)(get_attr(L"data-hardness").empty() ? 0.7 : std::atof(get_attr(L"data-hardness").c_str()));
-                    st.r = (float)col[0]; st.g = (float)col[1]; st.b = (float)col[2];
-                    st.tag = get_attr(L"data-tag");
-                    for (size_t i = 0; i < xs.size(); ++i) { st.pts.push_back((float)xs[i]); st.pts.push_back((float)ys[i]); st.pts.push_back((float)ps[i]); }
-                    strokes.push_back(std::move(st));
-                }
-            }
-        } else if (type == XmlNodeType_EndElement) {
-            const WCHAR* ln = nullptr; UINT llen = 0;
-            reader->GetLocalName(&ln, &llen);
-            if (w2u(ln, llen) == "g" && !stack.empty()) stack.pop_back();
-        }
-    }
-    reader->Release(); stream->Release();
-    std::vector<unsigned char> v; v.reserve(2 * 1024 * 1024);
-    v.insert(v.end(), {'P','S','V','B'}); wr32(v, 1);
-    wr32(v, (uint32_t)W); wr32(v, (uint32_t)H); wr32(v, (uint32_t)names.size()); wr32(v, (uint32_t)strokes.size());
-    for (size_t i = 0; i < names.size(); ++i) { wrstr(v, blends[i]); wrstr(v, names[i]); }
-    for (const auto& st : strokes) {
-        wr16(v, (uint16_t)st.layer); wrstr(v, st.preset);
-        wrf(v, st.size); wrf(v, st.opacity); wrf(v, st.hardness); wrf(v, st.r); wrf(v, st.g); wrf(v, st.b);
-        wr16(v, (uint16_t)(st.pts.size() / 3));
-        for (float x : st.pts) wrf(v, x);
-        wrstr(v, st.tag);
-    }
-    CoUninitialize();
-    return std::string((const char*)v.data(), v.size());
-}
 
 static std::string bin_from_svg(const std::string& input) {
     pugi::xml_document doc;
