@@ -1,5 +1,7 @@
 // Windows plan <-> SVG bridge: RapidJSON (plan JSON), pugixml (SVG).
 #include "rapidjson/document.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/stringbuffer.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -603,6 +605,88 @@ EXPORT char* psvg_svg_to_bin(const char* svg, int n, int* out_len) {
 }
 
 
+
+static bool known_top(const char* k) {
+    return std::strcmp(k,"canvas")==0 || std::strcmp(k,"layers")==0 ||
+           std::strcmp(k,"strokes")==0 || std::strcmp(k,"count")==0;
+}
+static bool known_layer(const char* k) { return std::strcmp(k,"name")==0 || std::strcmp(k,"blend")==0; }
+static bool known_stroke(const char* k) {
+    return std::strcmp(k,"layer")==0 || std::strcmp(k,"preset")==0 || std::strcmp(k,"size")==0 ||
+           std::strcmp(k,"opacity")==0 || std::strcmp(k,"hardness")==0 || std::strcmp(k,"color")==0 ||
+           std::strcmp(k,"points")==0 || std::strcmp(k,"tag")==0;
+}
+static std::string extra_json_for_plan(const Document& d) {
+    Document ex; ex.SetObject();
+    auto& a = ex.GetAllocator();
+    Value top(kObjectType);
+    for (auto it = d.MemberBegin(); it != d.MemberEnd(); ++it) {
+        if (known_top(it->name.GetString())) continue;
+        Value v; v.CopyFrom(it->value, a); top.AddMember(Value(it->name, a), v, a);
+    }
+    if (!top.ObjectEmpty()) ex.AddMember("top", top, a);
+    Value le(kArrayType);
+    for (rapidjson::SizeType i = 0; i < d["layers"].Size(); ++i) {
+        Value e(kObjectType), x(kObjectType);
+        for (auto it = d["layers"][i].MemberBegin(); it != d["layers"][i].MemberEnd(); ++it) {
+            if (known_layer(it->name.GetString())) continue;
+            Value v; v.CopyFrom(it->value, a); x.AddMember(Value(it->name, a), v, a);
+        }
+        if (!x.ObjectEmpty()) { e.AddMember("i", i, a); e.AddMember("extra", x, a); le.PushBack(e, a); }
+    }
+    if (!le.Empty()) ex.AddMember("layers", le, a);
+    Value se(kArrayType);
+    for (rapidjson::SizeType i = 0; i < d["strokes"].Size(); ++i) {
+        Value e(kObjectType), x(kObjectType);
+        for (auto it = d["strokes"][i].MemberBegin(); it != d["strokes"][i].MemberEnd(); ++it) {
+            if (known_stroke(it->name.GetString())) continue;
+            if (std::strcmp(it->name.GetString(), "region_id") == 0 && it->value.IsNumber() && it->value.GetDouble() == 0.0) continue;
+            Value v; v.CopyFrom(it->value, a); x.AddMember(Value(it->name, a), v, a);
+        }
+        if (!x.ObjectEmpty()) { e.AddMember("i", i, a); e.AddMember("extra", x, a); se.PushBack(e, a); }
+    }
+    if (!se.Empty()) ex.AddMember("strokes", se, a);
+    if (ex.ObjectEmpty()) return "";
+    StringBuffer sb; Writer<StringBuffer> w(sb); ex.Accept(w);
+    return std::string(sb.GetString(), sb.GetSize());
+}
+static std::string merge_extra_json(const std::string& base, const std::string& extra) {
+    Document d; d.Parse(base.c_str(), base.size());
+    Document e; e.Parse(extra.c_str(), extra.size());
+    if (d.HasParseError() || e.HasParseError() || !d.IsObject() || !e.IsObject()) return base;
+    auto& a = d.GetAllocator();
+    if (e.HasMember("top") && e["top"].IsObject()) {
+        for (auto it = e["top"].MemberBegin(); it != e["top"].MemberEnd(); ++it) {
+            if (d.HasMember(it->name)) d.RemoveMember(it->name);
+            Value v; v.CopyFrom(it->value, a); d.AddMember(Value(it->name, a), v, a);
+        }
+    }
+    if (e.HasMember("layers") && e["layers"].IsArray() && d["layers"].IsArray()) {
+        for (auto& item : e["layers"].GetArray()) {
+            int i = item["i"].GetInt();
+            if (i < 0 || i >= (int)d["layers"].Size() || !item["extra"].IsObject()) continue;
+            Value& l = d["layers"][i];
+            for (auto it = item["extra"].MemberBegin(); it != item["extra"].MemberEnd(); ++it) {
+                if (l.HasMember(it->name)) l.RemoveMember(it->name);
+                Value v; v.CopyFrom(it->value, a); l.AddMember(Value(it->name, a), v, a);
+            }
+        }
+    }
+    if (e.HasMember("strokes") && e["strokes"].IsArray() && d["strokes"].IsArray()) {
+        for (auto& item : e["strokes"].GetArray()) {
+            int i = item["i"].GetInt();
+            if (i < 0 || i >= (int)d["strokes"].Size() || !item["extra"].IsObject()) continue;
+            Value& l = d["strokes"][i];
+            for (auto it = item["extra"].MemberBegin(); it != item["extra"].MemberEnd(); ++it) {
+                if (l.HasMember(it->name)) l.RemoveMember(it->name);
+                Value v; v.CopyFrom(it->value, a); l.AddMember(Value(it->name, a), v, a);
+            }
+        }
+    }
+    StringBuffer sb; Writer<StringBuffer> w(sb); d.Accept(w);
+    return std::string(sb.GetString(), sb.GetSize());
+}
+
 static std::string plan_json_to_bin(const std::string& input) {
     Document d; d.Parse(input.c_str(), input.size());
     if (d.HasParseError() || !d.IsObject()) throw std::runtime_error("invalid plan json");
@@ -610,8 +694,9 @@ static std::string plan_json_to_bin(const std::string& input) {
     const Value& ls=d["layers"]; const Value& ss=d["strokes"];
     std::map<std::string,int> idx;
     for (rapidjson::SizeType i=0;i<ls.Size();++i) idx[get_str(ls[i],"name","layer")]=(int)i;
+    std::string extra = extra_json_for_plan(d);
     std::vector<unsigned char> v; v.reserve(2*1024*1024);
-    v.insert(v.end(), {'P','S','V','B'}); wr32(v,1);
+    v.insert(v.end(), {'P','S','V','B'}); wr32(v, extra.empty()?1:2);
     wr32(v,(uint32_t)w); wr32(v,(uint32_t)h); wr32(v,(uint32_t)ls.Size()); wr32(v,(uint32_t)ss.Size());
     for(const auto& l : ls.GetArray()){ wrstr(v,get_str(l,"blend","normal")); wrstr(v,get_str(l,"name","layer")); }
     for(const auto& s : ss.GetArray()){
@@ -624,6 +709,7 @@ static std::string plan_json_to_bin(const std::string& input) {
         for(const auto& p : pts.GetArray()){ wrf(v,(float)p[0].GetDouble()); wrf(v,(float)p[1].GetDouble()); wrf(v,(float)(p.Size()>2?p[2].GetDouble():1.0)); }
         wrstr(v, s.HasMember("tag")?s["tag"].GetString():"");
     }
+    if (!extra.empty()) { v.insert(v.end(), extra.begin(), extra.end()); wr32(v, (uint32_t)extra.size()); }
     return std::string((const char*)v.data(), v.size());
 }
 
@@ -650,6 +736,13 @@ static std::string bin_to_plan_json(const unsigned char* data, int len) {
         out+="}";
     }
     out+="],\"count\":"+std::to_string(sc)+"}";
+    if (b.i >= 4 && b.n >= b.i + 4) {
+        uint32_t n; std::memcpy(&n, data + len - 4, 4);
+        if (n <= (uint32_t)(len - 4) && len - 4 - (int)n >= 0) {
+            std::string extra((const char*)data + len - 4 - n, n);
+            return merge_extra_json(out, extra);
+        }
+    }
     return out;
 }
 EXPORT char* psvg_plan_json_to_bin(const char* in,int n,int* out_len){

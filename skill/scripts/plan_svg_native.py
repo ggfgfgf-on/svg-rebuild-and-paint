@@ -147,6 +147,8 @@ def _extra_blob(doc):
     ss = []
     for i, s in enumerate(doc.get("strokes") or []):
         e = {k: v for k, v in s.items() if k not in _STROKE_KNOWN}
+        if e.get("region_id", None) == 0:
+            e.pop("region_id", None)
         if e:
             ss.append({"i": i, "extra": e})
     if ss:
