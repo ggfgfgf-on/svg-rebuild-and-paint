@@ -170,6 +170,10 @@ def _tokens(d):
 
 def _parse_d(d):
     """Sample a path into [[x,y],...]; supports M/L/H/V/C/S/Q/T/Z, not A."""
+    if d.count("M") == 1 and not re.search(r"[CcSsQqTtAaHhVvZz]", d):
+        vals = [float(x) for x in _NUM.findall(d)]
+        if len(vals) >= 2:
+            return [[vals[i], vals[i + 1]] for i in range(0, len(vals) - 1, 2)]
     toks = _tokens(d)
     i = 0
     cmd = None
