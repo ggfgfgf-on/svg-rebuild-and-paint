@@ -204,8 +204,9 @@ N.svg_file_to_plan("out.svg", "back.plan.json")
 - 软边：用 `<filter><feGaussianBlur>` 量化近似，不是原始纹理；
 - 纹理笔刷：不重建纹理；只保留 `data-preset`；
 - 逐点压力：保存在 `data-p`，SVG 视觉本身不按点变压力；
-- 任意 SVG 的曲线：读回时采样为折线；`A` 弧不支持；
-- `transform`/CSS 类/外部引用不解析；只认 bridge 结构和基础 `<path>`；
+- 任意 SVG 的曲线：读回时采样为折线；`A` 弧已采样；
+- 基础 `translate/scale/rotate/matrix` transform 在 Python 回退里展开；
+- CSS 类、`<use>`、外部引用仍不解析；
 - 这是“可编辑的桥”，不是像素级 SVG 复刻，也不是 `vectorize.py` 的平涂输出。
 
 ## 适用场景

@@ -77,12 +77,6 @@ def test_dump_cli(tmp):
     print("PASS dump/load files, %d bytes SVG" % len(svg.read_text(encoding="utf-8")))
 
 
-if __name__ == "__main__":
-    test_roundtrip()
-    test_deterministic()
-    with tempfile.TemporaryDirectory() as td:
-        test_dump_cli(td)
-    print("all plan_svg tests passed")
 
 
 def test_outline_and_stamps_roundtrip():
@@ -105,3 +99,26 @@ def test_outline_and_stamps_roundtrip():
         assert st["color"] == [12, 34, 56]
         assert st["points"] == doc["strokes"][0]["points"]
         assert st.get("tag") == "t1"
+
+
+def test_transform_and_arc():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<g id="g" transform="translate(10,20)">'
+           '<path d="M 0 0 L 10 0" stroke="#ff0000" stroke-width="5"/></g></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert d["strokes"][0]["points"] == [[10.0, 20.0, 1.0], [20.0, 20.0, 1.0]]
+    svg2 = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+            '<path d="M 10 10 A 20 20 0 0 1 50 10" stroke="#00ff00" stroke-width="3"/></svg>')
+    pts = plan_svg.svg_to_plan(svg2)["strokes"][0]["points"]
+    assert len(pts) == 17
+    assert abs(pts[-1][0] - 50) < 1e-6 and abs(pts[-1][1] - 10) < 1e-6
+
+
+if __name__ == "__main__":
+    test_roundtrip()
+    test_deterministic()
+    with tempfile.TemporaryDirectory() as td:
+        test_dump_cli(td)
+    test_outline_and_stamps_roundtrip()
+    test_transform_and_arc()
+    print("all plan_svg tests passed")

@@ -172,7 +172,73 @@ _NUM = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
 
 
 def _tokens(d):
-    return re.findall(r"[MmLlHhVvCcSsQqTtZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?", d)
+    return re.findall(r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?", d)
+
+
+def _mat(a, b, c, d, e, f):
+    return (a, b, c, d, e, f)
+
+def _mat_mul(m, n):
+    return (m[0]*n[0]+m[2]*n[1], m[1]*n[0]+m[3]*n[1],
+            m[0]*n[2]+m[2]*n[3], m[1]*n[2]+m[3]*n[3],
+            m[0]*n[4]+m[2]*n[5]+m[4], m[1]*n[4]+m[3]*n[5]+m[5])
+
+def _mat_apply(m, x, y):
+    return (m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5])
+
+def _parse_transform(text):
+    m = _mat(1, 0, 0, 1, 0, 0)
+    for name, body in re.findall(r"([A-Za-z]+)\s*\(([^)]*)\)", text or ""):
+        v = [float(x) for x in re.findall(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?", body)]
+        if name == "matrix" and len(v) >= 6:
+            t = _mat(*v[:6])
+        elif name == "translate" and v:
+            t = _mat(1, 0, 0, 1, v[0], v[1] if len(v) > 1 else 0)
+        elif name == "scale" and v:
+            t = _mat(v[0], 0, 0, v[1] if len(v) > 1 else v[0], 0, 0)
+        elif name == "rotate" and v:
+            a = math.radians(v[0]); ca, sa = math.cos(a), math.sin(a)
+            t = _mat(ca, sa, -sa, ca, 0, 0)
+            if len(v) >= 3:
+                t = _mat_mul(_mat_mul(_mat(1, 0, 0, 1, v[1], v[2]), t), _mat(1, 0, 0, 1, -v[1], -v[2]))
+        else:
+            continue
+        m = _mat_mul(m, t)
+    return m
+
+
+def _arc_pts(p0, p1, rx, ry, phi, laf, sf, n=16):
+    rx, ry = abs(rx), abs(ry)
+    if rx < 1e-9 or ry < 1e-9:
+        return [p1]
+    ph = math.radians(phi); cp, sp = math.cos(ph), math.sin(ph)
+    dx, dy = (p0[0]-p1[0])/2.0, (p0[1]-p1[1])/2.0
+    x1 = cp*dx + sp*dy; y1 = -sp*dx + cp*dy
+    lam = (x1*x1)/(rx*rx) + (y1*y1)/(ry*ry)
+    if lam > 1:
+        q = math.sqrt(lam); rx *= q; ry *= q
+    num = max(0.0, rx*rx*ry*ry - rx*rx*y1*y1 - ry*ry*x1*x1)
+    den = rx*rx*y1*y1 + ry*ry*x1*x1
+    co = math.sqrt(num/den) if den else 0.0
+    if laf == sf:
+        co = -co
+    cxp = co * rx*y1/ry; cyp = -co * ry*x1/rx
+    cx = cp*cxp - sp*cyp + (p0[0]+p1[0])/2.0
+    cy = sp*cxp + cp*cyp + (p0[1]+p1[1])/2.0
+    def ang(ux, uy, vx, vy):
+        return math.atan2(ux*vy-uy*vx, ux*vx+uy*vy)
+    t1 = ang(1, 0, (x1-cxp)/rx, (y1-cyp)/ry)
+    dt = ang((x1-cxp)/rx, (y1-cyp)/ry, (-x1-cxp)/rx, (-y1-cyp)/ry)
+    if not sf and dt > 0:
+        dt -= 2*math.pi
+    elif sf and dt < 0:
+        dt += 2*math.pi
+    out = []
+    for k in range(1, n+1):
+        t = t1 + dt*k/n
+        out.append([cx + rx*cp*math.cos(t) - ry*sp*math.sin(t),
+                    cy + rx*sp*math.cos(t) + ry*cp*math.sin(t)])
+    return out
 
 
 def _parse_d(d):
@@ -194,7 +260,7 @@ def _parse_d(d):
         nonlocal i
         vals = []
         for _ in range(n):
-            while i < len(toks) and toks[i] not in "MmLlHhVvCcSsQqTtZz":
+            while i < len(toks) and toks[i] not in "MmLlHhVvCcSsQqTtAaZz":
                 vals.append(float(toks[i])); i += 1
             if len(vals) < n:
                 raise ValueError("bad path: expected %d numbers" % n)
@@ -205,7 +271,7 @@ def _parse_d(d):
             pts.append([float(p[0]), float(p[1])])
 
     while i < len(toks):
-        if toks[i] in "MmLlHhVvCcSsQqTtZz":
+        if toks[i] in "MmLlHhVvCcSsQqTtAaZz":
             cmd = toks[i]; i += 1
         if cmd is None:
             raise ValueError("bad path: command expected")
@@ -266,6 +332,14 @@ def _parse_d(d):
                 t = k / 8.0; u = 1 - t
                 add([u*u*p0[0] + 2*u*t*x1 + t*t*x, u*u*p0[1] + 2*u*t*y1 + t*t*y])
             cur = [x, y]; prev_ctrl = [x1, y1]; prev_cmd = C
+        elif C == "A":
+            rx, ry, rot, laf, sf, x, y = nums(7)
+            if rel:
+                x += cur[0]; y += cur[1]
+            p0 = list(cur)
+            for q in _arc_pts(p0, [x, y], rx, ry, rot, int(laf), int(sf)):
+                add(q)
+            cur = [x, y]; prev_ctrl = None; prev_cmd = C
         elif C == "T":
             x, y = nums(2)
             if rel:
@@ -466,7 +540,9 @@ def _stroke_from_attrs(ch, name, pts):
 
 def svg_to_plan(svg_text):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
-    if _native is not None and _native.available() and "data-center=" not in svg_text and "data-stroke=" not in svg_text:
+    if (_native is not None and _native.available() and "data-center=" not in svg_text
+            and "data-stroke=" not in svg_text and "transform=" not in svg_text
+            and not re.search(r'd="[^"]*[Aa][^"]*"', svg_text)):
         return _native.svg_to_plan(svg_text)
     root = ET.fromstring(svg_text)
     vb = root.attrib.get("viewBox", "0 0 1200 900").replace(",", " ").split()
@@ -478,21 +554,23 @@ def svg_to_plan(svg_text):
         if name not in [x["name"] for x in layers]:
             layers.append({"name": name, "blend": blend or "normal"})
 
-    def walk(node, inherited_layer=None):
+    def walk(node, inherited_layer=None, parent=(1, 0, 0, 1, 0, 0)):
         for ch in list(node):
             tag = _local(ch.tag)
             if tag == "g":
                 name = ch.attrib.get("data-name") or ch.attrib.get("id") or inherited_layer or "layer"
                 blend = ch.attrib.get("data-blend") or "normal"
                 add_layer(name, blend)
+                m = _mat_mul(parent, _parse_transform(ch.attrib.get("transform")))
                 if ch.attrib.get("data-stroke") or (ch.attrib.get("data-center") and not ch.attrib.get("data-name")):
                     ln = ch.attrib.get("data-layer") or inherited_layer or "layer"
                     add_layer(ln, "normal")
                     pts = _center_pts(ch.attrib.get("data-center"))
                     if pts:
+                        pts = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in pts]
                         strokes.append(_stroke_from_attrs(ch, ln, pts))
                     continue
-                walk(ch, name)
+                walk(ch, name, m)
             elif tag == "path":
                 name = ch.attrib.get("data-layer") or inherited_layer or "layer"
                 add_layer(name, "normal")
@@ -502,6 +580,11 @@ def svg_to_plan(svg_text):
                         pts = [[x, y, 1.0] for x, y in _parse_d(ch.attrib.get("d", ""))]
                     except Exception:
                         continue
+                    pv = _floats(ch.attrib.get("data-p"), [1.0] * len(pts))
+                    if len(pv) == len(pts):
+                        pts = [[p[0], p[1], pv[k]] for k, p in enumerate(pts)]
+                m = _mat_mul(parent, _parse_transform(ch.attrib.get("transform")))
+                pts = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in pts]
                 strokes.append(_stroke_from_attrs(ch, name, pts))
             else:
                 walk(ch, inherited_layer)
