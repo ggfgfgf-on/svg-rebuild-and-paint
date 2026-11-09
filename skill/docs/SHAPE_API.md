@@ -1,6 +1,6 @@
 # shape_ops 接口参考（参数语义）
 
-这份文档讲 scripts/shape_ops.py 两个 helper 的**参数含义、约束和组合方式**，不是画法步骤。
+这份文档讲 scripts/shape_ops.py 三个 helper（`fill_polygon` / `tapered_stroke` / `ribbon`）的**参数含义、约束和组合方式**，不是画法步骤。
 它们不是 ops 算子，也不改渲染器；只往 plan 追加普通笔触。
 
 先读这一句：fill_polygon 给的是“块面的第一层”，不是“块面画完了”；tapered_stroke
@@ -128,7 +128,7 @@ opacity 是**单笔**不透明度，不是整层统一 alpha。
 - 凹角/尖角处是逐边平移，不做 miter 连接；极端尖角可能仍有缺口；
 - 要完全控制在剪影内，可 edge=False，自己用更小的 polygon 或后续收边。
 
-**边界契约（实测）**：填充笔触的**中心**落在 polygon 内，但笔刷半径仍会向外画出约 0.5×size；edge_inset 只移动边圈，不会裁掉内部撒点的溢出。相邻硬边色带若直接共用边界，会出现 8–10px 的锯齿毛边。要干净硬边：edge=False，每个 polygon 向内缩约一个笔刷半径（size/2），边缘用连续 tapered_stroke 或单独窄层补。这不是 bug，是圆笔刷覆盖的语义；要像素级剪影，只能缩 polygon 或后处理。
+**边界契约（实测）**：`fill_polygon` **没有 clip/mask 参数**。填充笔触的**中心**落在 polygon 内，但笔刷半径仍会向外画出约 0.5×size；edge_inset 只移动边圈，不会裁掉内部撒点的溢出。相邻硬边色带若直接共用边界，会出现 8–10px 的锯齿毛边。要干净硬边：edge=False，每个 polygon 向内缩约一个笔刷半径（size/2），边缘用连续 tapered_stroke 或单独窄层补。这不是 bug，是圆笔刷覆盖的语义；要像素级剪影，只能缩 polygon 或后处理。
 
 ### 1.6 组合时看哪些参数（不是步骤）
 

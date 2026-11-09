@@ -10,7 +10,7 @@
 仓库名沿用了历史名称，内容早已不止 SVG。现在它是一个 DSH Skill 仓库，三层都可运行、可验收：
 
 1. **真矢量 SVG 重绘** —— 任意位图（PNG/JPEG，≤2MP）→ potrace 逐色掩码曲线重建（2–3× 超采样）→ 单文件自包含 HTML，纯 `<path>` 平涂几何 + 离散步骤播放器；纯矢量，放大无台阶。
-2. **程序化厚涂绘画引擎** —— 8 图层计划 → 笔触光栅化 → 30fps 视频；支持确定性回放、差量/单层/tile 增量重绘、GPU 后端、逐 stamp 上色、PSD/KRA 互操作。
+2. **程序化厚涂绘画引擎** —— 场景定义的分层计划（层数/层名由场景决定）→ 笔触光栅化 → 30fps 视频；支持确定性回放、差量/单层/tile 增量重绘、GPU 后端、逐 stamp 上色、PSD/KRA 互操作。
 3. **计划空间改画** —— 指令编译成算子（改色/扩缩/细化/局部重画）→ 只重算脏区域；阈值全部来自工程标定，技能只提供机制与辅助函数。
 
 ### 关于仓库名
@@ -117,20 +117,20 @@ git clone https://github.com/ggfgfgf-on/svg-rebuild-and-paint.git
 python scripts/vectorize.py ref.png out.html 192
 python scripts/metric.py   ref.png shot.png          # mean / <=5 / uncovered
 
-# 2) 绘画引擎：分层计划 → 30fps 视频
-python scripts/planner_8layer.py <config>
-python scripts/render_video.py  <plan.npz> out.mp4
+# 2) 绘画引擎：分层计划 → PNG / 30fps 视频
+python scripts/render_plan.py plan.json --out out.png
+python scripts/paint_cli.py video plan.json --out out.mp4
 
 # 3) 计划空间改画：指令 → 算子 → 只重算脏区域
-python scripts/paint_cli.py compile --plan <plan.json> --instruction "把花瓣调深一点" --out ops.json
-python scripts/paint_cli.py edit --plan <plan.json> --ops ops.json --out out.png
+python scripts/paint_cli.py compile plan.json --instruction "把花瓣调深一点" --out ops.json
+python scripts/paint_cli.py edit plan.json --ops ops.json --out out.png
 ```
 
 入口手册：`SKILL.md`；辅助函数签名（自动生成）：`docs/API.md`；设计与测量：`IMPLEMENTATION.md`。
 
 ## 测试
 
-`tests/` 下共 **48 个测试文件 / 58 个测试函数**。SVG 与绘画侧的历史套件继续以"逐位相同"为判定；本轮新增的标定与文档套件是：
+`tests/` 下有 **60 个测试脚本**。SVG 与绘画侧的历史套件继续以"逐位相同"为判定；本轮新增的标定与文档套件是：
 
 ```powershell
 python tests/test_calibrated.py            # 工程标定解析 / 来源标记

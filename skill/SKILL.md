@@ -124,7 +124,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 工具只是命令行的薄包装，没有额外逻辑；没有工具的环境照旧走下面的命令行。
 
-**两条渲染入口的后端/profile 处理不同**：`render_plan.py`（`art_paint` 背后就是它）走 `render_util`，可用 `--gpu` 切后端，并按 `--look` / `scripts/native/look.json` 叠外观 profile；`plan_io.render_plan()` 是直接 `paint_native` 的 CPU 批渲染，不套 profile。默认 `look.json` 当前是恒等（tone=1/0/1、ops=空），所以**都走 CPU 时两者应逐像素一致**；实测 `render_plan.py --gpu` 与 `plan_io.render_plan()`（CPU）会有 maxdiff=1 的舍入差（不是 look 造成的）。要逐位一致：固定同一后端（都 CPU 或都 GPU）+ 同一 look；跨 GPU/CPU 不要求逐位一致。
+**两条渲染入口的后端/profile 处理不同**：`render_plan.py`（`art_paint` 背后就是它）走 `render_util`，可用 `--gpu` 切后端，并按 `--look` / `scripts/native/look.json` 叠外观 profile；`plan_io.render_plan()` 是直接 `paint_native` 的 CPU 批渲染，不套 profile。默认 `look.json` 当前是恒等（tone=1/0/1、ops=空），但“两个入口都走 CPU 就逐像素一致”**没有实测保证**：冷读审计观察到 `plan_io.render_plan()` 与 host `art_paint` 的 CPU 结果有 1 LSB 差异。要逐位比较，固定同一入口 + 同一后端 + 同一 look；不要跨入口承诺逐位一致。
 
 ## 计划从哪来（绘画 / 改画的起点）
 

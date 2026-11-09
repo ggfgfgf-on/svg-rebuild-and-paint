@@ -134,7 +134,7 @@ python scripts/paint_cli.py video examples/demo.plan.json --ops examples/demo.op
 
 | 字段 | 类型 / 范围 | 说明 |
 |---|---|---|
-| `layer` | 已在 `layers` 里声明 | 拼错 = 静默不画 |
+| `layer` | 已在 `layers` 里声明 | 手写 JSON 拼错 = 悬空层，不画；shape_ops helper 会自动建层 |
 | `preset` | 10 个之一或 `tip:<名>` | 见 4.4 |
 | `size` | 下限 1；1–300 是手感带，**引擎不校验上限** | 笔头直径（像素）。实测 329.84、1600 都能渲染，大笔用来铺底 |
 | `opacity` | 0–1 | 单笔不透明度；叠 20 笔 0.1 比 1 笔 0.9 更柔 |

@@ -58,7 +58,8 @@ print(arr.shape)
 import sys
 from pathlib import Path
 
-SKILL = Path(r"<skill>")
+# build.py 放在 skill 根目录的下一级（例如 cold_out/build.py）
+SKILL = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL / "scripts"))
 import plan_io
 import shape_ops
@@ -102,7 +103,7 @@ part("part", [(200, 220), (240, 320), (235, 420)], [36, 22, 10],
 # add("layer", [(x, y), ...], size, (r, g, b), opacity, preset, hardness)
 
 plan_io.dump_plan(
-    "out/plan.json", W, H, doc["strokes"],
+    str(OUT / "plan.json"), W, H, doc["strokes"],
     layer_blends={"base": "normal", "block": "normal", "part": "normal"},
     layer_order=["base", "block", "part"],
 )
@@ -130,6 +131,27 @@ im = Image.open("out/plan.png")
 im.resize((im.width // 4, im.height // 4), Image.LANCZOS).save("out/plan_25.png")
 ~~~
 
+
+一个无场景的统计脚手架（接在上面的 plan 后面）：
+
+~~~python
+import json, time
+from pathlib import Path
+from PIL import Image
+import plan_io
+
+plan_path = OUT / "plan.json"
+png_path = OUT / "plan.png"
+t0 = time.perf_counter()
+plan_io.render_plan(str(plan_path), str(png_path))
+render_s = round(time.perf_counter() - t0, 3)
+doc2, w2, h2 = plan_io.load_plan(str(plan_path))
+im = Image.open(png_path)
+im.resize((w2 // 4, h2 // 4), Image.LANCZOS).save(OUT / "plan_25.png")
+print(json.dumps({"canvas": [w2, h2], "layers": len(doc2["layers"]),
+                  "strokes": len(doc2["strokes"]), "render_s": render_s,
+                  "png_bytes": png_path.stat().st_size}))
+~~~
 注意：`render_plan.py` 落盘是 RGB PNG，alpha 被丢弃；要检查透明/露底，用 `render_util.render_arr` 的 RGBA，或保证底层不透明。
 
 这份骨架没有场景：它只保证接口接对。层怎么拆、画什么，读 [SHAPE_API.md](SHAPE_API.md) 和 [USAGE.md](USAGE.md) 后自己写。
