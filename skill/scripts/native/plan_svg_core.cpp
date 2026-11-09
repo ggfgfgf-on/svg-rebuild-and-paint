@@ -30,6 +30,12 @@
 
 using namespace rapidjson;
 
+static std::string hash_text(const std::string& s) {
+    unsigned long long h = 1469598103934665603ULL;
+    for (unsigned char c : s) { h ^= c; h *= 1099511628211ULL; }
+    char b[32]; std::snprintf(b, sizeof(b), "%016llx", h); return std::string(b);
+}
+
 static std::string fmt(double v) {
     char b[48]; std::snprintf(b, sizeof(b), "%.3f", v);
     std::string s(b);
@@ -170,6 +176,13 @@ static std::string svg_from_plan(const std::string& input) {
             auto ci = s.FindMember("color");
             Value dummy(kArrayType); dummy.PushBack(217, d.GetAllocator()).PushBack(180, d.GetAllocator()).PushBack(90, d.GetAllocator());
             const Value& col = (ci != s.MemberEnd() && ci->value.IsArray()) ? ci->value : dummy;
+            if (preset == "fill") {
+                out += "<path d=\""; out += d_from(*pts); out += " Z\" fill=\""; out += color_hex(col);
+                out += "\" fill-opacity=\""; out += fmt(op); out += "\" fill-rule=\"nonzero\" data-layer=\""; esc_to(out, name);
+                out += "\" data-preset=\"fill\" data-color=\""; out += color_text(col); out += "\"";
+                auto ft = s.FindMember("tag"); if (ft != s.MemberEnd() && ft->value.IsString()) { out += " data-tag=\""; esc_to(out, ft->value.GetString()); out += "\""; }
+                out += "/>\n"; continue;
+            }
             out += "<path d=\""; out += d_from(*pts);
             out += "\" fill=\"none\" stroke=\""; out += color_hex(col);
             out += "\" stroke-width=\""; out += fmt(size);
@@ -197,7 +210,7 @@ static std::string svg_from_plan(const std::string& input) {
 // ---------- SVG path parser ----------
 static bool is_cmd(char c) {
     return c=='M'||c=='m'||c=='L'||c=='l'||c=='H'||c=='h'||c=='V'||c=='v'||
-           c=='C'||c=='c'||c=='S'||c=='s'||c=='Q'||c=='q'||c=='T'||c=='t'||c=='Z'||c=='z';
+           c=='C'||c=='c'||c=='S'||c=='s'||c=='Q'||c=='q'||c=='T'||c=='t'||c=='A'||c=='a'||c=='Z'||c=='z';
 }
 struct PP {
     const char* p; const char* e;
@@ -267,9 +280,72 @@ static void parse_d(const std::string& d, std::vector<double>& xs, std::vector<d
             double x1=(prev=='Q'||prev=='T')?2*cx-px:cx, y1=(prev=='Q'||prev=='T')?2*cy-py:cy;
             for(int k=1;k<=8;++k){double t=k/8.0,u=1-t;addpt(xs,ys,u*u*cx+2*u*t*x1+t*t*x,u*u*cy+2*u*t*y1+t*t*y);}
             px=x1;py=y1;cx=x;cy=y;prev=C;
+        } else if (C=='A') {
+            double rx=q.n(), ry=q.n(), rot=q.n(), laf=q.n(), sf=q.n(), x=q.n(), y=q.n();
+            if(rel){x+=cx;y+=cy;}
+            rx=std::fabs(rx); ry=std::fabs(ry);
+            double phi=rot*3.14159265358979323846/180.0, cp=std::cos(phi), sp=std::sin(phi);
+            double dx=(cx-x)/2.0, dy=(cy-y)/2.0;
+            double x1=cp*dx+sp*dy, y1=-sp*dx+cp*dy;
+            if(rx>1e-9 && ry>1e-9){
+                double lam=(x1*x1)/(rx*rx)+(y1*y1)/(ry*ry);
+                if(lam>1){double z=std::sqrt(lam);rx*=z;ry*=z;}
+                double num=std::max(0.0,rx*rx*ry*ry-rx*rx*y1*y1-ry*ry*x1*x1);
+                double den=rx*rx*y1*y1+ry*ry*x1*x1;
+                double co=den>0?std::sqrt(num/den):0.0; if((laf!=0)==(sf!=0))co=-co;
+                double cxp=co*rx*y1/ry, cyp=-co*ry*x1/rx;
+                double ccx=cp*cxp-sp*cyp+(cx+x)/2.0, ccy=sp*cxp+cp*cyp+(cy+y)/2.0;
+                auto ang=[](double ux,double uy,double vx,double vy){return std::atan2(ux*vy-uy*vx,ux*vx+uy*vy);};
+                double t1=ang(1,0,(x1-cxp)/rx,(y1-cyp)/ry);
+                double dt=ang((x1-cxp)/rx,(y1-cyp)/ry,(-x1-cxp)/rx,(-y1-cyp)/ry);
+                if(sf==0 && dt>0)dt-=2*3.14159265358979323846;
+                else if(sf!=0 && dt<0)dt+=2*3.14159265358979323846;
+                for(int k=1;k<=16;++k){double t=t1+dt*k/16.0;addpt(xs,ys,ccx+rx*cp*std::cos(t)-ry*sp*std::sin(t),ccy+rx*sp*std::cos(t)+ry*cp*std::sin(t));}
+            } else addpt(xs,ys,x,y);
+            cx=x;cy=y;prev=C;
         } else break;
     }
 }
+
+
+static std::vector<double> nums(const std::string& s);
+static void parse_center(const std::string& s, std::vector<double>& xs, std::vector<double>& ys, std::vector<double>& ps) {
+    size_t i = 0;
+    while (i < s.size()) {
+        size_t j = s.find(';', i); if (j == std::string::npos) j = s.size();
+        auto v = nums(s.substr(i, j - i));
+        if (v.size() >= 2) { xs.push_back(v[0]); ys.push_back(v[1]); ps.push_back(v.size() >= 3 ? v[2] : 1.0); }
+        i = j + 1;
+    }
+}
+
+struct Mat { double a=1,b=0,c=0,d=1,e=0,f=0; };
+static Mat mat_mul(const Mat& m, const Mat& n) {
+    return Mat{m.a*n.a+m.c*n.b, m.b*n.a+m.d*n.b, m.a*n.c+m.c*n.d, m.b*n.c+m.d*n.d,
+               m.a*n.e+m.c*n.f+m.e, m.b*n.e+m.d*n.f+m.f};
+}
+static Mat parse_transform(const std::string& s) {
+    Mat m;
+    size_t p=0;
+    while ((p=s.find('(',p)) != std::string::npos) {
+        size_t q=s.rfind(' ',p); size_t name0=(q==std::string::npos)?0:q+1;
+        std::string name=s.substr(name0,p-name0);
+        size_t e=s.find(')',p); if(e==std::string::npos)break;
+        auto v=nums(s.substr(p+1,e-p-1));
+        Mat t;
+        if(name=="translate" && v.size()>=1){t.e=v[0];t.f=v.size()>1?v[1]:0;}
+        else if(name=="scale" && v.size()>=1){t.a=v[0];t.d=v.size()>1?v[1]:v[0];}
+        else if(name=="matrix" && v.size()>=6){t=Mat{v[0],v[1],v[2],v[3],v[4],v[5]};}
+        else if(name=="rotate" && v.size()>=1){
+            double a=v[0]*3.14159265358979323846/180.0, ca=std::cos(a), sa=std::sin(a);
+            t=Mat{ca,sa,-sa,ca,0,0};
+            if(v.size()>=3){ Mat tr{1,0,0,1,v[1],v[2]}, ti{1,0,0,1,-v[1],-v[2]}; t=mat_mul(mat_mul(tr,t),ti); }
+        }
+        m=mat_mul(m,t); p=e+1;
+    }
+    return m;
+}
+static void mat_apply(const Mat& m, double& x, double& y) { double nx=m.a*x+m.c*y+m.e, ny=m.b*x+m.d*y+m.f; x=nx; y=ny; }
 
 static std::vector<double> nums(const std::string& s) {
     std::vector<double> v; const char* p=s.c_str();
@@ -300,36 +376,54 @@ static std::string plan_from_svg(const std::string& input) {
     std::vector<std::string> names, blends;
     std::map<std::string,int> idx;
     std::vector<std::string> strokes;
-    std::function<void(pugi::xml_node,std::string)> walk = [&](pugi::xml_node node, std::string inherit) {
+    auto at_of=[](pugi::xml_node ch,const char*k){ return std::string(ch.attribute(k).as_string()); };
+    auto emit=[&](pugi::xml_node ch,const std::string& layer,const std::vector<double>& xs,const std::vector<double>& ys,const std::vector<double>& ps){
+        std::string ct=at_of(ch,"data-color");
+        auto col=ct.empty()?color_from(at_of(ch,"stroke")):color_from(ct);
+        std::string sj="{\"layer\":\""; jesc_to(sj,layer);
+        sj += "\",\"preset\":\""; jesc_to(sj,at_of(ch,"data-preset").empty()?"round_soft":at_of(ch,"data-preset"));
+        sj += "\",\"size\":"; sj += fmt(at_of(ch,"data-size").empty()?std::atof(at_of(ch,"stroke-width").c_str()):std::atof(at_of(ch,"data-size").c_str()));
+        sj += ",\"opacity\":"; sj += fmt(at_of(ch,"data-opacity").empty()?1.0:std::atof(at_of(ch,"data-opacity").c_str()));
+        sj += ",\"hardness\":"; sj += fmt(at_of(ch,"data-hardness").empty()?0.7:std::atof(at_of(ch,"data-hardness").c_str()));
+        sj += ",\"color\":["; sj += fmt(col[0]); sj += ","; sj += fmt(col[1]); sj += ","; sj += fmt(col[2]); sj += "],\"points\":[";
+        for(size_t i=0;i<xs.size();++i){ if(i)sj += ","; sj += "["; sj += fmt(xs[i]); sj += ","; sj += fmt(ys[i]); sj += ","; sj += fmt(i<ps.size()?ps[i]:1.0); sj += "]"; }
+        sj += "]";
+        if(!at_of(ch,"data-tag").empty()){ sj += ",\"tag\":\""; jesc_to(sj,at_of(ch,"data-tag")); sj += "\""; }
+        sj += "}";
+        strokes.push_back(sj);
+    };
+    std::function<void(pugi::xml_node,std::string,Mat)> walk = [&](pugi::xml_node node, std::string inherit, Mat parent) {
         for (pugi::xml_node ch=node.first_child(); ch; ch=ch.next_sibling()) {
             std::string tag=ch.name();
             auto at=[&](const char* k){ return std::string(ch.attribute(k).as_string()); };
             if (tag=="g") {
                 std::string n=at("data-name"); if(n.empty())n=at("id"); if(n.empty())n=inherit.empty()?"layer":inherit;
                 add_layer(names,blends,idx,n,at("data-blend"));
-                walk(ch,n);
+                Mat m=mat_mul(parent,parse_transform(at("transform")));
+                if(!at("data-stroke").empty() || (!at("data-center").empty() && at("data-name").empty())){
+                    std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
+                    add_layer(names,blends,idx,layer,"");
+                    std::vector<double> xs,ys,ps;
+                    parse_center(at("data-center"),xs,ys,ps);
+                    for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
+                    if(!xs.empty()) emit(ch,layer,xs,ys,ps);
+                    continue;
+                }
+                walk(ch,n,m);
             } else if (tag=="path") {
                 std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
                 add_layer(names,blends,idx,layer,"");
-                std::vector<double> xs,ys; parse_d(at("d"),xs,ys); if(xs.empty())continue;
-                auto ps=nums(at("data-p")); if(ps.size()!=xs.size())ps.assign(xs.size(),1.0);
-                std::string ct=at("data-color");
-                auto col=ct.empty()?color_from(at("stroke")):color_from(ct);
-                std::string sj="{\"layer\":\""; jesc_to(sj,layer);
-                sj += "\",\"preset\":\""; jesc_to(sj,at("data-preset").empty()?"round_soft":at("data-preset"));
-                sj += "\",\"size\":"; sj += fmt(at("data-size").empty()?std::atof(at("stroke-width").c_str()):std::atof(at("data-size").c_str()));
-                sj += ",\"opacity\":"; sj += fmt(at("data-opacity").empty()?1.0:std::atof(at("data-opacity").c_str()));
-                sj += ",\"hardness\":"; sj += fmt(at("data-hardness").empty()?0.7:std::atof(at("data-hardness").c_str()));
-                sj += ",\"color\":["; sj += fmt(col[0]); sj += ","; sj += fmt(col[1]); sj += ","; sj += fmt(col[2]); sj += "],\"points\":[";
-                for(size_t i=0;i<xs.size();++i){ if(i)sj += ","; sj += "["; sj += fmt(xs[i]); sj += ","; sj += fmt(ys[i]); sj += ","; sj += fmt(ps[i]); sj += "]"; }
-                sj += "]";
-                if(!at("data-tag").empty()){ sj += ",\"tag\":\""; jesc_to(sj,at("data-tag")); sj += "\""; }
-                sj += "}";
-                strokes.push_back(sj);
-            } else walk(ch,inherit);
+                std::vector<double> xs,ys,ps;
+                if(!at("data-center").empty()) parse_center(at("data-center"),xs,ys,ps);
+                else { parse_d(at("d"),xs,ys); ps.assign(xs.size(),1.0); auto pv=nums(at("data-p")); if(pv.size()==xs.size())ps=pv; }
+                if(xs.empty())continue;
+                Mat m=mat_mul(parent,parse_transform(at("transform")));
+                for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
+                emit(ch,layer,xs,ys,ps);
+            } else walk(ch,inherit,parent);
         }
     };
-    walk(root,"");
+    walk(root,"",Mat());
     std::string out="{\"canvas\":["; out+=std::to_string(W); out+=","; out+=std::to_string(H); out+="],\"layers\":[";
     for(size_t i=0;i<names.size();++i){ if(i)out+=","; out+="{\"name\":\""; jesc_to(out,names[i]); out+="\",\"blend\":\""; jesc_to(out,blends[i]); out+="\"}"; }
     out += "],\"strokes\":[";
@@ -434,6 +528,13 @@ static std::string bin_to_svg(const unsigned char* data, int len) {
         for (const auto& s : strokes) if (s.layer == li) {
             std::string d; bool first=true;
             for (size_t j=0;j+2<s.pts.size();j+=3){ d += first?"M ":" L "; d += fmt(s.pts[j])+" "+fmt(s.pts[j+1]); first=false; }
+            if (s.preset == "fill") {
+                char hf[8]; std::snprintf(hf,sizeof(hf),"%02x%02x%02x",(int)std::lround(s.r),(int)std::lround(s.g),(int)std::lround(s.b));
+                out += "<path d=\"" + d + " Z\" fill=\"#"; out += hf; out += "\" fill-opacity=\"" + fmt(s.opacity) + "\" fill-rule=\"nonzero\" data-layer=\""; esc_to(out,names[li]);
+                out += "\" data-preset=\"fill\" data-color=\"" + fmt(s.r) + "," + fmt(s.g) + "," + fmt(s.b) + "\"";
+                if(!s.tag.empty()){ out += " data-tag=\""; esc_to(out,s.tag); out += "\""; }
+                out += "/>\n"; continue;
+            }
             out += "<path d=\"" + d + "\" fill=\"none\" stroke=\"#";
             char hx[8]; std::snprintf(hx,sizeof(hx),"%02x%02x%02x",(int)std::lround(s.r),(int)std::lround(s.g),(int)std::lround(s.b)); out += hx;
             out += "\" stroke-width=\"" + fmt(s.size) + "\" stroke-opacity=\"" + fmt(s.opacity);
@@ -834,7 +935,7 @@ static std::string bin_to_svg_stamps(const unsigned char* data, int len) {
             std::string ca;
             for(size_t j=0;j+2<s.pts.size();j+=3){ if(!ca.empty())ca += ";"; ca += fmt(s.pts[j])+","+fmt(s.pts[j+1])+","+fmt(s.pts[j+2]); }
             out += "<g data-stroke=\"1\" data-layer=\""; esc_to(out,names[li]); out += "\" data-preset=\""; esc_to(out,s.preset);
-            out += "\" data-size=\""+fmt(s.size)+"\" data-opacity=\""+fmt(s.opacity)+"\" data-hardness=\""+fmt(s.hardness)+"\" data-color=\""+fmt(s.r)+","+fmt(s.g)+","+fmt(s.b)+"\" data-center=\""; esc_to(out,ca); out += "\"";
+            out += "\" data-size=\""+fmt(s.size)+"\" data-opacity=\""+fmt(s.opacity)+"\" data-hardness=\""+fmt(s.hardness)+"\" data-color=\""+fmt(s.r)+","+fmt(s.g)+","+fmt(s.b)+"\" data-center=\""; esc_to(out,ca); out += "\" data-center-hash=\""+hash_text(ca)+"\"";
             if(!s.tag.empty()){ out += " data-tag=\""; esc_to(out,s.tag); out += "\""; }
             out += ">\n";
             const float baseR=s.size*0.5f;

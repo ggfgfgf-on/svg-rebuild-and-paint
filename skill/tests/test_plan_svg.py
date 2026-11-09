@@ -141,6 +141,22 @@ def test_native_fallback_metadata():
     assert pts[0] == [1.0, 1.0, 1.0]
 
 
+
+
+def test_clip_fill_multi_subpath():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<defs><clipPath id="c"><rect x="0" y="0" width="50" height="100"/></clipPath></defs>'
+           '<path clip-path="url(#c)" d="M 0 0 L 100 0" stroke="#ff0000" stroke-width="2"/>'
+           '<rect x="0" y="0" width="100" height="20" fill="#00ff00" clip-path="url(#c)"/>'
+           '<path d="M 0 50 L 10 50 M 20 60 L 30 60" stroke="#0000ff" stroke-width="2"/>'
+           '</svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert len(d["strokes"]) == 4
+    assert d["strokes"][0]["points"][-1][0] == 50.0
+    assert d["strokes"][1]["preset"] == "fill"
+    assert len(d["strokes"][2]["points"]) == 2 and len(d["strokes"][3]["points"]) == 2
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -150,4 +166,5 @@ if __name__ == "__main__":
     test_transform_and_arc()
     test_shapes_css_use_gradient()
     test_native_fallback_metadata()
+    test_clip_fill_multi_subpath()
     print("all plan_svg tests passed")

@@ -143,6 +143,11 @@ def plan_to_svg(doc, *, filters=False, title=None):
             op = max(0.0, min(1.0, float(s.get("opacity", 1.0))))
             hard = max(0.0, min(1.0, float(s.get("hardness", 0.7))))
             preset = str(s.get("preset", "round_soft"))
+            if preset == "fill":
+                out.append('<path d="%s Z" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
+                           (_path_d(pts), _rgb(s.get("color")), _f(op), _esc(name), _rgb_text(s.get("color")),
+                            (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))
+                continue
             cap = "butt" if preset in ("flat", "bristle") else "round"
             attrs = ['d="%s"' % _path_d(pts),
                      'fill="none"',
@@ -175,6 +180,16 @@ _NUM = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
 def _tokens(d):
     return re.findall(r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?", d)
 
+
+def _parse_d_subpaths(d):
+    parts = [x for x in re.split(r"(?=[Mm])", str(d or "")) if x.strip()]
+    out = []
+    for part in parts:
+        try:
+            out.append(_parse_d(part))
+        except Exception:
+            continue
+    return out or [[]]
 
 def _mat(a, b, c, d, e, f):
     return (a, b, c, d, e, f)
@@ -415,8 +430,8 @@ def plan_to_svg_stamps(doc, title=None):
             col = _rgb(st.get("color")); op0 = max(0.0, min(1.0, float(st.get("opacity", 1.0))))
             preset = str(st.get("preset", "round_soft")); hard = float(st.get("hardness", 0.7))
             ps = [(float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)) for p in pts]
-            body.append('<g data-stroke="1" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s"%s>' % (
-                quoteattr(name), quoteattr(preset), _f(size), _f(op0), _f(hard), col, _center_attr(ps),
+            body.append('<g data-stroke="1" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-center-hash="%s"%s>' % (
+                quoteattr(name), quoteattr(preset), _f(size), _f(op0), _f(hard), col, _center_attr(ps), _center_hash(ps),
                 (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else ""))
             for i in range(1, len(pts)):
                 x0, y0, p0 = float(pts[i-1][0]), float(pts[i-1][1]), float(pts[i-1][2] if len(pts[i-1]) > 2 else 1.0)
@@ -472,6 +487,12 @@ def _capsule(p0, p1, r0, r1, steps=8):
 
 def _d_hash(d):
     return hashlib.md5(str(d).encode("utf-8")).hexdigest()[:12]
+
+def _center_hash(ps):
+    h = 1469598103934665603
+    for b in _center_attr(ps).encode("utf-8"):
+        h ^= b; h = (h * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return "%016x" % h
 
 def _center_attr(ps):
     return ";".join("%s,%s,%s" % (_f(p[0]), _f(p[1]), _f(p[2] if len(p) > 2 else 1.0)) for p in ps)
@@ -574,6 +595,81 @@ def _style_decls(text):
     return out
 
 
+def _clip_poly(subject, clip):
+    if len(subject) < 3 or len(clip) < 3:
+        return []
+    area = sum(clip[i][0]*clip[(i+1) % len(clip)][1] - clip[(i+1) % len(clip)][0]*clip[i][1] for i in range(len(clip)))
+    poly = list(clip) if area > 0 else list(reversed(clip))
+    out = list(subject)
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i+1) % len(poly)]
+        ex, ey = b[0]-a[0], b[1]-a[1]
+        def inside(p):
+            return ex*(p[1]-a[1]) - ey*(p[0]-a[0]) >= -1e-9
+        def cross(p, q):
+            dx, dy = q[0]-p[0], q[1]-p[1]
+            den = ex*dy - ey*dx
+            if abs(den) < 1e-12:
+                return p
+            t = (ex*(a[1]-p[1]) - ey*(a[0]-p[0])) / den
+            return [p[0] + dx*t, p[1] + dy*t]
+        inp = out; out = []
+        if not inp:
+            break
+        for j in range(len(inp)):
+            cur, prev = inp[j], inp[j-1]
+            if inside(cur):
+                if not inside(prev):
+                    out.append(cross(prev, cur))
+                out.append(cur)
+            elif inside(prev):
+                out.append(cross(prev, cur))
+    return out
+
+
+def _clip_line(p0, p1, clip):
+    area = sum(clip[i][0]*clip[(i+1) % len(clip)][1] - clip[(i+1) % len(clip)][0]*clip[i][1] for i in range(len(clip)))
+    poly = clip if area > 0 else list(reversed(clip))
+    t0, t1 = 0.0, 1.0
+    dx, dy = p1[0]-p0[0], p1[1]-p0[1]
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i+1) % len(poly)]
+        ex, ey = b[0]-a[0], b[1]-a[1]
+        num = ex*(p0[1]-a[1]) - ey*(p0[0]-a[0])
+        den = ex*dy - ey*dx
+        if abs(den) < 1e-12:
+            if num < 0:
+                return None
+            continue
+        t = -num/den
+        if den > 0:
+            if t > t1: return None
+            if t > t0: t0 = t
+        else:
+            if t < t0: return None
+            if t < t1: t1 = t
+    if t0 > t1:
+        return None
+    return [[p0[0]+dx*t0, p0[1]+dy*t0], [p0[0]+dx*t1, p0[1]+dy*t1]]
+
+
+def _clip_geoms(root):
+    out = {}
+    for el in root.iter():
+        if _local(el.tag) in ("clipPath", "mask") and el.get("id"):
+            polys = []
+            for ch in list(el):
+                tag = _local(ch.tag)
+                if tag == "path":
+                    for sub in _parse_d_subpaths(ch.get("d", "")):
+                        if len(sub) >= 3: polys.append(sub)
+                elif tag in ("rect", "circle", "ellipse", "polygon"):
+                    q = _shape_points(tag, ch.attrib)
+                    if len(q) >= 3: polys.append(q)
+            if polys:
+                out[el.get("id")] = polys
+    return out
+
 def _load_css(root):
     css = {}
     for el in root.iter():
@@ -630,8 +726,9 @@ def needs_python_parser(svg_text):
         return True
     if "transform=" in svg_text or "<style" in svg_text or "<use" in svg_text:
         return True
-    if re.search(r'd="[^"]*[Aa][^"]*"', svg_text):
-        return True
+    for dm in re.finditer(r'd="([^"]*)"', svg_text):
+        if re.search(r"[Aa]", dm.group(1)) or len(re.findall(r"[Mm]", dm.group(1))) > 1:
+            return True
     if re.search(r"<(circle|ellipse|rect|polygon|polyline)\b", svg_text):
         return True
     return "url(#" in svg_text or "<mask" in svg_text or "<clipPath" in svg_text
@@ -645,11 +742,36 @@ def _svg_to_plan_py(svg_text):
     layers, strokes = [], []
     css = _load_css(root)
     grads = _gradient_colors(root)
+    clips = _clip_geoms(root)
     by_id = {el.get("id"): el for el in root.iter() if el.get("id")}
 
     def add_layer(name, blend):
         if name not in [x["name"] for x in layers]:
             layers.append({"name": name, "blend": blend or "normal"})
+
+    def emit(a, name, pts):
+        key = None
+        for attr in ("clip-path", "mask"):
+            m = re.match(r"url\(#([^)]+)\)", str(a.get(attr, "")))
+            if m:
+                key = m.group(1); break
+        polys = clips.get(key) if key else None
+        if not polys:
+            strokes.append(_stroke_from_attrs(a, name, pts)); return
+        if a.get("data-preset") == "fill" or (a.get("fill") and a.get("fill") != "none" and not a.get("stroke")):
+            for poly in polys:
+                q = _clip_poly([(p[0], p[1]) for p in pts], [(p[0], p[1]) for p in poly])
+                if len(q) >= 3:
+                    st = _stroke_from_attrs(a, name, [[x, y, 1.0] for x, y in q])
+                    st["preset"] = "fill"; st.pop("size", None); st.pop("hardness", None)
+                    strokes.append(st)
+            return
+        for poly in polys:
+            for i in range(1, len(pts)):
+                seg = _clip_line((pts[i-1][0], pts[i-1][1]), (pts[i][0], pts[i][1]), [(p[0], p[1]) for p in poly])
+                if seg:
+                    strokes.append(_stroke_from_attrs(a, name, [[seg[0][0], seg[0][1], pts[i-1][2] if len(pts[i-1]) > 2 else 1.0],
+                                                                [seg[1][0], seg[1][1], pts[i][2] if len(pts[i]) > 2 else 1.0]]))
 
     def visit(ch, inherited_layer=None, parent=(1, 0, 0, 1, 0, 0), active=None):
         active = active or set()
@@ -674,7 +796,7 @@ def _svg_to_plan_py(svg_text):
                 pts = _center_pts(a.get("data-center"))
                 if pts:
                     pts = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in pts]
-                    strokes.append(_stroke_from_attrs(a, ln, pts))
+                    emit(a, ln, pts)
                 return
             for sub in list(ch):
                 visit(sub, name, m, active)
@@ -687,17 +809,20 @@ def _svg_to_plan_py(svg_text):
             if center and a.get("data-d-hash") and _d_hash(dval) != a.get("data-d-hash"):
                 center = ""
             pts = _center_pts(center)
-            if not pts:
-                try:
-                    pts = [[x, y, 1.0] for x, y in _parse_d(dval)]
-                except Exception:
-                    return
-                pv = _floats(a.get("data-p"), [1.0] * len(pts))
-                if len(pv) == len(pts):
-                    pts = [[p[0], p[1], pv[k]] for k, p in enumerate(pts)]
             m = _mat_mul(parent, _parse_transform(a.get("transform")))
+            if not pts:
+                for group in _parse_d_subpaths(dval):
+                    if not group:
+                        continue
+                    sub = [[x, y, 1.0] for x, y in group]
+                    pv = _floats(a.get("data-p"), [1.0] * len(sub))
+                    if len(pv) == len(sub):
+                        sub = [[p[0], p[1], pv[k]] for k, p in enumerate(sub)]
+                    sub = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in sub]
+                    emit(a, name, sub)
+                return
             pts = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in pts]
-            strokes.append(_stroke_from_attrs(a, name, pts))
+            emit(a, name, pts)
             return
         if tag in ("circle", "ellipse", "rect", "polygon", "polyline"):
             name = a.get("data-layer") or inherited_layer or "layer"
@@ -706,9 +831,12 @@ def _svg_to_plan_py(svg_text):
             if pts:
                 m = _mat_mul(parent, _parse_transform(a.get("transform")))
                 pts = [[*_mat_apply(m, p[0], p[1]), 1.0] for p in pts]
-                st = _stroke_from_attrs(a, name, pts)
-                st["size"] = float(a.get("data-size", a.get("stroke-width", 1.0)))
-                strokes.append(st)
+                aa = dict(a)
+                if aa.get("fill") and aa.get("fill") != "none" and not aa.get("stroke"):
+                    aa["data-preset"] = "fill"
+                else:
+                    aa["data-size"] = aa.get("data-size", aa.get("stroke-width", 1.0))
+                emit(aa, name, pts)
 
     for ch in list(root):
         visit(ch)
