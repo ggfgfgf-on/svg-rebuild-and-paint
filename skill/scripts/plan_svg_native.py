@@ -19,11 +19,13 @@ def available():
 
 def _load():
     lib = ctypes.CDLL(str(_DLL))
-    for n in ("psvg_plan_to_svg", "psvg_svg_to_plan", "psvg_plan_file_to_svg", "psvg_svg_file_to_plan", "psvg_plan_file_to_bin", "psvg_bin_file_to_plan"):
+    for n in ("psvg_plan_to_svg", "psvg_svg_to_plan", "psvg_svg_to_plan_base", "psvg_plan_file_to_svg", "psvg_svg_file_to_plan", "psvg_plan_file_to_bin", "psvg_bin_file_to_plan"):
         f = getattr(lib, n)
         f.restype = ctypes.c_void_p
         if n in ("psvg_plan_file_to_svg", "psvg_svg_file_to_plan", "psvg_plan_file_to_bin", "psvg_bin_file_to_plan"):
             f.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+        elif n == "psvg_svg_to_plan_base":
+            f.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p]
         else:
             f.argtypes = [ctypes.c_char_p, ctypes.c_int]
     for n in ("psvg_bin_to_svg", "psvg_svg_to_bin", "psvg_plan_json_to_bin", "psvg_bin_to_plan_json", "psvg_bin_to_svg_stamps"):
@@ -253,7 +255,18 @@ def _py_svg_to_plan(svg_text: str):
     return plan_svg._svg_to_plan_py(svg_text)
 
 
-def svg_to_plan(svg_text: str):
+def svg_to_plan(svg_text: str, base_dir: str | None = None):
+    if base_dir and hasattr(_LIB, "psvg_svg_to_plan_base"):
+        b = svg_text.encode("utf-8")
+        p = _LIB.psvg_svg_to_plan_base(ctypes.c_char_p(b), len(b), ctypes.c_char_p(str(base_dir).encode("utf-8")))
+        if p:
+            try:
+                raw = ctypes.string_at(p)
+            finally:
+                _free(p)
+            if raw.startswith(b"ERR:"):
+                raise ValueError(raw[4:].decode("utf-8", "replace"))
+            return json.loads(raw.decode("utf-8"))
     if _needs_py(svg_text):
         return _py_svg_to_plan(svg_text)
     b = svg_text.encode("utf-8")

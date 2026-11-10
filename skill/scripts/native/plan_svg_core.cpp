@@ -6,6 +6,7 @@
 #define NOMINMAX
 #endif
 #include "pugixml.hpp"
+#include "lcms2.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -363,7 +364,55 @@ static std::vector<double> nums(const std::string& s) {
     while(*p){ while(*p && (std::isspace((unsigned char)*p)||*p==','))++p; if(!*p)break; char*q=nullptr; double x=std::strtod(p,&q); if(q==p)break; v.push_back(x); p=q; }
     return v;
 }
+static std::map<std::string, std::vector<unsigned char>> g_icc;
+static std::string g_base_dir;
+
+static std::vector<double> icc_to_srgb(int r, int g, int b, const std::string& name) {
+    auto it = g_icc.find(name);
+    if (it == g_icc.end()) return {217,180,90};
+    cmsHPROFILE src = cmsOpenProfileFromMem(it->second.data(), (cmsUInt32Number)it->second.size());
+    cmsHPROFILE dst = cmsCreate_sRGBProfile();
+    if (!src || !dst) { if(src)cmsCloseProfile(src); if(dst)cmsCloseProfile(dst); return {217,180,90}; }
+    cmsHTRANSFORM tr = cmsCreateTransform(src, TYPE_RGB_8, dst, TYPE_RGB_8, INTENT_PERCEPTUAL, 0);
+    unsigned char in[3] = {(unsigned char)r,(unsigned char)g,(unsigned char)b}, out[3] = {0,0,0};
+    if (tr) cmsDoTransform(tr, in, out, 1);
+    if (tr) cmsDeleteTransform(tr);
+    cmsCloseProfile(src); cmsCloseProfile(dst);
+    return {(double)out[0],(double)out[1],(double)out[2]};
+}
+
+static void load_icc_profiles(pugi::xml_node root) {
+    g_icc.clear();
+    for (pugi::xml_node ch=root.first_child(); ch; ch=ch.next_sibling()) {
+        if (std::string(ch.name())!="color-profile") continue;
+        std::string name=ch.attribute("name").as_string();
+        std::string href=ch.attribute("href").as_string();
+        if (href.empty()) href=ch.attribute("{http://www.w3.org/1999/xlink}href").as_string();
+        if (href.empty()) href=ch.attribute("xlink:href").as_string();
+        if (name.empty() || href.empty() || g_base_dir.empty()) continue;
+        std::string path=href;
+        if (path.size() && path[0]!='/' && path[1]!=':') path=g_base_dir+"/"+path;
+        std::ifstream f(path, std::ios::binary);
+        if (!f) continue;
+        std::vector<unsigned char> data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        if (!data.empty()) g_icc[name]=std::move(data);
+    }
+}
+
 static std::vector<double> color_from(const std::string& s) {
+    if (s.rfind("icc-color(",0)==0) {
+        size_t e=s.find(')');
+        std::string body=s.substr(10, e==std::string::npos?std::string::npos:e-10);
+        size_t c=body.find(',');
+        if (c!=std::string::npos) {
+            std::string name=body.substr(0,c);
+            while(!name.empty() && std::isspace((unsigned char)name.front())) name.erase(name.begin());
+            while(!name.empty() && std::isspace((unsigned char)name.back())) name.pop_back();
+            auto v=nums(body.substr(c+1));
+            if (v.size()>=3) return icc_to_srgb((int)v[0],(int)v[1],(int)v[2],name);
+        }
+        return {217,180,90};
+    }
     if (s.size()==7 && s[0]=='#') {
         auto h=[](char c)->int{ if(c>='0'&&c<='9')return c-'0'; if(c>='a'&&c<='f')return c-'a'+10; if(c>='A'&&c<='F')return c-'A'+10; return 0; };
         return {double(h(s[1])*16+h(s[2])),double(h(s[3])*16+h(s[4])),double(h(s[5])*16+h(s[6]))};
@@ -508,6 +557,7 @@ static std::string plan_from_svg(const std::string& input) {
     pugi::xml_document doc;
     if (!doc.load_buffer(input.c_str(), input.size())) return "ERR: XML parse failed";
     pugi::xml_node root = doc.document_element();
+    load_icc_profiles(root);
     int W=1200,H=900;
     auto vb = nums(root.attribute("viewBox").as_string());
     if (vb.size()>=4) { W=(int)vb[2]; H=(int)vb[3]; }
@@ -636,6 +686,9 @@ static char* dupstr(const std::string& s) {
 }
 EXPORT char* psvg_plan_to_svg(const char* in,int n){ try{return dupstr(svg_from_plan(std::string(in,n)));}catch(const std::exception&e){return dupstr(std::string("ERR:")+e.what());} }
 EXPORT char* psvg_svg_to_plan(const char* in,int n){ try{return dupstr(plan_from_svg(std::string(in,n)));}catch(const std::exception&e){return dupstr(std::string("ERR:")+e.what());} }
+static std::string svg_to_bin(const std::string&);
+EXPORT char* psvg_svg_to_plan_base(const char* in,int n,const char* base){ try{ g_base_dir=base?base:""; auto r=plan_from_svg(std::string(in,n)); g_base_dir.clear(); return dupstr(r);}catch(const std::exception&e){g_base_dir.clear();return dupstr(std::string("ERR:")+e.what());} }
+EXPORT char* psvg_svg_to_bin_base(const char* in,int n,const char* base,int* out_len){ try{ g_base_dir=base?base:""; std::string s=svg_to_bin(std::string(in,n)); g_base_dir.clear(); *out_len=(int)s.size(); char*p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p;}catch(const std::exception&e){g_base_dir.clear(); return dupstr(std::string("ERR:")+e.what());} }
 static std::string read_all(const char* path) {
     std::ifstream f(path, std::ios::binary);
     if (!f) throw std::runtime_error("open failed");
@@ -675,6 +728,9 @@ EXPORT char* psvg_plan_file_to_svg(const char* plan_path, const char* svg_path) 
 }
 EXPORT char* psvg_svg_file_to_plan(const char* svg_path, const char* plan_path) {
     try {
+        std::string sp(svg_path);
+        size_t slash=sp.find_last_of("\\/");
+        g_base_dir = slash==std::string::npos ? "" : sp.substr(0,slash);
         std::string input = read_all(svg_path);
         std::string out = plan_from_svg(input);
         write_all(plan_path, out);
@@ -876,6 +932,7 @@ static std::string bin_from_svg(const std::string& input) {
     pugi::xml_document doc;
     if (!doc.load_buffer(input.c_str(), input.size())) throw std::runtime_error("XML parse failed");
     pugi::xml_node root = doc.document_element();
+    load_icc_profiles(root);
     int W=1200,H=900;
     auto vb=nums(root.attribute("viewBox").as_string());
     if(vb.size()>=4){W=(int)vb[2];H=(int)vb[3];}
