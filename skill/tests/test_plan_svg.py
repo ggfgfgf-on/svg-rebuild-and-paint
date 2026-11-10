@@ -220,7 +220,8 @@ def test_clip_evenodd_fill_hole():
     assert isinstance(st["mask"], dict)
     out = plan_svg.plan_to_svg(d)
     assert 'fill-rule="evenodd"' in out
-    assert out.count("Z") == 2
+    path_d = out.split('<path d="', 1)[1].split('"', 1)[0]
+    assert path_d.count("Z") == 2
 
 
 
