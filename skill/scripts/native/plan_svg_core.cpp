@@ -777,7 +777,7 @@ static std::unique_ptr<Gdiplus::Brush> gdi_brush_for(pugi::xml_node n, const std
     if (fill.rfind("url(#",0)==0) {
         size_t e=fill.find(')',5); std::string id=fill.substr(5,e-5);
         pugi::xml_node grad;
-        for (pugi::xpath_node xn : g_gdi_root.select_nodes("//linearGradient")) {
+        for (pugi::xpath_node xn : g_gdi_root.select_nodes("//linearGradient | //radialGradient")) {
             if (std::string(xn.node().attribute("id").as_string())==id) { grad=xn.node(); break; }
         }
         if (grad) {
@@ -798,6 +798,28 @@ static std::unique_ptr<Gdiplus::Brush> gdi_brush_for(pugi::xml_node n, const std
                     w=std::atof(n.attribute("width").as_string("100")); h=std::atof(n.attribute("height").as_string("100"));
                 }
                 Gdiplus::RectF bb((Gdiplus::REAL)(x*sx),(Gdiplus::REAL)(y*sy),(Gdiplus::REAL)std::max(1.0,w*sx),(Gdiplus::REAL)std::max(1.0,h*sy));
+                if (std::string(grad.name()) == "radialGradient") {
+                    double cx = grad.attribute("cx") ? std::atof(grad.attribute("cx").as_string()) : 0.5;
+                    double cy = grad.attribute("cy") ? std::atof(grad.attribute("cy").as_string()) : 0.5;
+                    double rr = grad.attribute("r") ? std::atof(grad.attribute("r").as_string()) : 0.5;
+                    Gdiplus::GraphicsPath path;
+                    Gdiplus::REAL cxp = bb.X + (Gdiplus::REAL)(cx * bb.Width);
+                    Gdiplus::REAL cyp = bb.Y + (Gdiplus::REAL)(cy * bb.Height);
+                    Gdiplus::REAL rp = (Gdiplus::REAL)std::max(1.0, rr * std::min(bb.Width, bb.Height));
+                    if (std::string(n.name()) == "rect") path.AddRectangle(bb);
+                    else path.AddEllipse(cxp - rp, cyp - rp, rp*2, rp*2);
+                    auto* brush = new Gdiplus::PathGradientBrush(&path);
+                    brush->SetCenterPoint(Gdiplus::PointF(cxp, cyp));
+                    std::vector<Gdiplus::Color> rcols(cols.rbegin(), cols.rend());
+                    std::vector<Gdiplus::REAL> rpos;
+                    for (auto it = pos.rbegin(); it != pos.rend(); ++it) rpos.push_back(1.0f - *it);
+                    brush->SetCenterColor(rcols.front());
+                    std::vector<Gdiplus::Color> surround(rcols.size(), rcols.back());
+                    INT scount = (INT)surround.size();
+                    brush->SetSurroundColors(surround.data(), &scount);
+                    brush->SetInterpolationColors(rcols.data(), rpos.data(), (INT)rcols.size());
+                    return std::unique_ptr<Gdiplus::Brush>(brush);
+                }
                 double gx1=std::atof(grad.attribute("x1").as_string("0")), gy1=std::atof(grad.attribute("y1").as_string("0"));
                 double gx2=std::atof(grad.attribute("x2").as_string("1")), gy2=std::atof(grad.attribute("y2").as_string("0"));
                 double ang=std::atan2((gy2-gy1)*bb.Height, (gx2-gx1)*bb.Width) * 180.0 / 3.14159265358979323846;
