@@ -137,6 +137,9 @@ def stream_svg_to_plan(source, chunk_size=65536):
     else:
         chunks = source
     tok = SVGTokenizer()
+    base_dir = None
+    if isinstance(source, (str, Path)) and "<" not in str(source) and Path(str(source)).exists():
+        base_dir = Path(str(source)).parent
     canvas = [1200, 900]
     layers = []
     strokes = []
@@ -228,6 +231,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
     css_rules = []
     style_buf = []
     in_style = False
+    inherit_attrs = {}
+    inherit_stack = []
 
     def _spec(sel):
         return sel.count("#") * 100 + sel.count(".") * 10 + (1 if sel and sel[0] not in ".#*" else 0)
@@ -242,32 +247,48 @@ def stream_svg_to_plan(source, chunk_size=65536):
             for part in body.split(";"):
                 if ":" in part:
                     k, v = part.split(":", 1)
-                    props[k.strip()] = v.strip()
+                    k = k.strip(); v = v.strip()
+                    imp = v.endswith("!important")
+                    if imp:
+                        v = v[:-10].strip()
+                    props[k] = (v, imp)
             if props:
                 for one in sel.split(","):
                     one = one.strip()
-                    if one:
-                        css_rules.append((_spec(one), len(css_rules), one, props))
+                    if not one:
+                        continue
+                    if any(p in one for p in (":hover", ":active", ":focus")):
+                        continue
+                    one = one.replace(":root", "*")
+                    if ":" in one:
+                        continue
+                    css_rules.append((_spec(one), len(css_rules), one, props))
 
-    def apply_css(tag, a):
-        a = dict(a)
+    def apply_css(tag, a, inherited=None):
+        res = dict(inherited or {})
+        res.update(a)
+        chosen = {}
         for _, _, sel, props in sorted(css_rules):
             ok = False
             if sel == "*" or sel == tag:
                 ok = True
-            elif sel.startswith(".") and sel[1:] in str(a.get("class", "")).split():
+            elif sel.startswith(".") and sel[1:] in str(res.get("class", "")).split():
                 ok = True
-            elif sel.startswith("#") and sel[1:] == a.get("id"):
+            elif sel.startswith("#") and sel[1:] == res.get("id"):
                 ok = True
             if ok:
-                a.update(props)
-        inline = a.get("style")
+                for k, (v, imp) in props.items():
+                    if imp or k not in chosen:
+                        chosen[k] = (v, imp)
+        for k, (v, imp) in chosen.items():
+            res[k] = v
+        inline = res.get("style")
         if inline:
             for part in inline.split(";"):
                 if ":" in part:
                     k, v = part.split(":", 1)
-                    a[k.strip()] = v.strip()
-        return a
+                    res[k.strip()] = v.strip()
+        return res
 
     def filter_for(tag, a):
         fref = a.get("filter")
@@ -415,6 +436,11 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     name = a.get("data-name") or a.get("id") or "layer"
                     add_layer(name, a.get("data-blend", "normal"))
                     layer_stack.append(name)
+                    ga = apply_css("g", a, inherit_attrs)
+                    inherit_stack.append(dict(inherit_attrs))
+                    for k in ("fill", "stroke", "stroke-width", "opacity", "font-size", "font-family", "color"):
+                        if k in ga:
+                            inherit_attrs[k] = ga[k]
                     mat_stack.append(_ps._mat_mul(mat_stack[-1], _ps._parse_transform(a.get("transform"))))
                     continue
                 if tag == "style":
@@ -422,11 +448,19 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     style_buf = []
                     skip_tag = tag
                     continue
+                if tag == "link":
+                    href = a.get("href", "")
+                    if base_dir is not None and href and "://" not in href and not href.startswith("data:"):
+                        try:
+                            parse_css((base_dir / href).read_text(encoding="utf-8"))
+                        except Exception:
+                            pass
+                    continue
                 if tag in ("defs", "clipPath", "mask", "linearGradient", "radialGradient", "pattern", "filter", "symbol"):
                     skip_tag = tag
                     continue
                 if tag in ("rect", "circle", "ellipse", "polygon", "polyline", "line", "path"):
-                    emit_shape(tag, apply_css(tag, a))
+                    emit_shape(tag, apply_css(tag, a, inherit_attrs))
             elif kind == "end":
                 tag = ev[1]
                 if in_defs:
@@ -444,6 +478,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     continue
                 if tag == "g" and layer_stack:
                     layer_stack.pop()
+                    if inherit_stack:
+                        inherit_attrs = inherit_stack.pop()
                     if len(mat_stack) > 1:
                         mat_stack.pop()
     for ev in tok.close():
