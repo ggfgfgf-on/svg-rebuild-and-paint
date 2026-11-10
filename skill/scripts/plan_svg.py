@@ -886,6 +886,8 @@ def _clip_geoms(root):
                             polys.append([[*_mat_apply(m, q[0], q[1])] for q in sub])
                 elif tag in ("rect", "circle", "ellipse", "polygon"):
                     q = _shape_points(tag, ch.attrib)
+                    if len(q) > 1 and q[0] == q[-1]:
+                        q = q[:-1]
                     if len(q) >= 3:
                         polys.append([[*_mat_apply(m, qq[0], qq[1])] for qq in q])
         walk(el, _parse_transform(el.get("transform")))
@@ -1004,9 +1006,10 @@ def _raster_masks(root, w, h):
             a = max(0.0, min(1.0, float(ch.get("fill-opacity", ch.get("opacity", 1.0)))))
             return int(round((0.299*c[0] + 0.587*c[1] + 0.114*c[2]) * a))
         gpaints = _gradient_paints(root)
-        def draw_node(ch):
+        def draw_node(ch, parent=(1, 0, 0, 1, 0, 0)):
             nonlocal im
             tag = _local(ch.tag)
+            m = _mat_mul(parent, _parse_transform(ch.get("transform")))
             if tag == "image":
                 href = ch.get("href") or ch.get("{http://www.w3.org/1999/xlink}href") or ""
                 if str(href).startswith("data:image/png;base64,"):
@@ -1018,29 +1021,18 @@ def _raster_masks(root, w, h):
                 return
             if tag == "g":
                 for q in list(ch):
-                    draw_node(q)
+                    draw_node(q, m)
                 return
             tmp = Image.new("L", (w, h), 0)
             td = ImageDraw.Draw(tmp)
-            if tag == "rect":
-                x = float(ch.get("x", 0)); y = float(ch.get("y", 0))
-                td.rectangle([x, y, x+float(ch.get("width", 0)), y+float(ch.get("height", 0))], fill=255)
-            elif tag == "circle":
-                cx = float(ch.get("cx", 0)); cy = float(ch.get("cy", 0)); r = float(ch.get("r", 0))
-                td.ellipse([cx-r, cy-r, cx+r, cy+r], fill=255)
-            elif tag == "ellipse":
-                cx = float(ch.get("cx", 0)); cy = float(ch.get("cy", 0))
-                rx = float(ch.get("rx", 0)); ry = float(ch.get("ry", 0))
-                td.ellipse([cx-rx, cy-ry, cx+rx, cy+ry], fill=255)
-            elif tag in ("polygon", "polyline"):
-                v = [float(x) for x in _NUM.findall(ch.get("points", ""))]
-                pts = [(v[i], v[i+1]) for i in range(0, len(v)-1, 2)]
-                if len(pts) >= 3:
-                    td.polygon(pts, fill=255)
+            if tag in ("rect", "circle", "ellipse", "polygon", "polyline", "line"):
+                q = _shape_points(tag, ch.attrib)
+                if len(q) >= 2:
+                    td.polygon([tuple(_mat_apply(m, x, y)) for x, y in q], fill=255)
             elif tag == "path":
                 for pts in _parse_d_subpaths(ch.get("d", "")):
                     if len(pts) >= 3:
-                        td.polygon([(q[0], q[1]) for q in pts], fill=255)
+                        td.polygon([tuple(_mat_apply(m, q[0], q[1])) for q in pts], fill=255)
             else:
                 return
             import numpy as np
@@ -1075,7 +1067,7 @@ def _raster_masks(root, w, h):
             cur = np.asarray(im, dtype=np.float32) / 255.0
             im = Image.fromarray(np.clip(np.maximum(cur, arr) * 255, 0, 255).astype(np.uint8))
         for ch in list(el):
-            draw_node(ch)
+            draw_node(ch, _parse_transform(el.get("transform")))
         out[el.get("id")] = {"encoding": "png-base64", "data": _mask_png(im), "luminance": True}
     return out
 
@@ -1181,7 +1173,7 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
             for tri in (_triangulate(poly) or [poly]):
                 for i in range(1, len(pts)):
                     seg = _clip_line((pts[i-1][0], pts[i-1][1]), (pts[i][0], pts[i][1]), [(p[0], p[1]) for p in tri])
-                    if seg:
+                    if seg and math.hypot(seg[1][0]-seg[0][0], seg[1][1]-seg[0][1]) > 1e-6:
                         strokes.append(_stroke_from_attrs(a, name, [[seg[0][0], seg[0][1], pts[i-1][2] if len(pts[i-1]) > 2 else 1.0],
                                                                     [seg[1][0], seg[1][1], pts[i][2] if len(pts[i]) > 2 else 1.0]]))
 
