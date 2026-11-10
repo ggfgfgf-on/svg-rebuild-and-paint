@@ -2109,6 +2109,11 @@ def svg_to_plan(svg_text, base_dir=None, pseudo_mode="ignore", allow_external=Fa
                            allow_external=allow_external, max_depth=max_depth)
 
 
+def load_svg_plan_stream(path, chunk_size=65536):
+    from svg_stream import stream_svg_to_plan
+    return stream_svg_to_plan(path, chunk_size=chunk_size)
+
+
 def load_plan_svg(path):
     p = Path(path)
     return svg_to_plan(p.read_text(encoding="utf-8"), base_dir=p.parent)

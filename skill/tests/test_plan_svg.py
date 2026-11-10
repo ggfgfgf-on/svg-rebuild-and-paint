@@ -338,6 +338,22 @@ def test_radial_transform_roundtrip():
     assert "gradientTransform" in out
 
 
+
+
+def test_stream_svg_basic():
+    import svg_stream
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">'
+           '<defs><rect width="10" height="10" fill="#0f0"/></defs>'
+           '<g data-name="layer">'
+           '<rect x="10" y="10" width="30" height="20" fill="#f00"/>'
+           '<path d="M60 25 L90 25" stroke="#00f" stroke-width="4"/>'
+           '</g></svg>')
+    d = svg_stream.stream_svg_to_plan(svg)
+    assert d["canvas"] == [100, 50]
+    assert len(d["strokes"]) == 2
+    assert d["strokes"][0]["preset"] == "fill"
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -356,6 +372,7 @@ if __name__ == "__main__":
     test_gradient_transform_roundtrip()
     test_text_roundtrip()
     test_pattern_roundtrip()
+    test_stream_svg_basic()
     test_filter_rasterized()
     test_radial_transform_roundtrip()
     test_gradient_paint_roundtrip()
