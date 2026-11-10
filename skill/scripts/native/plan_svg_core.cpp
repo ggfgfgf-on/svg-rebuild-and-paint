@@ -771,6 +771,46 @@ static std::wstring u2w(const std::string& s) {
     return w;
 }
 
+static pugi::xml_node g_gdi_root;
+
+static std::unique_ptr<Gdiplus::Brush> gdi_brush_for(pugi::xml_node n, const std::string& fill, double sx, double sy) {
+    if (fill.rfind("url(#",0)==0) {
+        size_t e=fill.find(')',5); std::string id=fill.substr(5,e-5);
+        pugi::xml_node grad;
+        for (pugi::xpath_node xn : g_gdi_root.select_nodes("//linearGradient")) {
+            if (std::string(xn.node().attribute("id").as_string())==id) { grad=xn.node(); break; }
+        }
+        if (grad) {
+            std::vector<Gdiplus::Color> cols; std::vector<Gdiplus::REAL> pos;
+            for (pugi::xml_node st : grad.children()) {
+                if (std::string(st.name())!="stop") continue;
+                std::string off=st.attribute("offset").as_string("0");
+                double o=0; try { o = off.back()=='%' ? std::atof(off.substr(0,off.size()-1).c_str())/100.0 : std::atof(off.c_str()); } catch(...) {}
+                auto c=color_from(st.attribute("stop-color").as_string("#000"));
+                double aa=st.attribute("stop-opacity")?std::atof(st.attribute("stop-opacity").as_string()):1.0;
+                cols.push_back(Gdiplus::Color((BYTE)(aa*255),(BYTE)c[0],(BYTE)c[1],(BYTE)c[2]));
+                pos.push_back((Gdiplus::REAL)o);
+            }
+            if (cols.size()>=2) {
+                double x=0,y=0,w=100,h=100;
+                if (std::string(n.name())=="rect") {
+                    x=std::atof(n.attribute("x").as_string("0")); y=std::atof(n.attribute("y").as_string("0"));
+                    w=std::atof(n.attribute("width").as_string("100")); h=std::atof(n.attribute("height").as_string("100"));
+                }
+                Gdiplus::RectF bb((Gdiplus::REAL)(x*sx),(Gdiplus::REAL)(y*sy),(Gdiplus::REAL)std::max(1.0,w*sx),(Gdiplus::REAL)std::max(1.0,h*sy));
+                double gx1=std::atof(grad.attribute("x1").as_string("0")), gy1=std::atof(grad.attribute("y1").as_string("0"));
+                double gx2=std::atof(grad.attribute("x2").as_string("1")), gy2=std::atof(grad.attribute("y2").as_string("0"));
+                double ang=std::atan2((gy2-gy1)*bb.Height, (gx2-gx1)*bb.Width) * 180.0 / 3.14159265358979323846;
+                auto* brush = new Gdiplus::LinearGradientBrush(bb, cols[0], cols.back(), (Gdiplus::REAL)ang);
+                brush->SetInterpolationColors(cols.data(), pos.data(), (INT)cols.size());
+                return std::unique_ptr<Gdiplus::Brush>(brush);
+            }
+        }
+    }
+    auto c=color_from(fill.empty()||fill=="none"?"#000":fill);
+    return std::unique_ptr<Gdiplus::Brush>(new Gdiplus::SolidBrush(Gdiplus::Color(255,(BYTE)c[0],(BYTE)c[1],(BYTE)c[2])));
+}
+
 static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, double sy) {
     GdiSave save(g);
     std::string tr = n.attribute("transform").as_string();
@@ -784,8 +824,7 @@ static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, dou
     auto num = [&](const char* k, double d){ auto a=n.attribute(k); return a ? std::atof(a.as_string()) : d; };
     std::string fill = n.attribute("fill").as_string();
     if (fill.empty() || fill == "none") fill = "#000";
-    auto col = color_from(fill);
-    Gdiplus::SolidBrush br(Gdiplus::Color(255, (BYTE)col[0], (BYTE)col[1], (BYTE)col[2]));
+    auto br = gdi_brush_for(n, fill, sx, sy);
     if (tag == "g") { for (auto ch : n.children()) gdi_draw_node(g, ch, sx, sy); return; }
     if (tag == "text") {
         std::string txt = n.text().get();
@@ -794,19 +833,19 @@ static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, dou
         std::string fam = n.attribute("font-family") ? n.attribute("font-family").as_string() : "Arial";
         std::wstring wfam = u2w(fam);
         Gdiplus::Font font(wfam.c_str(), (Gdiplus::REAL)(fs * sy), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
-        g.DrawString(u2w(txt).c_str(), -1, &font, Gdiplus::PointF((Gdiplus::REAL)(num("x",0)*sx), (Gdiplus::REAL)(num("y",0)*sy)), &br);
+        g.DrawString(u2w(txt).c_str(), -1, &font, Gdiplus::PointF((Gdiplus::REAL)(num("x",0)*sx), (Gdiplus::REAL)(num("y",0)*sy)), br.get());
         return;
     }
     if (tag == "rect") {
-        g.FillRectangle(&br, (Gdiplus::REAL)(num("x",0)*sx), (Gdiplus::REAL)(num("y",0)*sy),
+        g.FillRectangle(br.get(), (Gdiplus::REAL)(num("x",0)*sx), (Gdiplus::REAL)(num("y",0)*sy),
                         (Gdiplus::REAL)(num("width",0)*sx), (Gdiplus::REAL)(num("height",0)*sy));
     } else if (tag == "circle") {
         double cx=num("cx",0), cy=num("cy",0), r=num("r",0);
-        g.FillEllipse(&br, (Gdiplus::REAL)((cx-r)*sx), (Gdiplus::REAL)((cy-r)*sy),
+        g.FillEllipse(br.get(), (Gdiplus::REAL)((cx-r)*sx), (Gdiplus::REAL)((cy-r)*sy),
                       (Gdiplus::REAL)(2*r*sx), (Gdiplus::REAL)(2*r*sy));
     } else if (tag == "ellipse") {
         double cx=num("cx",0), cy=num("cy",0), rx=num("rx",0), ry=num("ry",0);
-        g.FillEllipse(&br, (Gdiplus::REAL)((cx-rx)*sx), (Gdiplus::REAL)((cy-ry)*sy),
+        g.FillEllipse(br.get(), (Gdiplus::REAL)((cx-rx)*sx), (Gdiplus::REAL)((cy-ry)*sy),
                       (Gdiplus::REAL)(2*rx*sx), (Gdiplus::REAL)(2*ry*sy));
     } else if (tag == "polygon" || tag == "path") {
         std::vector<double> xs, ys;
@@ -818,7 +857,7 @@ static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, dou
         if (xs.size() >= 3) {
             std::vector<Gdiplus::PointF> p;
             for (size_t i=0;i<xs.size();++i) p.push_back(Gdiplus::PointF((Gdiplus::REAL)(xs[i]*sx),(Gdiplus::REAL)(ys[i]*sy)));
-            g.FillPolygon(&br, p.data(), (INT)p.size());
+            g.FillPolygon(br.get(), p.data(), (INT)p.size());
         }
     }
 }
@@ -877,6 +916,7 @@ static std::string gdi_filter_png(pugi::xml_node el, pugi::xml_node root, int W,
     size_t hp = fref.find('#');
     std::string fid = hp == std::string::npos ? fref : fref.substr(hp + 1);
     if (!fid.empty() && fid.back() == ')') fid.pop_back();
+    g_gdi_root = root;
     pugi::xml_node fel;
     for (pugi::xpath_node xn : root.select_nodes("//filter")) if (std::string(xn.node().attribute("id").as_string()) == fid) fel = xn.node();
     if (!fel) return "";
@@ -925,6 +965,7 @@ static std::string gdi_filter_png(pugi::xml_node el, pugi::xml_node root, int W,
 }
 
 static std::map<std::string,std::string> gdi_patterns(pugi::xml_node root) {
+    g_gdi_root = root;
     std::map<std::string,std::string> out;
     for (pugi::xpath_node xn : root.select_nodes("//pattern")) {
         auto el = xn.node(); std::string id = el.attribute("id").as_string();

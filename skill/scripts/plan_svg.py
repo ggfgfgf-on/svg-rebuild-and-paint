@@ -1679,13 +1679,13 @@ def _gradient_colors(root):
 
 
 def needs_python_parser(svg_text):
-    if "linearGradient" in svg_text or "radialGradient" in svg_text:
+    if "radialGradient" in svg_text or ("linearGradient" in svg_text and "<pattern" not in svg_text):
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
         return True
 
     approx = os.environ.get("PLAN_SVG_CPP_APPROX", "0") == "1"
-    if not approx and "<pattern" in svg_text and any(k in svg_text for k in ("linearGradient", "radialGradient", "gradientTransform", "<use", "<image")):
+    if not approx and "<pattern" in svg_text and any(k in svg_text for k in ("radialGradient", "gradientTransform", "<use", "<image")):
         return True
     if not approx and "<filter" in svg_text:
         prims = re.findall(r"<fe([A-Za-z]+)", svg_text)
@@ -1697,7 +1697,7 @@ def needs_python_parser(svg_text):
         return True
     if "<mask" in svg_text or "mask=\"url(" in svg_text or "<clipPath" in svg_text or "clip-path=" in svg_text:
         return True
-    if "<line" in svg_text or re.search(r"<rect[^>]*\brx\s*=", svg_text):
+    if re.search(r"<line[\s/>]", svg_text) or re.search(r"<rect[^>]*\brx\s*=", svg_text):
         return True
     return False
 
