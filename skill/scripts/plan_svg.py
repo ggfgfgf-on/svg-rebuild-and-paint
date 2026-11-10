@@ -166,7 +166,7 @@ def _mask_def(m, gid, w, h):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") or x.get("preset") == "image" for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") or x.get("preset") in ("image", "text") for x in doc.get("strokes", []))
             and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
@@ -231,6 +231,15 @@ def plan_to_svg(doc, *, filters=False, title=None):
         out.append('<g id=%s data-name=%s data-blend=%s style=%s%s>'
                    % (quoteattr("L%d" % li), quoteattr(name), quoteattr(blend), quoteattr(style), mref))
         for s in by_layer.get(name, []):
+            if str(s.get("preset", "")) == "text":
+                fam = s.get("font_family", "Arial"); fs = s.get("font_size", 16)
+                col = _rgb(s.get("color")); op = max(0.0, min(1.0, float(s.get("opacity", 1.0))))
+                tr = s.get("transform")
+                trs = (' transform="matrix(%s)"' % " ".join(_f(float(v)) for v in tr)) if isinstance(tr, (list, tuple)) and len(tr) == 6 else ""
+                out.append('<text x="%s" y="%s" font-family="%s" font-size="%s" fill="%s" fill-opacity="%s" text-anchor="%s" data-layer="%s" data-preset="text"%s>%s</text>' % (
+                    _f(s.get("x", 0)), _f(s.get("y", 0)), _esc(fam), _f(fs), col, _f(op),
+                    _esc(s.get("text_anchor", "start")), _esc(name), trs, escape(str(s.get("text", "")))))
+                continue
             if str(s.get("preset", "")) == "image" and isinstance(s.get("image"), dict):
                 im = s["image"]
                 tr = s.get("transform")
@@ -1306,7 +1315,7 @@ def needs_python_parser(svg_text):
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
         return True
-    if "<image" in svg_text:
+    if "<image" in svg_text or "<text" in svg_text or "<tspan" in svg_text:
         return True
     if "<style" in svg_text or "<link" in svg_text or re.search(r'href="[^"]+\.svg#', svg_text):
         return True
@@ -1496,6 +1505,42 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
                 return
             for sub in list(ch):
                 visit(sub, name, m, active, my)
+            return
+        if tag in ("text", "tspan"):
+            def _num_attr(k, d=0.0):
+                v = a.get(k)
+                if v is None:
+                    return d
+                v = str(v).split()[0] if str(v).split() else str(v)
+                try:
+                    return float(v[:-2]) if v.endswith("px") else float(v)
+                except Exception:
+                    return d
+            txt = "".join(ch.itertext()) if tag == "text" else (ch.text or "")
+            if not txt:
+                return
+            name = a.get("data-layer") or inherited_layer or "layer"
+            add_layer(name, "normal")
+            x, y = _num_attr("x", 0.0), _num_attr("y", 0.0)
+            fs = _num_attr("font-size", 16.0)
+            fill = a.get("fill") or a.get("data-color") or "#000"
+            if fill == "none":
+                return
+            fam = a.get("font-family") or "Arial"
+            fam = fam.split(",")[0].strip().strip("'\"")
+            anchor = a.get("text-anchor") or "start"
+            op = max(0.0, min(1.0, float(a.get("opacity", a.get("fill-opacity", 1.0)) or 1.0)))
+            m = _mat_mul(parent, _parse_transform(a.get("transform")))
+            st = {"layer": name, "preset": "text", "text": txt,
+                  "x": x, "y": y, "font_family": fam, "font_size": fs,
+                  "color": _color(fill, (0, 0, 0)), "opacity": op,
+                  "text_anchor": anchor}
+            if a.get("font-weight"):
+                st["font_weight"] = a.get("font-weight")
+            if not (abs(m[0]-1) < 1e-9 and abs(m[1]) < 1e-9 and abs(m[2]) < 1e-9
+                    and abs(m[3]-1) < 1e-9 and abs(m[4]) < 1e-9 and abs(m[5]) < 1e-9):
+                st["transform"] = [float(v) for v in m]
+            strokes.append(st)
             return
         if tag == "image":
             href = a.get("href") or a.get("{http://www.w3.org/1999/xlink}href") or ""

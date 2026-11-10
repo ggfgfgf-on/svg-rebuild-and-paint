@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import paint_native
 from gradient_xform import _mat_mul as _mat_mul, _inv as _mat_inv
 
@@ -35,6 +35,40 @@ def _color(c, default=(255, 255, 255)):
         c = c.lstrip("#")
         return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
     return tuple(c)
+
+
+def _find_font(family, size, weight=""):
+    fam = (family or "Arial").strip().lower()
+    bold = str(weight).lower() in ("bold", "600", "700", "800", "900")
+    names = {
+        "arial": ("arialbd.ttf" if bold else "arial.ttf"),
+        "helvetica": ("arialbd.ttf" if bold else "arial.ttf"),
+        "times": ("timesbd.ttf" if bold else "times.ttf"),
+        "times new roman": ("timesbd.ttf" if bold else "times.ttf"),
+        "courier": ("courbd.ttf" if bold else "cour.ttf"),
+        "courier new": ("courbd.ttf" if bold else "cour.ttf"),
+        "segoe ui": ("segoeuib.ttf" if bold else "segoeui.ttf"),
+        "microsoft yahei": ("msyhbd.ttc" if bold else "msyh.ttc"),
+        "微软雅黑": ("msyhbd.ttc" if bold else "msyh.ttc"),
+        "simsun": "simsun.ttc",
+        "宋体": "simsun.ttc",
+    }
+    root = Path("C:/Windows/Fonts")
+    cand = names.get(fam)
+    if isinstance(cand, str):
+        p = root / cand
+        if p.exists():
+            return ImageFont.truetype(str(p), max(1, int(round(size))))
+    for p in root.glob("*.tt[fc]"):
+        if fam and fam.replace(" ", "") in p.stem.lower().replace(" ", ""):
+            try:
+                return ImageFont.truetype(str(p), max(1, int(round(size))))
+            except Exception:
+                pass
+    try:
+        return ImageFont.load_default(size=max(1, int(round(size))))
+    except Exception:
+        return ImageFont.load_default()
 
 
 def _paint_color(paint, x, y, bbox):
@@ -148,7 +182,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
     for layer in sorted(grouped):
         buf = []
         for it in grouped[layer]:
-            if str(it.get("preset", "")) == "image":
+            if str(it.get("preset", "")) in ("image", "text"):
                 continue
             if str(it.get("preset", "")) == "fill":
                 if buf:
@@ -215,6 +249,21 @@ def render_plan(plan, threads=8, brush=None, region=None):
             layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
             layer.paste(src, (int(round(float(s.get("x", 0)))), int(round(float(s.get("y", 0))))), src)
             comp = np.asarray(Image.alpha_composite(base, layer))
+    for s in strokes_in:
+        if s.get("preset") != "text":
+            continue
+        txt = str(s.get("text", ""))
+        if not txt:
+            continue
+        font = _find_font(s.get("font_family", "Arial"), float(s.get("font_size", 16)), s.get("font_weight", ""))
+        col = _color(s.get("color"), (0, 0, 0))
+        alpha = max(0, min(255, int(round(float(s.get("opacity", 1.0)) * 255))))
+        anchor = {"middle": "ms", "end": "rs"}.get(str(s.get("text_anchor", "start")), "ls")
+        base = Image.fromarray(comp, "RGBA")
+        layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        ImageDraw.Draw(layer).text((float(s.get("x", 0)), float(s.get("y", 0))), txt,
+                                   font=font, fill=(col[0], col[1], col[2], alpha), anchor=anchor)
+        comp = np.asarray(Image.alpha_composite(base, layer))
     names = [spec.get("name", "layer%d" % i) for i, spec in enumerate(layers_spec)]
     out_layers = [(names[i], p.layer_rgba(i)) for i in range(p.layer_count())]
     p.close()

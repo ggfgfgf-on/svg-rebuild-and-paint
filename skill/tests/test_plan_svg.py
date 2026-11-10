@@ -278,6 +278,22 @@ def test_gradient_transform_roundtrip():
     assert "rotate(90" in d2["strokes"][0]["paint"]["source"]["gradient"]["attrs"]["gradientTransform"]
 
 
+
+
+def test_text_roundtrip():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">'
+           '<text x="10" y="30" font-family="Arial" font-size="20" fill="#ff0000">Hi</text>'
+           '</svg>')
+    d = plan_svg.svg_to_plan(svg)
+    st = d["strokes"][0]
+    assert st["preset"] == "text"
+    assert st["text"] == "Hi"
+    assert st["font_family"] == "Arial"
+    assert st["font_size"] == 20
+    out = plan_svg.plan_to_svg(d)
+    assert "<text" in out and 'font-family="Arial"' in out
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -294,6 +310,7 @@ if __name__ == "__main__":
     test_clip_path_units_bbox()
     test_mask_type_alpha()
     test_gradient_transform_roundtrip()
+    test_text_roundtrip()
     test_gradient_paint_roundtrip()
     test_mask_layer_alpha()
     print("all plan_svg tests passed")
