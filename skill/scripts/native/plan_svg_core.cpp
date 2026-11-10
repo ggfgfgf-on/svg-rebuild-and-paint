@@ -8,6 +8,9 @@
 #include "pugixml.hpp"
 #include "lcms2.h"
 #include "clipper2/clipper.h"
+#include <windows.h>
+#include <gdiplus.h>
+#include <objidl.h>
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -730,7 +733,174 @@ static std::string b64enc(const unsigned char* d, size_t n) {
     return o;
 }
 
+
+static int gdi_encoder_clsid(const wchar_t* mime, CLSID* out) {
+    UINT n = 0, sz = 0;
+    Gdiplus::GetImageEncodersSize(&n, &sz);
+    if (!sz) return 0;
+    std::vector<BYTE> buf(sz);
+    auto* codecs = (Gdiplus::ImageCodecInfo*)buf.data();
+    Gdiplus::GetImageEncoders(n, sz, codecs);
+    for (UINT i = 0; i < n; ++i) if (wcscmp(codecs[i].MimeType, mime) == 0) { *out = codecs[i].Clsid; return 1; }
+    return 0;
+}
+
+static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, double sy) {
+    std::string tag = n.name();
+    auto num = [&](const char* k, double d){ auto a=n.attribute(k); return a ? std::atof(a.as_string()) : d; };
+    std::string fill = n.attribute("fill").as_string();
+    if (fill.empty() || fill == "none") fill = "#000";
+    auto col = color_from(fill);
+    Gdiplus::SolidBrush br(Gdiplus::Color(255, (BYTE)col[0], (BYTE)col[1], (BYTE)col[2]));
+    if (tag == "g") { for (auto ch : n.children()) gdi_draw_node(g, ch, sx, sy); return; }
+    if (tag == "rect") {
+        g.FillRectangle(&br, (Gdiplus::REAL)(num("x",0)*sx), (Gdiplus::REAL)(num("y",0)*sy),
+                        (Gdiplus::REAL)(num("width",0)*sx), (Gdiplus::REAL)(num("height",0)*sy));
+    } else if (tag == "circle") {
+        double cx=num("cx",0), cy=num("cy",0), r=num("r",0);
+        g.FillEllipse(&br, (Gdiplus::REAL)((cx-r)*sx), (Gdiplus::REAL)((cy-r)*sy),
+                      (Gdiplus::REAL)(2*r*sx), (Gdiplus::REAL)(2*r*sy));
+    } else if (tag == "ellipse") {
+        double cx=num("cx",0), cy=num("cy",0), rx=num("rx",0), ry=num("ry",0);
+        g.FillEllipse(&br, (Gdiplus::REAL)((cx-rx)*sx), (Gdiplus::REAL)((cy-ry)*sy),
+                      (Gdiplus::REAL)(2*rx*sx), (Gdiplus::REAL)(2*ry*sy));
+    } else if (tag == "polygon" || tag == "path") {
+        std::vector<double> xs, ys;
+        if (tag == "polygon") {
+            std::string pts=n.attribute("points").as_string();
+            auto v=nums(pts);
+            for (size_t i=0;i+1<v.size();i+=2){xs.push_back(v[i]);ys.push_back(v[i+1]);}
+        } else parse_d(n.attribute("d").as_string(), xs, ys);
+        if (xs.size() >= 3) {
+            std::vector<Gdiplus::PointF> p;
+            for (size_t i=0;i<xs.size();++i) p.push_back(Gdiplus::PointF((Gdiplus::REAL)(xs[i]*sx),(Gdiplus::REAL)(ys[i]*sy)));
+            g.FillPolygon(&br, p.data(), (INT)p.size());
+        }
+    }
+}
+
+static std::string gdi_pattern_png(pugi::xml_node pat, int& out_w, int& out_h, std::string& units) {
+    units = pat.attribute("patternUnits").as_string();
+    if (units.empty()) units = "objectBoundingBox";
+    double w = 32, h = 32;
+    auto wa = pat.attribute("width"), ha = pat.attribute("height");
+    if (wa) w = std::atof(wa.as_string());
+    if (ha) h = std::atof(ha.as_string());
+    double sx=1, sy=1;
+    if (units == "objectBoundingBox") { sx = 256; sy = 256; }
+    int pw = std::max(1, (int)std::lround(w * sx)), ph = std::max(1, (int)std::lround(h * sy));
+    if (pw > 2048) pw = 2048; if (ph > 2048) ph = 2048;
+    out_w = pw; out_h = ph;
+    Gdiplus::Bitmap bmp(pw, ph, PixelFormat32bppARGB);
+    Gdiplus::Graphics g(&bmp);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    g.Clear(Gdiplus::Color(0,0,0,0));
+    for (auto ch : pat.children()) gdi_draw_node(g, ch, sx, sy);
+    CLSID png; if (!gdi_encoder_clsid(L"image/png", &png)) return "";
+    IStream* stream=nullptr;
+    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream))) return "";
+    if (bmp.Save(stream, &png, nullptr) != Gdiplus::Ok) { stream->Release(); return ""; }
+    STATSTG st{}; stream->Stat(&st, STATFLAG_NONAME);
+    HGLOBAL hmem=nullptr; GetHGlobalFromStream(stream, &hmem);
+    void* data=GlobalLock(hmem);
+    std::string out = b64enc((const unsigned char*)data, (size_t)st.cbSize.QuadPart);
+    GlobalUnlock(hmem); stream->Release();
+    return out;
+}
+
+static void gdi_blur_argb(std::vector<unsigned char>& px, int w, int h, int rad) {
+    if (rad <= 0) return;
+    std::vector<unsigned char> tmp(px.size());
+    for (int pass = 0; pass < 3; ++pass) {
+        for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+            int sr=0,sg=0,sb=0,sa=0,n=0;
+            for (int k=-rad;k<=rad;++k) { int xx=x+k; if(xx<0||xx>=w)continue; size_t i=((size_t)y*w+xx)*4; sr+=px[i];sg+=px[i+1];sb+=px[i+2];sa+=px[i+3];n++; }
+            size_t o=((size_t)y*w+x)*4; tmp[o]=(unsigned char)(sr/n);tmp[o+1]=(unsigned char)(sg/n);tmp[o+2]=(unsigned char)(sb/n);tmp[o+3]=(unsigned char)(sa/n);
+        }
+        px.swap(tmp);
+        for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+            int sr=0,sg=0,sb=0,sa=0,n=0;
+            for (int k=-rad;k<=rad;++k) { int yy=y+k; if(yy<0||yy>=h)continue; size_t i=((size_t)yy*w+x)*4; sr+=px[i];sg+=px[i+1];sb+=px[i+2];sa+=px[i+3];n++; }
+            size_t o=((size_t)y*w+x)*4; tmp[o]=(unsigned char)(sr/n);tmp[o+1]=(unsigned char)(sg/n);tmp[o+2]=(unsigned char)(sb/n);tmp[o+3]=(unsigned char)(sa/n);
+        }
+        px.swap(tmp);
+    }
+}
+
+static std::string gdi_filter_png(pugi::xml_node el, pugi::xml_node root, int W, int H, int& ow, int& oh) {
+    std::string fref = el.attribute("filter").as_string();
+    if (fref.empty()) return "";
+    size_t hp = fref.find('#');
+    std::string fid = hp == std::string::npos ? fref : fref.substr(hp + 1);
+    if (!fid.empty() && fid.back() == ')') fid.pop_back();
+    pugi::xml_node fel;
+    for (pugi::xpath_node xn : root.select_nodes("//filter")) if (std::string(xn.node().attribute("id").as_string()) == fid) fel = xn.node();
+    if (!fel) return "";
+    ow = W; oh = H;
+    Gdiplus::Bitmap bmp(W, H, PixelFormat32bppARGB);
+    Gdiplus::Graphics g(&bmp);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    g.Clear(Gdiplus::Color(0,0,0,0));
+    gdi_draw_node(g, el, 1.0, 1.0);
+    Gdiplus::Rect rc(0,0,W,H);
+    Gdiplus::BitmapData bd{};
+    if (bmp.LockBits(&rc, (Gdiplus::ImageLockModeRead | Gdiplus::ImageLockModeWrite), PixelFormat32bppARGB, &bd) != Gdiplus::Ok) return "";
+    std::vector<unsigned char> px((size_t)W*H*4);
+    for (int y=0;y<H;++y) std::memcpy(px.data()+(size_t)y*W*4, (unsigned char*)bd.Scan0+(size_t)y*bd.Stride, (size_t)W*4);
+    bmp.UnlockBits(&bd);
+    int ox=0, oy=0;
+    for (auto prim : fel.children()) {
+        std::string t = prim.name();
+        if (t == "feGaussianBlur") {
+            int rad = std::max(1, (int)std::lround(std::atof(prim.attribute("stdDeviation").as_string())));
+            gdi_blur_argb(px, W, H, rad);
+        } else if (t == "feOffset") {
+            ox = (int)std::lround(std::atof(prim.attribute("dx").as_string()));
+            oy = (int)std::lround(std::atof(prim.attribute("dy").as_string()));
+        }
+    }
+    if (ox || oy) {
+        std::vector<unsigned char> sh(px.size(), 0);
+        for (int y=0;y<H;++y) for (int x=0;x<W;++x) { int xx=x+ox, yy=y+oy; if(xx<0||xx>=W||yy<0||yy>=H)continue; std::memcpy(sh.data()+((size_t)yy*W+xx)*4, px.data()+((size_t)y*W+x)*4, 4); }
+        px.swap(sh);
+    }
+    Gdiplus::Bitmap out(W,H,PixelFormat32bppARGB);
+    Gdiplus::Rect orc(0,0,W,H); Gdiplus::BitmapData obd{};
+    if (out.LockBits(&orc, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &obd) == Gdiplus::Ok) {
+        for (int y=0;y<H;++y) std::memcpy((unsigned char*)obd.Scan0+(size_t)y*obd.Stride, px.data()+(size_t)y*W*4, (size_t)W*4);
+        out.UnlockBits(&obd);
+    }
+    CLSID png; if (!gdi_encoder_clsid(L"image/png", &png)) return "";
+    IStream* stream=nullptr; if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream))) return "";
+    if (out.Save(stream, &png, nullptr) != Gdiplus::Ok) { stream->Release(); return ""; }
+    STATSTG st{}; stream->Stat(&st, STATFLAG_NONAME);
+    HGLOBAL hmem=nullptr; GetHGlobalFromStream(stream, &hmem); void* data=GlobalLock(hmem);
+    std::string res = b64enc((const unsigned char*)data, (size_t)st.cbSize.QuadPart);
+    GlobalUnlock(hmem); stream->Release();
+    return res;
+}
+
+static std::map<std::string,std::string> gdi_patterns(pugi::xml_node root) {
+    std::map<std::string,std::string> out;
+    for (pugi::xpath_node xn : root.select_nodes("//pattern")) {
+        auto el = xn.node(); std::string id = el.attribute("id").as_string();
+        if (id.empty()) continue;
+        int w=0,h=0; std::string units;
+        std::string data = gdi_pattern_png(el, w, h, units);
+        if (data.empty()) continue;
+        out[id] = data + "|" + std::to_string(w) + "|" + std::to_string(h) + "|" + units;
+    }
+    return out;
+}
+
+struct GdiSession {
+    ULONG_PTR token = 0;
+    GdiSession() { Gdiplus::GdiplusStartupInput in; Gdiplus::GdiplusStartup(&token, &in, nullptr); }
+    ~GdiSession() { if (token) Gdiplus::GdiplusShutdown(token); }
+};
+
 static std::string plan_from_svg(const std::string& input) {
+    GdiSession gdi;
     pugi::xml_document doc;
     if (!doc.load_buffer(input.c_str(), input.size())) return "ERR: XML parse failed";
     pugi::xml_node root = doc.document_element();
@@ -745,6 +915,7 @@ static std::string plan_from_svg(const std::string& input) {
     auto css=load_css(root);
     auto grads=load_grads(root);
     auto clips=load_clips(root);
+    auto patterns=gdi_patterns(root);
     std::map<std::string,pugi::xml_node> ids;
     std::function<void(pugi::xml_node)> collect_ids=[&](pugi::xml_node n){ for(pugi::xml_node q=n.first_child();q;q=q.next_sibling()){ std::string id=q.attribute("id").as_string(); if(!id.empty())ids[id]=q; collect_ids(q);} };
     collect_ids(root);
@@ -834,6 +1005,20 @@ static std::string plan_from_svg(const std::string& input) {
             std::string tag=ch.name();
             if(tag=="defs"||tag=="style"||tag=="clipPath"||tag=="mask"||tag=="linearGradient"||tag=="radialGradient"||tag=="symbol") continue;
             auto at=[&](const char* k){ std::string v=css_attr(ch,css,k); if(v.empty()){auto ii=inh.find(k); if(ii!=inh.end())v=ii->second;} if(std::string(k)=="fill"||std::string(k)=="stroke")v=resolve_paint(v,grads); return v; };
+            std::string fref = at("filter");
+            if (!fref.empty()) {
+                int fw=0, fh=0;
+                std::string data = gdi_filter_png(ch, root, W, H, fw, fh);
+                if (!data.empty()) {
+                    std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
+                    add_layer(names,blends,idx,layer,"");
+                    std::string sj="{\"layer\":\""; jesc_to(sj,layer);
+                    sj += "\",\"preset\":\"image\",\"x\":0,\"y\":0,\"width\":"; sj += std::to_string(fw);
+                    sj += ",\"height\":"; sj += std::to_string(fh); sj += ",\"opacity\":1,\"image\":{\"encoding\":\"png-base64\",\"mime\":\"image/png\",\"data\":\"";
+                    jesc_to(sj,data); sj += "\"}}";
+                    strokes.push_back(sj); continue;
+                }
+            }
             if (tag=="g") {
                 std::string n=at("data-name"); if(n.empty())n=at("id"); if(n.empty())n=inherit.empty()?"layer":inherit;
                 add_layer(names,blends,idx,n,at("data-blend"));
@@ -937,6 +1122,20 @@ static std::string plan_from_svg(const std::string& input) {
                 Mat m=mat_mul(parent,parse_transform(at("transform")));
                 for(size_t i=0;i<xs.size();++i) mat_apply(m,xs[i],ys[i]);
                 std::vector<double> ps(xs.size(),1.0);
+                std::string fv=at("fill");
+                auto pm = fv.rfind("url(#",0)==0 ? patterns.find(fv.substr(5, fv.find(')',5)-5)) : patterns.end();
+                if (pm != patterns.end()) {
+                    auto parts = pm->second; size_t p1=parts.find('|');
+                    std::string pdata=parts.substr(0,p1), rest=parts.substr(p1+1);
+                    size_t p2=rest.find('|'); std::string pw=rest.substr(0,p2), rest2=rest.substr(p2+1);
+                    size_t p3=rest2.find('|'); std::string ph=rest2.substr(0,p3), punits=rest2.substr(p3+1);
+                    std::string sj="{\"layer\":\""; jesc_to(sj,layer);
+                    sj += "\",\"preset\":\"fill\",\"opacity\":" + std::string("1") + ",\"points\":[";
+                    for(size_t i=0;i<xs.size();++i){ if(i)sj+=","; sj+="["+fmt(xs[i])+","+fmt(ys[i])+",1]"; }
+                    sj += "],\"pattern\":{\"encoding\":\"png-base64\",\"data\":\""; jesc_to(sj,pdata);
+                    sj += "\",\"width\":"+pw+",\"height\":"+ph+",\"units\":\""; jesc_to(sj,punits); sj += "\"}}";
+                    strokes.push_back(sj); continue;
+                }
                 emit_any(ch,layer,xs,ys,ps,inh);
             } else walk(ch,inherit,parent,inh);
         }

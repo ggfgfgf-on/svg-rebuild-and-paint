@@ -1442,7 +1442,7 @@ def needs_python_parser(svg_text):
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
         return True
-    if "<image" in svg_text or "<pattern" in svg_text or "<filter" in svg_text:
+    if "<image" in svg_text:
         return True
     if "<style" in svg_text or "<link" in svg_text or re.search(r'href="[^"]+\.svg#', svg_text):
         return True
