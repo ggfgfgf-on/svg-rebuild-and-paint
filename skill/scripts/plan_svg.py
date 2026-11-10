@@ -166,7 +166,7 @@ def _mask_def(m, gid, w, h):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") or x.get("preset") in ("image", "text") or x.get("pattern") for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") or x.get("preset") in ("text",) or x.get("pattern") for x in doc.get("strokes", []))
             and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]

@@ -232,6 +232,19 @@ def unpack_plan(data: bytes):
 
 
 def plan_to_svg(doc) -> str:
+    if any(str(s.get("preset", "")) == "image" for s in doc.get("strokes", [])):
+        import json as _json
+        raw = _json.dumps(doc, ensure_ascii=False).encode("utf-8")
+        ptr = _LIB.psvg_plan_to_svg(raw, len(raw))
+        if not ptr:
+            raise RuntimeError("native plan_to_svg returned null")
+        try:
+            text = ctypes.string_at(ptr).decode("utf-8")
+        finally:
+            _free(ptr)
+        if text.startswith("ERR:"):
+            raise ValueError(text[4:])
+        return text
     data = pack_plan(doc)
     n = ctypes.c_int(0)
     ptr = _LIB.psvg_bin_to_svg(ctypes.c_char_p(data), len(data), ctypes.byref(n))

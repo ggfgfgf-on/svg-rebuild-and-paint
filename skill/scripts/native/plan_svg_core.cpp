@@ -213,6 +213,26 @@ static std::string svg_from_plan(const std::string& input) {
         auto it = by.find(name);
         if (it != by.end()) for (const Value* sp : it->second) {
             const Value& s = *sp;
+            if (get_str(s, "preset", "") == "image") {
+                auto ii = s.FindMember("image");
+                if (ii != s.MemberEnd() && ii->value.IsObject()) {
+                    const Value& im = ii->value;
+                    std::string data = get_str(im, "data", "");
+                    std::string mime = get_str(im, "mime", "image/png");
+                    out += "<image href=\"data:"; esc_to(out, mime); out += ";base64,"; esc_to(out, data); out += "\"";
+                    out += " x=\"" + fmt(get_num(s, "x", 0.0)) + "\" y=\"" + fmt(get_num(s, "y", 0.0));
+                    out += "\" width=\"" + fmt(get_num(s, "width", 1.0)) + "\" height=\"" + fmt(get_num(s, "height", 1.0));
+                    out += "\" opacity=\"" + fmt(get_num(s, "opacity", 1.0)) + "\"";
+                    auto tr = s.FindMember("transform");
+                    if (tr != s.MemberEnd() && tr->value.IsArray() && tr->value.Size() == 6) {
+                        out += " transform=\"matrix(";
+                        for (int k = 0; k < 6; ++k) { if (k) out += " "; out += fmt(tr->value[k].GetDouble()); }
+                        out += ")\"";
+                    }
+                    out += "/>\n";
+                }
+                continue;
+            }
             const Value* pts = get_arr(s, "points");
             if (!pts || pts->Empty()) continue;
             double size = get_num(s, "size", 8.0);
