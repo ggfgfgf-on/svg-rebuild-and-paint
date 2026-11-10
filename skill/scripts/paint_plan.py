@@ -223,26 +223,13 @@ def render_plan(plan, threads=8, brush=None, region=None):
         if buf:
             p.stroke_batch(layer, buf, nthreads=threads)
 
+    import overlay_render
     for s in image_items:
         if str(s.get("preset", "")) != "text":
             continue
-        txt = str(s.get("text", ""))
-        if not txt:
-            continue
-        font = _find_font(s.get("font_family", "Arial"), float(s.get("font_size", 16)), s.get("font_weight", ""))
-        col = _color(s.get("color"), (0, 0, 0))
-        alpha = max(0, min(255, int(round(float(s.get("opacity", 1.0)) * 255))))
-        anchor = {"middle": "ms", "end": "rs"}.get(str(s.get("text_anchor", "start")), "ls")
-        layer = Image.new("RGBA", (int(w), int(h)), (0, 0, 0, 0))
-        ImageDraw.Draw(layer).text((float(s.get("x", 0)), float(s.get("y", 0))), txt,
-                                   font=font, fill=(col[0], col[1], col[2], alpha), anchor=anchor)
-        tr = s.get("transform")
-        if isinstance(tr, (list, tuple)) and len(tr) == 6:
-            inv = _mat_inv(tuple(float(v) for v in tr))
-            if inv is not None:
-                layer = layer.transform((int(w), int(h)), Image.AFFINE,
-                                        (inv[0], inv[2], inv[4], inv[1], inv[3], inv[5]), resample=Image.BICUBIC)
-        p.set_layer_rgba(int(s["layer"]), np.asarray(layer))
+        rgba = overlay_render.render_overlay(s, w, h)
+        if rgba is not None:
+            p.set_layer_rgba(int(s["layer"]), rgba)
 
     for s in image_items:
         ptn = s.get("pattern")

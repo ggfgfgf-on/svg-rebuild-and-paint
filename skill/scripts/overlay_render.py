@@ -90,13 +90,28 @@ def render_overlay(s, w, h):
         txt = str(s.get("text", ""))
         if not txt:
             return None
-        font = _find_font(s.get("font_family", "Arial"), float(s.get("font_size", 16)), s.get("font_weight", ""))
-        col = _color(s.get("color"), (0, 0, 0))
+        layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(layer)
         alpha = max(0, min(255, int(round(float(s.get("opacity", 1.0)) * 255))))
         anchor = {"middle": "ms", "end": "rs"}.get(str(s.get("text_anchor", "start")), "ls")
-        layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        ImageDraw.Draw(layer).text((float(s.get("x", 0)), float(s.get("y", 0))), txt,
-                                   font=font, fill=(col[0], col[1], col[2], alpha), anchor=anchor)
+        runs = s.get("runs") if isinstance(s.get("runs"), list) and s.get("runs") else None
+        if runs:
+            cx, cy = float(s.get("x", 0)), float(s.get("y", 0))
+            for r in runs:
+                font = _find_font(r.get("font_family", s.get("font_family", "Arial")),
+                                  float(r.get("font_size", s.get("font_size", 16))), s.get("font_weight", ""))
+                col = _color(r.get("color", s.get("color")), (0, 0, 0))
+                rt = str(r.get("text", ""))
+                draw.text((cx, cy), rt, font=font, fill=(col[0], col[1], col[2], alpha), anchor=anchor)
+                try:
+                    cx += draw.textlength(rt, font=font)
+                except Exception:
+                    cx += 0.6 * float(r.get("font_size", s.get("font_size", 16))) * len(rt)
+        else:
+            font = _find_font(s.get("font_family", "Arial"), float(s.get("font_size", 16)), s.get("font_weight", ""))
+            col = _color(s.get("color"), (0, 0, 0))
+            draw.text((float(s.get("x", 0)), float(s.get("y", 0))), txt,
+                      font=font, fill=(col[0], col[1], col[2], alpha), anchor=anchor)
         tr = s.get("transform")
         if isinstance(tr, (list, tuple)) and len(tr) == 6:
             inv = _inv(tuple(float(v) for v in tr))

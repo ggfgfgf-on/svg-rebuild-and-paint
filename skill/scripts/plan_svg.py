@@ -166,7 +166,7 @@ def _mask_def(m, gid, w, h):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") or x.get("pattern") for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") or x.get("pattern") or x.get("runs") for x in doc.get("strokes", []))
             and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
@@ -245,9 +245,15 @@ def plan_to_svg(doc, *, filters=False, title=None):
                 col = _rgb(s.get("color")); op = max(0.0, min(1.0, float(s.get("opacity", 1.0))))
                 tr = s.get("transform")
                 trs = (' transform="matrix(%s)"' % " ".join(_f(float(v)) for v in tr)) if isinstance(tr, (list, tuple)) and len(tr) == 6 else ""
+                runs = s.get("runs")
+                if isinstance(runs, list) and runs:
+                    inner = "".join('<tspan fill="%s" font-size="%s">%s</tspan>' % (
+                        _rgb(r.get("color")), _f(r.get("font_size", fs)), escape(str(r.get("text", "")))) for r in runs)
+                else:
+                    inner = escape(str(s.get("text", "")))
                 out.append('<text x="%s" y="%s" font-family="%s" font-size="%s" fill="%s" fill-opacity="%s" text-anchor="%s" data-layer="%s" data-preset="text"%s>%s</text>' % (
                     _f(s.get("x", 0)), _f(s.get("y", 0)), _esc(fam), _f(fs), col, _f(op),
-                    _esc(s.get("text_anchor", "start")), _esc(name), trs, escape(str(s.get("text", "")))))
+                    _esc(s.get("text_anchor", "start")), _esc(name), trs, inner))
                 continue
             if str(s.get("preset", "")) == "image" and isinstance(s.get("image"), dict):
                 im = s["image"]
@@ -1681,6 +1687,27 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
                   "text_anchor": anchor}
             if a.get("font-weight"):
                 st["font_weight"] = a.get("font-weight")
+            runs = []
+            if (ch.text or "").strip():
+                runs.append({"text": ch.text, "color": _color(fill, (0, 0, 0)),
+                             "font_size": fs, "font_family": fam})
+            for child in list(ch):
+                if _local(child.tag) != "tspan":
+                    continue
+                rt = child.text or ""
+                if not rt:
+                    continue
+                rfill = child.get("fill") or fill
+                try:
+                    rfs = float(str(child.get("font-size", fs)).replace("px", ""))
+                except Exception:
+                    rfs = fs
+                runs.append({"text": rt,
+                             "color": _color(rfill, (0, 0, 0)),
+                             "font_size": rfs,
+                             "font_family": (child.get("font-family") or fam).split(",")[0].strip().strip("'\"")})
+            if runs:
+                st["runs"] = runs
             if not (abs(m[0]-1) < 1e-9 and abs(m[1]) < 1e-9 and abs(m[2]) < 1e-9
                     and abs(m[3]-1) < 1e-9 and abs(m[4]) < 1e-9 and abs(m[5]) < 1e-9):
                 st["transform"] = [float(v) for v in m]
