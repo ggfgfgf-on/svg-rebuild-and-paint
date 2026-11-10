@@ -137,6 +137,8 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 
 - **Plan ⇄ SVG 双向桥**：`scripts/plan_to_svg.py` / `svg_to_plan.py`，逐笔可编辑、双向亚秒；保真边界见 [PLAN_SVG.md](docs/PLAN_SVG.md)。
 - `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状，层数、层名、配色都不是模板；层怎么拆由你按场景决定，接口见 `docs/SHAPE_API.md`。
+
+  ![demo plan](examples/demo.plan.png)
 - **凭空画（无参考图）的主路径**：写 build script，先把 plan 攒出来，再渲染看图。最小骨架：
 
   ```python
