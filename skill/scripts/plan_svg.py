@@ -1451,6 +1451,33 @@ def _rasterize_filtered(root, ch, w, h, base_dir=None):
                             im = Image.fromarray(_np.clip(out*255.0,0,255).astype(_np.uint8), "RGBA")
                         except Exception:
                             pass
+                    elif t == "feMorphology":
+                        try:
+                            import math as _m
+                            rad = max(0, int(round(float(e.get("radius", 1)))))
+                            if rad > 0:
+                                k = 2 * rad + 1
+                                im = im.filter(ImageFilter.MaxFilter(k) if str(e.get("operator")) == "dilate" else ImageFilter.MinFilter(k))
+                        except Exception:
+                            pass
+                    elif t == "feComposite":
+                        try:
+                            import numpy as _np
+                            op = str(e.get("operator", "over"))
+                            a = _np.asarray(src0, _np.float32) / 255.0
+                            b = _np.asarray(im, _np.float32) / 255.0
+                            aa, ba = a[...,3:4], b[...,3:4]
+                            if op == "in": out = b * aa
+                            elif op == "out": out = b * (1-aa)
+                            elif op == "atop": out = b*aa + a*(1-ba)
+                            elif op == "xor": out = a*(1-ba) + b*(1-aa)
+                            elif op == "arithmetic":
+                                k1=float(e.get("k1",0));k2=float(e.get("k2",0));k3=float(e.get("k3",0));k4=float(e.get("k4",0))
+                                out = _np.clip(k1*a*b + k2*a + k3*b + k4, 0, 1)
+                            else: out = b + a*(1-ba)
+                            im = Image.fromarray(_np.clip(out*255.0,0,255).astype(_np.uint8), "RGBA")
+                        except Exception:
+                            pass
                     elif t == "feComponentTransfer":
                         try:
                             import numpy as _np
