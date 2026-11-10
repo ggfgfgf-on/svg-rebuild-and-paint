@@ -72,6 +72,31 @@ def _path_d(points):
     return " ".join(out)
 
 
+def _fc(v):
+    return ("%.2f" % float(v)).rstrip("0").rstrip(".")
+
+
+def _path_d_compact(points, holes=None):
+    def one(pts):
+        clean = []
+        for p in pts:
+            q = (float(p[0]), float(p[1]))
+            if not clean or abs(q[0]-clean[-1][0]) > 1e-9 or abs(q[1]-clean[-1][1]) > 1e-9:
+                clean.append(q)
+        if not clean:
+            return ""
+        d = "M %s %s" % (_fc(clean[0][0]), _fc(clean[0][1]))
+        for x, y in clean[1:]:
+            d += " l %s %s" % (_fc(x - clean[0][0]), _fc(y - clean[0][1]))
+            clean[0] = (x, y)
+        return d + " Z"
+    out = one(points)
+    for h in holes or []:
+        if len(h) >= 3:
+            out += " " + one(h)
+    return out
+
+
 def _path_d_holes(points, holes):
     d = _path_d(points) + " Z"
     for h in holes or []:
@@ -618,7 +643,7 @@ def plan_to_svg_stamps(doc, title=None):
             pre = ('<g mask="url(#%s)">' % sm) if sm else ""
             post = "</g>" if sm else ""
             if preset == "fill":
-                d0 = _path_d_holes(pts, st.get("holes") or [])
+                d0 = _path_d_compact(pts, st.get("holes") or [])
                 pg = pattern_gid.get(id(st)) or paint_gid.get(id(st))
                 body.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer=%s data-preset="fill" data-color="%s"/>' % (
                     d0, ("url(#%s)" % pg) if pg else col, _f(op0), st.get("fill_rule", "nonzero"), quoteattr(name), col) + post)
@@ -764,8 +789,8 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
                 parts = []
                 for i in range(1, len(ps)):
                     seg = _capsule((ps[i-1][0], ps[i-1][1]), (ps[i][0], ps[i][1]), radii[i-1], radii[i])
-                    parts.append("M " + " L ".join("%s %s" % (_f(x), _f(y)) for x, y in seg) + " Z")
-                d = " ".join(parts)
+                    parts.append(_path_d_compact(seg))
+                d = " ".join(p for p in parts if p)
             out.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-d-hash="%s"%s/>' %
                        (d, paint_ref, _f(st.get("opacity", 1.0)), quoteattr(name), quoteattr(preset),
                         _f(size), _f(st.get("opacity", 1.0)), _f(st.get("hardness", 0.7)), _rgb(st.get("color")), _center_attr(ps), _d_hash(d),
