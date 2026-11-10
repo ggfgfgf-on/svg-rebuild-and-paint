@@ -62,6 +62,16 @@ def test_deterministic():
     print("PASS plan->svg deterministic")
 
 
+def test_svgz_output(tmp_path):
+    import gzip
+    doc, w, h = plan_io.load_plan(str(Path(__file__).parent.parent / "examples" / "demo.plan.json"))
+    p = tmp_path / "demo.svgz"
+    info = plan_svg.plan_to_svgz(doc, str(p))
+    assert info["gz_bytes"] > 0 and info["gz_bytes"] < info["svg_bytes"]
+    with gzip.open(p, "rt", encoding="utf-8") as f:
+        assert "<svg" in f.read(200)
+
+
 def test_dump_cli(tmp_path):
     src = Path(tmp_path) / "a.plan.json"
     svg = Path(tmp_path) / "a.svg"

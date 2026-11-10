@@ -2148,8 +2148,17 @@ def load_svg_plan_stream(path, chunk_size=65536):
 
 
 def load_plan_svg(path):
-    p = Path(path)
-    return svg_to_plan(p.read_text(encoding="utf-8"), base_dir=p.parent)
+    return load_svg_plan_stream(str(path))
+
+
+def plan_to_svgz(doc, path, level=6):
+    """Write the bridge SVG as gzip-compressed .svgz; returns raw/gz bytes."""
+    import gzip
+    data = plan_to_svg(doc).encode("utf-8")
+    with gzip.open(path, "wb", compresslevel=level) as f:
+        f.write(data)
+    return {"path": str(path), "svg_bytes": len(data),
+            "gz_bytes": os.path.getsize(path)}
 
 
 def dump_plan_svg(plan_path, svg_path, *, filters=True):
