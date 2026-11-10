@@ -446,6 +446,12 @@ static void load_icc_profiles(pugi::xml_node root) {
     }
 }
 
+static double srgb_gamma(double v){ v=std::max(0.0,std::min(1.0,v)); return v<=0.0031308?12.92*v:1.055*std::pow(v,1.0/2.4)-0.055; }
+static std::vector<double> xyz2srgb(double x,double y,double z){ double r=3.2406*x-1.5372*y-0.4986*z,g=-0.9689*x+1.8758*y+0.0415*z,b=0.0557*x-0.2040*y+1.0570*z; return {(double)std::lround(srgb_gamma(r)*255),(double)std::lround(srgb_gamma(g)*255),(double)std::lround(srgb_gamma(b)*255)}; }
+static std::vector<double> p3_color(double r,double g,double b){ auto lin=[](double v){return v<=0.04045?v/12.92:std::pow((v+0.055)/1.055,2.4);}; r=lin(r);g=lin(g);b=lin(b); double x=0.4865709*r+0.2656677*g+0.1982173*b,y=0.2289746*r+0.6917385*g+0.0792869*b,z=0.0*r+0.0451134*g+1.0439444*b; return xyz2srgb(x,y,z); }
+static std::vector<double> lab_color(double L,double a,double bb){ double fy=(L+16)/116,fx=fy+a/500,fz=fy-bb/200; auto f=[](double t){return t>6.0/29?t*t*t:3*(6.0/29)*(6.0/29)*(t-4.0/29);}; return xyz2srgb(0.95047*f(fx),1.0*f(fy),1.08883*f(fz)); }
+static std::vector<double> oklab_color(double L,double a,double b){ double l_=L+0.3963377774*a+0.2158037573*b,m_=L-0.1055613458*a-0.0638541728*b,s_=L-0.0894841775*a-1.2914855480*b; double l=l_*l_*l_,m=m_*m_*m_,s=s_*s_*s_; double r=4.0767416621*l-3.3077115913*m+0.2309699292*s,g=-1.2684380046*l+2.6097574011*m-0.3413193965*s,bb=-0.0041960863*l-0.7034186147*m+1.7076147010*s; return {(double)std::lround(srgb_gamma(r)*255),(double)std::lround(srgb_gamma(g)*255),(double)std::lround(srgb_gamma(bb)*255)}; }
+
 static std::vector<double> color_from(const std::string& s) {
     if (s.rfind("icc-color(",0)==0) {
         size_t e=s.find(')');
@@ -463,6 +469,25 @@ static std::vector<double> color_from(const std::string& s) {
     if (s.size()==7 && s[0]=='#') {
         auto h=[](char c)->int{ if(c>='0'&&c<='9')return c-'0'; if(c>='a'&&c<='f')return c-'a'+10; if(c>='A'&&c<='F')return c-'A'+10; return 0; };
         return {double(h(s[1])*16+h(s[2])),double(h(s[3])*16+h(s[4])),double(h(s[5])*16+h(s[6]))};
+    }
+    if (s.rfind("color(",0)==0) {
+        size_t e=s.find(')'); std::string body=s.substr(6,e==std::string::npos?std::string::npos:e-6);
+        size_t sp=body.find(' '); std::string space=sp==std::string::npos?body:body.substr(0,sp);
+        auto v=nums(sp==std::string::npos?std::string():body.substr(sp+1));
+        if(v.size()>=3){ if(space=="display-p3") return p3_color(v[0],v[1],v[2]); if(space=="srgb") return {(double)std::lround(v[0]*255),(double)std::lround(v[1]*255),(double)std::lround(v[2]*255)}; }
+        return {217,180,90};
+    }
+    if (s.rfind("lab(",0)==0 || s.rfind("lch(",0)==0) {
+        std::string z=s; for(char& c:z) if(c=='%') c=' ';
+        auto v=nums(z); if(v.size()<3) return {217,180,90};
+        if(s.rfind("lch(",0)==0){ double h=v[2]*3.14159265358979323846/180; return lab_color(v[0],std::cos(h)*v[1],std::sin(h)*v[1]); }
+        return lab_color(v[0],v[1],v[2]);
+    }
+    if (s.rfind("oklab(",0)==0 || s.rfind("oklch(",0)==0) {
+        std::string z=s; for(char& c:z) if(c=='%') c=' ';
+        auto v=nums(z); if(v.size()<3) return {217,180,90};
+        if(s.rfind("oklch(",0)==0){ double h=v[2]*3.14159265358979323846/180; return oklab_color(v[0],std::cos(h)*v[1],std::sin(h)*v[1]); }
+        return oklab_color(v[0],v[1],v[2]);
     }
     auto v=nums(s); if(v.size()<3) return {217,180,90}; return {v[0],v[1],v[2]};
 }
