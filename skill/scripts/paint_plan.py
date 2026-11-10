@@ -264,6 +264,12 @@ def render_plan(plan, threads=8, brush=None, region=None):
         layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
         ImageDraw.Draw(layer).text((float(s.get("x", 0)), float(s.get("y", 0))), txt,
                                    font=font, fill=(col[0], col[1], col[2], alpha), anchor=anchor)
+        tr = s.get("transform")
+        if isinstance(tr, (list, tuple)) and len(tr) == 6:
+            inv = _mat_inv(tuple(float(v) for v in tr))
+            if inv is not None:
+                coeff = (inv[0], inv[2], inv[4], inv[1], inv[3], inv[5])
+                layer = layer.transform(base.size, Image.AFFINE, coeff, resample=Image.BICUBIC)
         comp = np.asarray(Image.alpha_composite(base, layer))
     for s in strokes_in:
         ptn = s.get("pattern")
@@ -276,6 +282,13 @@ def render_plan(plan, threads=8, brush=None, region=None):
             continue
         tw = max(1, int(round(float(ptn.get("width", tile.width)))))
         th = max(1, int(round(float(ptn.get("height", tile.height)))))
+        if ptn.get("units") == "objectBoundingBox":
+            q = [(float(a[0]), float(a[1])) for a in (s.get("points") or [])]
+            if len(q) >= 3:
+                bw = max(1e-6, max(a[0] for a in q) - min(a[0] for a in q))
+                bh = max(1e-6, max(a[1] for a in q) - min(a[1] for a in q))
+                tw = max(1, int(round(float(ptn.get("width", 0.1)) * bw)))
+                th = max(1, int(round(float(ptn.get("height", 0.1)) * bh)))
         if tile.size != (tw, th):
             tile = tile.resize((tw, th), Image.LANCZOS)
         base = Image.fromarray(comp, "RGBA")

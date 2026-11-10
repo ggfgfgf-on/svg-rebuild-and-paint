@@ -1328,8 +1328,20 @@ def _pattern_tiles(root, w, h, base_dir=None):
                 return float(v[:-1]) / 100.0 * (w if v.endswith("%") else 1.0) if v.endswith("%") else float(v[:-2] if v.endswith("px") else v)
             except Exception:
                 return d
-        pw = _len(el.get("width", "32"), 32.0)
-        ph = _len(el.get("height", "32"), 32.0)
+        units = el.get("patternUnits", "objectBoundingBox")
+        def _frac(v, d):
+            try:
+                v = str(v)
+                return float(v[:-1]) / 100.0 if v.endswith("%") else float(v[:-2] if v.endswith("px") else v)
+            except Exception:
+                return d
+        if units == "objectBoundingBox":
+            fw, fh = _frac(el.get("width", "0.1"), 0.1), _frac(el.get("height", "0.1"), 0.1)
+            pw, ph = max(8.0, fw * 256.0), max(8.0, fh * 256.0)
+            stored_w, stored_h = fw, fh
+        else:
+            pw, ph = _len(el.get("width", "32"), 32.0), _len(el.get("height", "32"), 32.0)
+            stored_w, stored_h = pw, ph
         if pw <= 0 or ph <= 0:
             continue
         children = "".join(ET.tostring(ch, encoding="unicode") for ch in list(el))
@@ -1346,8 +1358,8 @@ def _pattern_tiles(root, w, h, base_dir=None):
             buf = io.BytesIO()
             Image.fromarray(img, "RGBA").save(buf, format="PNG")
             out[el.get("id")] = {"encoding": "png-base64", "data": base64.b64encode(buf.getvalue()).decode("ascii"),
-                                 "width": pw, "height": ph,
-                                 "units": el.get("patternUnits", "objectBoundingBox")}
+                                 "width": stored_w, "height": stored_h,
+                                 "units": units}
         except Exception:
             continue
     return out
