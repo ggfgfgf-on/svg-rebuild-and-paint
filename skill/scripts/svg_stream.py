@@ -141,6 +141,7 @@ def stream_svg_to_plan(source, chunk_size=65536):
     layers = []
     strokes = []
     layer_stack = []
+    mat_stack = [(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)]
     skip_tag = None
     order = []
 
@@ -149,6 +150,10 @@ def stream_svg_to_plan(source, chunk_size=65536):
             order.append(name)
             layers.append({"name": name, "blend": blend or "normal"})
         return name
+
+    def tpts(q):
+        m = mat_stack[-1]
+        return [[_ps._mat_apply(m, float(p[0]), float(p[1]))[0], _ps._mat_apply(m, float(p[0]), float(p[1]))[1]] for p in q]
 
     def emit_shape(tag, a):
         layer = layer_stack[-1] if layer_stack else "layer"
@@ -165,6 +170,7 @@ def stream_svg_to_plan(source, chunk_size=65536):
             for q in subs:
                 if not q:
                     continue
+                q = tpts(q)
                 st = {"layer": layer, "preset": "fill",
                       "opacity": float(a.get("fill-opacity", a.get("opacity", 1.0)) or 1.0),
                       "color": _ps._color(fill, (0, 0, 0)),
@@ -179,6 +185,7 @@ def stream_svg_to_plan(source, chunk_size=65536):
         for q in subs:
             if len(q) < 2:
                 continue
+            q = tpts(q)
             st = {"layer": layer, "preset": data_preset or ("flat" if tag == "line" else "round_soft"),
                   "size": float(a.get("stroke-width", a.get("data-size", 1.0)) or 1.0),
                   "opacity": float(a.get("stroke-opacity", a.get("opacity", 1.0)) or 1.0),
@@ -203,6 +210,7 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     name = a.get("data-name") or a.get("id") or "layer"
                     add_layer(name, a.get("data-blend", "normal"))
                     layer_stack.append(name)
+                    mat_stack.append(_ps._mat_mul(mat_stack[-1], _ps._parse_transform(a.get("transform"))))
                     continue
                 if tag in ("defs", "style", "clipPath", "mask", "linearGradient", "radialGradient", "pattern", "filter", "symbol"):
                     skip_tag = tag
@@ -216,6 +224,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     continue
                 if tag == "g" and layer_stack:
                     layer_stack.pop()
+                    if len(mat_stack) > 1:
+                        mat_stack.pop()
     for ev in tok.close():
         pass
     if not layers:
