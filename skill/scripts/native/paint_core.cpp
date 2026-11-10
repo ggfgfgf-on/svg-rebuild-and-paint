@@ -711,6 +711,29 @@ EXPORT void paint_clear_layer(void* p, int idx, float r, float g, float b, float
 
 
 
+
+EXPORT int paint_apply_layer_mask_rect(void* p, int layer, const unsigned char* mask, int mw, int mh,
+                                       int x0, int y0, int x1, int y1) {
+    Ctx* c = (Ctx*)p;
+    if (!c || !mask || mw <= 0 || mh <= 0) return 0;
+    if (layer < 0 || layer >= (int)c->layers.size()) return 0;
+    Layer& L = c->layers[layer];
+    int xa = std::max(0, x0), ya = std::max(0, y0);
+    int xb = std::min(c->w - 1, x1), yb = std::min(c->h - 1, y1);
+    for (int y = ya; y <= yb; ++y) {
+        int my = (int)((long long)y * mh / c->h);
+        if (my >= mh) my = mh - 1;
+        for (int x = xa; x <= xb; ++x) {
+            int mx = (int)((long long)x * mw / c->w);
+            if (mx >= mw) mx = mw - 1;
+            float a = mask[(size_t)my * mw + mx] / 255.0f;
+            float* d = L.px.data() + ((size_t)y * c->w + x) * 4;
+            d[0] *= a; d[1] *= a; d[2] *= a; d[3] *= a;
+        }
+    }
+    return 1;
+}
+
 EXPORT int paint_apply_layer_mask(void* p, int layer, const unsigned char* mask, int mw, int mh) {
     Ctx* c = (Ctx*)p;
     if (!c || !mask || mw <= 0 || mh <= 0) return 0;

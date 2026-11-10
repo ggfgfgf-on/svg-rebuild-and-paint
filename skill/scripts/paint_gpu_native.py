@@ -38,6 +38,7 @@ def load():
     lib.pg_set_stroke_gradient.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4
     lib.pg_apply_layer_mask.restype = ctypes.c_int
     lib.pg_apply_layer_mask.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int]
+    lib.pg_apply_layer_mask_rect.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
     lib.pg_comp_checkpoint.argtypes = [ctypes.c_void_p]
     lib.pg_comp_restore.argtypes = [ctypes.c_void_p]
     lib.pg_read_rgba8.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ubyte)]
@@ -231,6 +232,13 @@ class GpuPainter:
             raise ValueError("mask must be HxW")
         return self._lib.pg_apply_layer_mask(self._ctx, int(idx), alpha.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)),
                                               alpha.shape[1], alpha.shape[0])
+
+    def apply_mask_rect(self, idx, alpha, x0, y0, x1, y1):
+        alpha = np.ascontiguousarray(alpha, dtype=np.uint8)
+        if alpha.ndim != 2:
+            raise ValueError("mask must be HxW")
+        return self._lib.pg_apply_layer_mask_rect(self._ctx, int(idx), alpha.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)),
+                                                  alpha.shape[1], alpha.shape[0], int(x0), int(y0), int(x1), int(y1))
 
     def layer_rgba(self, idx):
         """读回单层 RGBA8（与 Painter.layer_rgba 对齐：float 读回后四舍五入到 0..255）。"""

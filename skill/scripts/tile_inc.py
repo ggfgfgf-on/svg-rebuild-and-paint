@@ -11,6 +11,23 @@ import numpy as np
 _GPU_WARNED = False
 
 
+def _mask_array(m, w, h):
+    if not isinstance(m, dict) or m.get("encoding") != "png-base64":
+        return None
+    import base64, io
+    from PIL import Image
+    im = Image.open(io.BytesIO(base64.b64decode(m["data"]))).convert("L")
+    if im.size != (w, h):
+        im = im.resize((w, h), Image.BILINEAR)
+    return np.asarray(im, dtype=np.uint8)
+
+
+def _clip_rect(pts, x0, y0, x1, y1):
+    import plan_svg
+    return plan_svg._clip_poly([(float(p[0]), float(p[1])) for p in pts],
+                               [(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+
+
 def bboxes(plan, name):
     d = plan[name]
     offs, pts, par = d["offs"], d["pts"], d["params"]
@@ -139,11 +156,50 @@ def mask_for(rects, base, H, W):
     return np.where(m, base, np.int32(-5)).astype(np.int32)
 
 
+def _has_paint(items):
+    return any(isinstance(s.get("paint"), dict) for s in items or [])
+
+
+def _rebuild_local(p, plan, spec, dirty, base_of, gpu, nthreads=8):
+    H, W = p.h, p.w
+    total = 0
+    for li, (nm, _) in enumerate(spec):
+        rects = dirty.get(nm)
+        if not rects:
+            continue
+        d = plan[nm]
+        items = d.get("items") or []
+        mask = _mask_array(d.get("mask"), W, H)
+        for (x0, y0, x1, y1) in rects:
+            p.set_region(mask_for([(x0, y0, x1, y1)], base_of(nm), H, W))
+            p.clear_rect(li + 1, x0, y0, x1, y1)
+            for s in items:
+                pts = np.asarray(s.get("points") or [], np.float32)
+                if str(s.get("preset")) == "fill":
+                    q = _clip_rect(pts[:, :2], x0, y0, x1, y1)
+                    if len(q) >= 3:
+                        if isinstance(s.get("paint"), dict):
+                            p.fill_gradient(li + 1, q, s["paint"], s.get("opacity", 1.0))
+                        else:
+                            p.fill_polygon(li + 1, q, s.get("color", (255, 255, 255)), s.get("opacity", 1.0))
+                elif len(pts) >= 1:
+                    p.stroke(li + 1, pts, s.get("size", 8.0), s.get("opacity", 1.0),
+                             s.get("color", (255, 255, 255)), s.get("preset", "round_soft"),
+                             s.get("hardness", 0.55), region_id=s.get("region_id", 0))
+            if mask is not None:
+                p.apply_mask_rect(li + 1, mask, x0, y0, x1, y1)
+            total += len(items)
+    return total
+
+
 def rebuild(p, plan, spec, dirty, base_of, gpu, nthreads=8):
     gpu = bool(getattr(p, "gpu_used", gpu))
     """dirty: {layer_name: [(x0,y0,x1,y1), ...]}；一次区域图、一次合成。"""
-    if any(_is_advanced(plan[nm].get("items")) for nm, _ in spec):
-        return full(p, plan, spec, base_of, gpu, nthreads)
+    advanced = [plan[nm].get("items") for nm, _ in spec if _is_advanced(plan[nm].get("items"))]
+    if advanced:
+        if any(_has_paint(items) for items in advanced):
+            return full(p, plan, spec, base_of, gpu, nthreads)
+        return _rebuild_local(p, plan, spec, dirty, base_of, gpu, nthreads)
     H, W = p.h, p.w
     total = 0
     for li, (nm, _) in enumerate(spec):

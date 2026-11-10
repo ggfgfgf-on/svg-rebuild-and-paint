@@ -1405,6 +1405,40 @@ EXPORT int pg_apply_layer_mask(void* p, int idx, const unsigned char* mask, int 
     return 1;
 }
 
+
+EXPORT int pg_apply_layer_mask_rect(void* p, int idx, const unsigned char* mask, int mw, int mh,
+                                    int x0, int y0, int x1, int y1) {
+    Gpu* g = (Gpu*)p;
+    if (!g || !mask || idx < 0 || idx >= (int)g->layers.size() || mw <= 0 || mh <= 0) return 0;
+    UINT npix = (UINT)g->W * (UINT)g->H;
+    std::vector<float> alpha((size_t)npix);
+    for (int y = 0; y < g->H; ++y) {
+        int my = (int)((long long)y * mh / g->H); if (my >= mh) my = mh - 1;
+        for (int x = 0; x < g->W; ++x) {
+            int mx = (int)((long long)x * mw / g->W); if (mx >= mw) mx = mw - 1;
+            alpha[(size_t)y * g->W + x] = mask[(size_t)my * mw + mx] / 255.0f;
+        }
+    }
+    g->ctx->UpdateSubresource(g->maskBuf, 0, nullptr, alpha.data(), 0, 0);
+    Params cp{}; cp.W = g->W; cp.H = g->H;
+    cp.bx0 = std::max(0, x0); cp.by0 = std::max(0, y0);
+    cp.bx1 = std::min(g->W - 1, x1); cp.by1 = std::min(g->H - 1, y1);
+    g->ctx->UpdateSubresource(g->cb, 0, nullptr, &cp, 0, 0);
+    ID3D11UnorderedAccessView* uav = g->layers[idx].uav;
+    ID3D11ShaderResourceView* srv = g->maskSrv;
+    g->ctx->CSSetShader(g->cs_mask, nullptr, 0);
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
+    g->ctx->CSSetShaderResources(7, 1, &srv);
+    g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
+    g->ctx->Dispatch((npix + 255) / 256, 1, 1);
+    ID3D11UnorderedAccessView* none = nullptr;
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
+    ID3D11ShaderResourceView* no = nullptr;
+    g->ctx->CSSetShaderResources(7, 1, &no);
+    g->ctx->CSSetShader(nullptr, nullptr, 0);
+    return 1;
+}
+
 EXPORT int pg_read_layer(void* p, int idx, float* out) {
     Gpu* g = (Gpu*)p;
     if (!g || idx < 0 || idx >= (int)g->layers.size()) return 0;

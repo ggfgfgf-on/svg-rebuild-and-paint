@@ -276,3 +276,7 @@ layer 可带 `mask`：`{"encoding":"png-base64","data":"...","luminance":true}`�
 ## GPU 自动入口
 
 `doc_to_plan` 保留原始 stroke 与 layer.mask；`tile_inc.full/rebuild` 对 fill/paint/mask 调用 `fill_gradient`/`stroke_gradient`/`apply_mask`；`render_util._gpu_unsupported` 已不再因 paint/mask/fill 回退。`--gpu` 现在走 GPU 新接口。
+
+## stamps 高级语义 / 脏矩形
+
+`plan_to_svg_stamps` 现在导出 paint/mask/fill（paint 转 userSpaceOnUse）。`tile_inc.rebuild` 对 fill/mask 做脏矩形局部重绘，调用 `fill_gradient`/`fill_polygon` 和 `apply_mask_rect`；含 paint stroke 时仍 full 重画。

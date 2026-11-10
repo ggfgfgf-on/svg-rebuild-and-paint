@@ -51,6 +51,7 @@ def load():
     lib.paint_stroke_gradient_l.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, ctypes.c_float, ctypes.c_float, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_int, ctypes.c_float]
     lib.paint_apply_layer_mask.restype = ctypes.c_int
     lib.paint_apply_layer_mask.argtypes = [vp, ctypes.c_int, u8, ctypes.c_int, ctypes.c_int]
+    lib.paint_apply_layer_mask_rect.argtypes = [vp, ctypes.c_int, u8, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
     lib.paint_fill_gradient_polygon.restype = ctypes.c_int
     lib.paint_fill_gradient_polygon.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_float]
     lib.paint_fill_polygon.restype = ctypes.c_int
@@ -302,6 +303,13 @@ class Painter:
         return self._lib.paint_stroke_gradient_l(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
                                                  float(size), float(opacity), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
                                                  x1, y1, x2, y2, pid, float(hardness))
+
+    def apply_mask_rect(self, layer, alpha, x0, y0, x1, y1):
+        alpha = np.ascontiguousarray(alpha, dtype=np.uint8)
+        if alpha.ndim != 2:
+            raise ValueError("mask must be HxW")
+        return self._lib.paint_apply_layer_mask_rect(self._ctx, int(layer), alpha.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)),
+                                                     alpha.shape[1], alpha.shape[0], int(x0), int(y0), int(x1), int(y1))
 
     def apply_mask(self, layer, alpha):
         alpha = np.ascontiguousarray(alpha, dtype=np.uint8)
