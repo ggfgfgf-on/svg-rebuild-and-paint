@@ -650,8 +650,14 @@ def plan_to_svg_stamps(doc, title=None):
                 body.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer=%s data-preset="fill" data-color="%s"/>' % (
                     d0, ("url(#%s)" % pg) if pg else col, _f(op0), st.get("fill_rule", "nonzero"), quoteattr(name), col) + post)
                 continue
-            body.append(pre + '<g data-stroke="1" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-center-hash="%s"%s>' % (
-                quoteattr(name), quoteattr(preset), _f(size), _f(op0), _f(hard), col, _center_attr(ps), _center_hash(ps),
+            spg = paint_gid.get(id(st))
+            if spg:
+                fill0 = "url(#%s)" % spg
+            else:
+                sgid = grad_id(col, hard)
+                fill0 = ("url(#%s)" % sgid) if sgid else col
+            body.append(pre + '<g data-stroke="1" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" fill="%s" data-center="%s" data-center-hash="%s"%s>' % (
+                quoteattr(name), quoteattr(preset), _f(size), _f(op0), _f(hard), col, fill0, _center_attr(ps), _center_hash(ps),
                 (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else ""))
             for i in range(1, len(pts)):
                 x0, y0, p0 = float(pts[i-1][0]), float(pts[i-1][1]), float(pts[i-1][2] if len(pts[i-1]) > 2 else 1.0)
@@ -671,9 +677,9 @@ def plan_to_svg_stamps(doc, title=None):
                         gid = grad_id(col, hard)
                         fill = ("url(#%s)" % gid) if gid else col
                     if preset in ("flat", "bristle"):
-                        body.append('<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill="%s" fill-opacity="%s" transform="rotate(%s %s %s)"/>' % (_f(x), _f(y), _f(r), _f(max(0.8, r * 0.35)), fill, _f(op), _f(ang), _f(x), _f(y)))
+                        body.append('<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill-opacity="%s" transform="rotate(%s %s %s)"/>' % (_fc(x), _fc(y), _fc(r), _fc(max(0.8, r * 0.35)), _fc(op), _fc(ang), _fc(x), _fc(y)))
                     else:
-                        body.append('<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="%s"/>' % (_f(x), _f(y), _f(r), fill, _f(op)))
+                        body.append('<circle cx="%s" cy="%s" r="%s" fill-opacity="%s"/>' % (_fc(x), _fc(y), _fc(r), _fc(op)))
             body.append(post + "</g>")
         body.append("</g>")
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
