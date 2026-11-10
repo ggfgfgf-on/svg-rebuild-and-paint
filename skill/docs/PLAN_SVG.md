@@ -268,3 +268,7 @@ C++ 支持 fill/stroke/stroke-width/opacity 继承；`<use href="#symbol">` 会�
 layer 可带 `mask`：`{"encoding":"png-base64","data":"...","luminance":true}`。bridge 会把 `<mask>` 栅格化为灰度 PNG；`paint_plan` 在合成前调用 native `paint_apply_layer_mask` 乘 alpha。
 
 仍限：mask 内 gradient fill 目前取平均亮度，不是逐像素 gradient；mask 只能作用于 layer，不是任意单笔。
+
+## GPU
+
+`paint_gpu` 新增 `pg_apply_layer_mask`、`pg_set_stroke_gradient`、`pg_fill_polygon`、`pg_fill_gradient_polygon`。stroke 渐变按 sprite 位置插值；fill/mask 走 GPU layer 读回/写回（正确但非纯 shader）。`render_util` 仍对 paint/mask/fill 回退 CPU，避免旧调用误用。

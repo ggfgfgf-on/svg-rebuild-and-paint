@@ -830,6 +830,20 @@ static void upload_params(Gpu* g, Params& p) {
     g->ctx->UpdateSubresource(g->cb, 0, nullptr, tmp, 0, 0);
 }
 
+
+static std::vector<float> g_grad_stops;
+static int g_grad_n = 0;
+static float g_grad_x1 = 0, g_grad_y1 = 0, g_grad_x2 = 1, g_grad_y2 = 0;
+
+EXPORT void pg_set_stroke_gradient(const float* stops, int ns, float x1, float y1, float x2, float y2) {
+    g_grad_n = 0;
+    if (stops && ns >= 2) {
+        g_grad_stops.assign(stops, stops + ns * 5);
+        g_grad_n = ns;
+        g_grad_x1 = x1; g_grad_y1 = y1; g_grad_x2 = x2; g_grad_y2 = y2;
+    }
+}
+
 EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs,
                            int n_strokes, const float* params, const int* rids) {
     Gpu* g = (Gpu*)p;
@@ -881,6 +895,21 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
             tmp.clear();
             double t_ex = now_ms();
             expand_stroke(pts + b, (e_ - b) / 3, params[i * 8 + 0], si, tmp, (unsigned)i);
+            if (g_grad_n >= 2) {
+                float gx = g_grad_x2 - g_grad_x1, gy = g_grad_y2 - g_grad_y1, gl = gx*gx + gy*gy;
+                for (size_t q = 0; q * 24 < tmp.size(); ++q) {
+                    float sx = tmp[q*24+0], sy = tmp[q*24+1];
+                    float t = gl > 1e-9f ? ((sx - g_grad_x1)*gx + (sy - g_grad_y1)*gy) / gl : 0.0f;
+                    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+                    int k0 = 0; while (k0 + 1 < g_grad_n && g_grad_stops[(k0+1)*5] < t) ++k0;
+                    int k1 = std::min(g_grad_n - 1, k0 + 1);
+                    float o0 = g_grad_stops[k0*5], o1 = g_grad_stops[k1*5];
+                    float u = o1 > o0 ? (t - o0) / (o1 - o0) : 0.0f;
+                    tmp[q*24+8] = g_grad_stops[k0*5+1] + (g_grad_stops[k1*5+1] - g_grad_stops[k0*5+1]) * u;
+                    tmp[q*24+9] = g_grad_stops[k0*5+2] + (g_grad_stops[k1*5+2] - g_grad_stops[k0*5+2]) * u;
+                    tmp[q*24+10] = g_grad_stops[k0*5+3] + (g_grad_stops[k1*5+3] - g_grad_stops[k0*5+3]) * u;
+                }
+            }
             g_t_expand += now_ms() - t_ex;
             if (tmp.empty()) continue;
             float ext = (si.use_tip || si.branch != 0) ? 1.3f : 1.0f;
@@ -1108,6 +1137,72 @@ EXPORT int pg_read_acc(void* p, float* out) {
     return 1;
 }
 
+
+
+static int gpu_fill_common(Gpu* g, int idx, const float* pts, int n, const float* stops, int ns,
+                           float x1, float y1, float x2, float y2, float a, int use_grad) {
+    if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size()) return 0;
+    UINT npix = (UINT)g->W * (UINT)g->H;
+    std::vector<float> px((size_t)npix * 4);
+    ID3D11Buffer* rb = make_buf(g->dev, npix * 16, 16, 0, 0, D3D11_CPU_ACCESS_READ);
+    g->ctx->CopyResource(rb, g->layers[idx].buf);
+    D3D11_MAPPED_SUBRESOURCE ms{};
+    if (FAILED(g->ctx->Map(rb, 0, D3D11_MAP_READ, 0, &ms))) { rb->Release(); return 0; }
+    memcpy(px.data(), ms.pData, (size_t)npix * 16);
+    g->ctx->Unmap(rb, 0);
+    rb->Release();
+    float gx = x2 - x1, gy = y2 - y1, gl = gx*gx + gy*gy;
+    for (int y = 0; y < g->H; ++y) {
+        std::vector<float> xs;
+        float yy = y + 0.5f;
+        for (int i = 0; i < n; ++i) {
+            int j = (i + 1) % n;
+            float ax = pts[i*2], ay = pts[i*2+1], bx = pts[j*2], by = pts[j*2+1];
+            if ((ay <= yy && by > yy) || (by <= yy && ay > yy))
+                xs.push_back(ax + (yy - ay) * (bx - ax) / (by - ay));
+        }
+        std::sort(xs.begin(), xs.end());
+        for (size_t k = 0; k + 1 < xs.size(); k += 2) {
+            int xa = std::max(0, (int)std::ceil(xs[k] - 0.5f));
+            int xb = std::min(g->W - 1, (int)std::floor(xs[k+1] - 0.5f));
+            for (int x = xa; x <= xb; ++x) {
+                float cr = 0, cg = 0, cb = 0, ca = 1;
+                if (use_grad && ns >= 2) {
+                    float t = gl > 1e-9f ? ((x + 0.5f - x1)*gx + (y + 0.5f - y1)*gy) / gl : 0.0f;
+                    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+                    int k0 = 0; while (k0 + 1 < ns && stops[(k0+1)*5] < t) ++k0;
+                    int k1 = std::min(ns - 1, k0 + 1);
+                    float o0 = stops[k0*5], o1 = stops[k1*5];
+                    float u = o1 > o0 ? (t - o0) / (o1 - o0) : 0.0f;
+                    cr = stops[k0*5+1] + (stops[k1*5+1] - stops[k0*5+1]) * u;
+                    cg = stops[k0*5+2] + (stops[k1*5+2] - stops[k0*5+2]) * u;
+                    cb = stops[k0*5+3] + (stops[k1*5+3] - stops[k0*5+3]) * u;
+                    ca = stops[k0*5+4] + (stops[k1*5+4] - stops[k0*5+4]) * u;
+                } else if (stops) { cr = stops[1]; cg = stops[2]; cb = stops[3]; }
+                float sa = a * ca;
+                if (sa <= 0) continue;
+                float* d = px.data() + ((size_t)y * g->W + x) * 4;
+                float inv = 1.0f - sa;
+                d[0] = cr * sa + d[0] * inv;
+                d[1] = cg * sa + d[1] * inv;
+                d[2] = cb * sa + d[2] * inv;
+                d[3] = sa + d[3] * inv;
+            }
+        }
+    }
+    g->ctx->UpdateSubresource(g->layers[idx].buf, 0, nullptr, px.data(), 0, 0);
+    return 1;
+}
+
+EXPORT int pg_fill_polygon(void* p, int idx, const float* pts, int n, float r, float g_, float b, float a) {
+    float one[5] = {0, r, g_, b, 1};
+    return gpu_fill_common((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0);
+}
+
+EXPORT int pg_fill_gradient_polygon(void* p, int idx, const float* pts, int n,
+                                    const float* stops, int ns, float x1, float y1, float x2, float y2, float a) {
+    return gpu_fill_common((Gpu*)p, idx, pts, n, stops, ns, x1, y1, x2, y2, a, 1);
+}
 
 EXPORT int pg_apply_layer_mask(void* p, int idx, const unsigned char* mask, int mw, int mh) {
     Gpu* g = (Gpu*)p;

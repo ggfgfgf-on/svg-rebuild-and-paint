@@ -33,6 +33,9 @@ def load():
     lib.pg_composite_layer.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
     lib.pg_read_acc.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float)]
     lib.pg_read_layer.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float)]
+    lib.pg_fill_polygon.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4
+    lib.pg_fill_gradient_polygon.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5
+    lib.pg_set_stroke_gradient.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4
     lib.pg_apply_layer_mask.restype = ctypes.c_int
     lib.pg_apply_layer_mask.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int]
     lib.pg_comp_checkpoint.argtypes = [ctypes.c_void_p]
@@ -145,6 +148,31 @@ class GpuPainter:
         return self.stroke_batch_raw(layer, pts.ravel(), np.array([0], np.int32), params,
                                      np.array([int(region_id)], np.int32), nthreads=1, region=region)
 
+    def stroke_gradient(self, layer, pts, size, opacity, paint, preset="round_soft", hardness=0.55):
+        pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 3))
+        stops = paint.get("stops") or []
+        arr = np.ascontiguousarray([[float(st[0]), st[1][0] / 255.0, st[1][1] / 255.0, st[1][2] / 255.0,
+                                     float(st[2]) if len(st) > 2 else 1.0] for st in stops], np.float32)
+        if len(arr) < 2:
+            raise ValueError("gradient needs two stops")
+        xs, ys = pts[:, 0], pts[:, 1]
+        minx, maxx, miny, maxy = float(xs.min()), float(xs.max()), float(ys.min()), float(ys.max())
+        def coord(k, d):
+            v = paint.get(k, d)
+            if isinstance(v, str) and v.endswith("%"):
+                q = float(v[:-1]) / 100.0
+                return (minx + (maxx-minx)*q) if k in ("x1", "x2", "cx") else (miny + (maxy-miny)*q)
+            return float(v)
+        x1, y1, x2, y2 = coord("x1", 0.0), coord("y1", 0.0), coord("x2", 1.0), coord("y2", 0.0)
+        self._lib.pg_set_stroke_gradient(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2)
+        try:
+            params = np.array([[float(size), float(opacity), 1.0, 1.0, 1.0, float(hardness), 1.0,
+                                float(paint_native._pid(preset))]], np.float32)
+            return self.stroke_batch_raw(layer, pts.ravel(), np.array([0], np.int32), params,
+                                         np.array([0], np.int32), nthreads=1)
+        finally:
+            self._lib.pg_set_stroke_gradient(None, 0, 0, 0, 0, 0)
+
     def stroke_batch(self, layer, strokes, nthreads=8, region=None):
         """批量笔触（与 Painter.stroke_batch 同签名、同参数字段）。"""
         if not strokes:
@@ -171,6 +199,31 @@ class GpuPainter:
         rids = np.ascontiguousarray(rids, np.int32)
         self.stroke_batch_raw(layer, pts, offs, params, rids, nthreads=nthreads, region=region)
         return len(strokes)
+
+    def fill_polygon(self, idx, pts, rgb, opacity=1.0):
+        pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 2))
+        r, g, b = rgb
+        return self._lib.pg_fill_polygon(self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+                                         r / 255.0, g / 255.0, b / 255.0, float(opacity))
+
+    def fill_gradient(self, idx, pts, paint, opacity=1.0):
+        pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 2))
+        stops = paint.get("stops") or []
+        arr = np.ascontiguousarray([[float(st[0]), st[1][0] / 255.0, st[1][1] / 255.0, st[1][2] / 255.0,
+                                     float(st[2]) if len(st) > 2 else 1.0] for st in stops], np.float32)
+        if len(arr) < 2:
+            raise ValueError("gradient needs two stops")
+        xs, ys = pts[:, 0], pts[:, 1]
+        minx, maxx, miny, maxy = float(xs.min()), float(xs.max()), float(ys.min()), float(ys.max())
+        def coord(k, d):
+            v = paint.get(k, d)
+            if isinstance(v, str) and v.endswith("%"):
+                q = float(v[:-1]) / 100.0
+                return (minx + (maxx - minx) * q) if k in ("x1", "x2", "cx") else (miny + (maxy - miny) * q)
+            return float(v)
+        x1, y1, x2, y2 = coord("x1", 0.0), coord("y1", 0.0), coord("x2", 1.0), coord("y2", 0.0)
+        return self._lib.pg_fill_gradient_polygon(self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+                                                  arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2, float(opacity))
 
     def apply_mask(self, idx, alpha):
         alpha = np.ascontiguousarray(alpha, dtype=np.uint8)
