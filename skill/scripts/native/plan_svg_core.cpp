@@ -850,6 +850,25 @@ static std::string plan_from_svg(const std::string& input) {
                     continue;
                 }
                 walk(ch,n,m,my);
+            } else if (tag=="text") {
+                std::string txt=ch.text().get();
+                if(txt.empty())continue;
+                std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
+                add_layer(names,blends,idx,layer,"");
+                double x=std::atof(at("x").c_str()), y=std::atof(at("y").c_str());
+                double fs=at("font-size").empty()?16.0:std::atof(at("font-size").c_str());
+                double op=at("opacity").empty()?1.0:std::atof(at("opacity").c_str());
+                std::string fam=at("font-family"); if(fam.empty())fam="Arial";
+                std::string anch=at("text-anchor"); if(anch.empty())anch="start";
+                std::string fill=at("fill"); if(fill.empty())fill="#000";
+                std::string sj="{\"layer\":\""; jesc_to(sj,layer);
+                sj += "\",\"preset\":\"text\",\"text\":\""; jesc_to(sj,txt);
+                sj += "\",\"x\":"; sj += fmt(x); sj += ",\"y\":"; sj += fmt(y);
+                sj += ",\"font_family\":\""; jesc_to(sj,fam); sj += "\",\"font_size\":"; sj += fmt(fs);
+                sj += ",\"text_anchor\":\""; jesc_to(sj,anch); sj += "\",\"opacity\":"; sj += fmt(op);
+                auto col=color_from(fill);
+                sj += ",\"color\":["; sj += fmt(col[0]); sj += ","; sj += fmt(col[1]); sj += ","; sj += fmt(col[2]); sj += "]}";
+                strokes.push_back(sj);
             } else if (tag=="image") {            } else if (tag=="image") {
                 std::string href=at("href"); if(href.empty())href=std::string(ch.attribute("{http://www.w3.org/1999/xlink}href").as_string());
                 if(href.empty())continue;
