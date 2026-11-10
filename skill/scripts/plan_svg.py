@@ -1301,15 +1301,36 @@ def _rasterize_filtered(root, ch, w, h, base_dir=None):
         if fid:
             fel = next((e for e in root.iter() if _local(e.tag) == "filter" and e.get("id") == fid.group(1)), None)
             if fel is not None:
-                blur = next((e for e in fel.iter() if _local(e.tag) == "feGaussianBlur"), None)
-                if blur is not None:
-                    try:
-                        sd = [float(x) for x in re.split(r"[\s,]+", str(blur.get("stdDeviation", "0")).strip()) if x]
-                        rad = sum(sd) / max(1, len(sd)) if sd else 0.0
-                        if rad > 0:
-                            im = im.filter(ImageFilter.GaussianBlur(radius=rad))
-                    except Exception:
-                        pass
+                for e in fel.iter():
+                    t = _local(e.tag)
+                    if t == "feGaussianBlur":
+                        try:
+                            sd = [float(x) for x in re.split(r"[\s,]+", str(e.get("stdDeviation", "0")).strip()) if x]
+                            rad = sum(sd) / max(1, len(sd)) if sd else 0.0
+                            if rad > 0:
+                                im = im.filter(ImageFilter.GaussianBlur(radius=rad))
+                        except Exception:
+                            pass
+                    elif t == "feOffset":
+                        try:
+                            dx = float(e.get("dx", 0)); dy = float(e.get("dy", 0))
+                            shifted = Image.new("RGBA", im.size, (0, 0, 0, 0))
+                            shifted.paste(im, (int(round(dx)), int(round(dy))), im)
+                            im = shifted
+                        except Exception:
+                            pass
+                    elif t == "feDropShadow":
+                        try:
+                            dx = float(e.get("dx", 0)); dy = float(e.get("dy", 0))
+                            rad = float(e.get("stdDeviation", 2))
+                            a = im.getchannel("A").filter(ImageFilter.GaussianBlur(radius=max(0.0, rad)))
+                            shadow = Image.new("RGBA", im.size, (0, 0, 0, 0))
+                            shadow.putalpha(a)
+                            layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
+                            layer.paste(shadow, (int(round(dx)), int(round(dy))), shadow)
+                            im = Image.alpha_composite(layer, im)
+                        except Exception:
+                            pass
         buf = io.BytesIO(); im.save(buf, format="PNG")
         return {"encoding": "png-base64", "data": base64.b64encode(buf.getvalue()).decode("ascii"),
                 "width": w, "height": h}

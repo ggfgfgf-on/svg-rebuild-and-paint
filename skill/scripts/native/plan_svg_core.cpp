@@ -514,8 +514,9 @@ static std::vector<double> color_from(const std::string& s) {
         }
         return {217,180,90};
     }
-    if (s.size()==7 && s[0]=='#') {
+    if ((s.size()==7 || s.size()==4) && s[0]=='#') {
         auto h=[](char c)->int{ if(c>='0'&&c<='9')return c-'0'; if(c>='a'&&c<='f')return c-'a'+10; if(c>='A'&&c<='F')return c-'A'+10; return 0; };
+        if (s.size()==4) return {double(h(s[1])*17),double(h(s[2])*17),double(h(s[3])*17)};
         return {double(h(s[1])*16+h(s[2])),double(h(s[3])*16+h(s[4])),double(h(s[5])*16+h(s[6]))};
     }
     if (s.rfind("color(",0)==0) {
