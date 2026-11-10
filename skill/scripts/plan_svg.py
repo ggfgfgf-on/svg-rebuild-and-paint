@@ -1530,8 +1530,6 @@ def needs_python_parser(svg_text):
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
         return True
-    if "<image" in svg_text:
-        return True
     if "<tspan" in svg_text:
         return True
     if "<text" in svg_text and re.search(r"<text[^>]*\btransform\s*=", svg_text):

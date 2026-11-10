@@ -1054,7 +1054,7 @@ static std::string plan_from_svg(const std::string& input) {
                 auto col=color_from(fill);
                 sj += ",\"color\":["; sj += fmt(col[0]); sj += ","; sj += fmt(col[1]); sj += ","; sj += fmt(col[2]); sj += "]}";
                 strokes.push_back(sj);
-            } else if (tag=="image") {            } else if (tag=="image") {
+            } else if (tag=="image") {
                 std::string href=at("href"); if(href.empty())href=std::string(ch.attribute("{http://www.w3.org/1999/xlink}href").as_string());
                 if(href.empty())continue;
                 std::string mime="image/png", data;
@@ -1078,12 +1078,19 @@ static std::string plan_from_svg(const std::string& input) {
                 double x=std::atof(at("x").c_str()), y=std::atof(at("y").c_str());
                 double w=std::atof(at("width").c_str()), h=std::atof(at("height").c_str());
                 double op=at("opacity").empty()?1.0:std::atof(at("opacity").c_str());
+                Mat imat = mat_mul(parent, parse_transform(at("transform")));
+                bool iident = (std::fabs(imat.a-1)<1e-9 && std::fabs(imat.b)<1e-9 && std::fabs(imat.c)<1e-9 &&
+                               std::fabs(imat.d-1)<1e-9 && std::fabs(imat.e)<1e-9 && std::fabs(imat.f)<1e-9);
                 std::string sj="{\"layer\":\""; jesc_to(sj,layer);
                 sj += "\",\"preset\":\"image\",\"x\":"; sj += fmt(x); sj += ",\"y\":"; sj += fmt(y);
                 sj += ",\"width\":"; sj += fmt(w); sj += ",\"height\":"; sj += fmt(h);
                 sj += ",\"opacity\":"; sj += fmt(op);
                 sj += ",\"image\":{\"encoding\":\"png-base64\",\"mime\":\""; jesc_to(sj,mime);
-                sj += "\",\"data\":\""; jesc_to(sj,data); sj += "\"}}";
+                sj += "\",\"data\":\""; jesc_to(sj,data); sj += "\"}";
+                if (!iident) {
+                    sj += ",\"transform\":[" + fmt(imat.a) + "," + fmt(imat.b) + "," + fmt(imat.c) + "," + fmt(imat.d) + "," + fmt(imat.e) + "," + fmt(imat.f) + "]";
+                }
+                sj += "}";
                 strokes.push_back(sj);
             } else if (tag=="path") {
                 std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;

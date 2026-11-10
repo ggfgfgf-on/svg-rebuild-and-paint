@@ -309,7 +309,7 @@ def svg_to_plan(svg_text: str, base_dir: str | None = None):
             if raw.startswith(b"ERR:"):
                 raise ValueError(raw[4:].decode("utf-8", "replace"))
             return json.loads(raw.decode("utf-8"))
-    if "<text" in svg_text or "<pattern" in svg_text or "<filter" in svg_text:
+    if "<text" in svg_text or "<pattern" in svg_text or "<filter" in svg_text or "<image" in svg_text:
         b = svg_text.encode("utf-8")
         p = _LIB.psvg_svg_to_plan(ctypes.c_char_p(b), len(b))
         if p:
