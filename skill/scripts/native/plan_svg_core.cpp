@@ -644,9 +644,10 @@ static bool clip_seg(std::pair<double,double> p0,std::pair<double,double> p1,con
     }
     if(t0>t1)return false; a={p0.first+dx*t0,p0.second+dy*t0}; b={p0.first+dx*t1,p0.second+dy*t1}; return true;
 }
-static std::map<std::string,std::vector<Poly>> load_clips(pugi::xml_node root){
-    std::map<std::string,std::vector<Poly>> out;
-    for(pugi::xpath_node xn:root.select_nodes("//*")){pugi::xml_node el=xn.node(); std::string tag=el.name(); if((tag!="clipPath"&&tag!="mask")||!el.attribute("id"))continue; std::vector<Poly> ps; for(pugi::xml_node ch=el.first_child();ch;ch=ch.next_sibling()){std::string t=ch.name(); std::vector<double> xs,ys; if(t=="path")parse_d(ch.attribute("d").as_string(),xs,ys); else if(t=="rect"||t=="circle"||t=="ellipse"||t=="polygon")shape_points(t,ch,{},xs,ys); if(xs.size()>=3){Poly q; for(size_t i=0;i<xs.size();++i)q.push_back({xs[i],ys[i]});ps.push_back(q);} } if(!ps.empty())out[el.attribute("id").as_string()]=ps;}
+struct ClipSet { std::vector<Poly> polys; bool evenodd=false; };
+static std::map<std::string,ClipSet> load_clips(pugi::xml_node root){
+    std::map<std::string,ClipSet> out;
+    for(pugi::xpath_node xn:root.select_nodes("//*")){pugi::xml_node el=xn.node(); std::string tag=el.name(); if((tag!="clipPath"&&tag!="mask")||!el.attribute("id"))continue; std::vector<Poly> ps; for(pugi::xml_node ch=el.first_child();ch;ch=ch.next_sibling()){std::string t=ch.name(); std::vector<double> xs,ys; if(t=="path")parse_d(ch.attribute("d").as_string(),xs,ys); else if(t=="rect"||t=="circle"||t=="ellipse"||t=="polygon")shape_points(t,ch,{},xs,ys); if(xs.size()>=3){Poly q; for(size_t i=0;i<xs.size();++i)q.push_back({xs[i],ys[i]});ps.push_back(q);} } if(!ps.empty()){ClipSet cs; cs.polys=ps; cs.evenodd=std::string(el.attribute("clip-rule").as_string())=="evenodd"; if(!cs.evenodd){for(pugi::xml_node q=el.first_child();q;q=q.next_sibling()){if(std::string(q.attribute("clip-rule").as_string())=="evenodd"){cs.evenodd=true;break;}}} out[el.attribute("id").as_string()]=cs;}}
     return out;
 }
 static std::string clip_url(const std::string& v){ if(v.rfind("url(#",0)==0){size_t e=v.find(')',5);return v.substr(5,e-5);} return ""; }
@@ -701,7 +702,23 @@ static std::string plan_from_svg(const std::string& input) {
         if(ck.empty()||it==clips.end()){emit(ch,layer,xs,ys,ps,inh);return;}
         std::string fill=at_of(ch,"fill"), stroke=at_of(ch,"stroke");
         bool filled=at_of(ch,"data-preset")=="fill" || (!fill.empty()&&fill!="none"&&stroke.empty());
-        for(const auto& poly:it->second){
+        if(it->second.evenodd){
+            Clipper2Lib::PathsD subj, cp;
+            if(filled){ Clipper2Lib::PathD q; for(size_t i=0;i<xs.size();++i)q.push_back(Clipper2Lib::PointD(xs[i],ys[i])); if(q.size()>=3)subj.push_back(q);
+                for(const auto& poly:it->second.polys){Clipper2Lib::PathD z; for(auto&v:poly)z.push_back(Clipper2Lib::PointD(v.first,v.second)); if(z.size()>=3)cp.push_back(z);}
+                auto res=Clipper2Lib::Intersect(subj,cp,Clipper2Lib::FillRule::EvenOdd);
+                for(auto& r:res){std::vector<double> a,b,p(r.size(),1.0); for(auto&v:r){a.push_back(v.x);b.push_back(v.y);} if(a.size()>=3)emit(ch,layer,a,b,p,inh);} return;
+            }
+            auto inside=[&](double x,double y){bool c=false; for(const auto& poly:it->second.polys){for(size_t i=0;i<poly.size();++i){auto A=poly[i],B=poly[(i+1)%poly.size()]; if(((A.second>y)!=(B.second>y)) && x < (B.first-A.first)*(y-A.second)/(B.second-A.second)+A.first) c=!c;}} return c;};
+            for(size_t i=1;i<xs.size();++i){
+                std::vector<double> ts={0,1}; double dx=xs[i]-xs[i-1],dy=ys[i]-ys[i-1];
+                for(const auto& poly:it->second.polys){for(size_t j=0;j<poly.size();++j){auto A=poly[j],B=poly[(j+1)%poly.size()];double ex=B.first-A.first,ey=B.second-A.second,den=ex*dy-ey*dx; if(std::fabs(den)<1e-12)continue; double t=(ex*(A.second-ys[i-1])-ey*(A.first-xs[i-1]))/den; if(t>1e-9&&t<1-1e-9)ts.push_back(t);}}
+                std::sort(ts.begin(),ts.end());
+                for(size_t j=1;j<ts.size();++j){double tm=(ts[j-1]+ts[j])*0.5; if(inside(xs[i-1]+dx*tm,ys[i-1]+dy*tm)){double x0=xs[i-1]+dx*ts[j-1],y0=ys[i-1]+dy*ts[j-1],x1=xs[i-1]+dx*ts[j],y1=ys[i-1]+dy*ts[j]; emit(ch,layer,{x0,x1},{y0,y1},{1.0,1.0},inh);}}
+            }
+            return;
+        }
+        for(const auto& poly:it->second.polys){
             std::vector<Poly> tris; if(is_convex(poly)) tris.push_back(poly); else { tris=triangulate(poly); if(tris.empty())tris.push_back(poly); }
             for(const auto& tri:tris){
                 if(filled){
