@@ -1391,6 +1391,7 @@ def _rasterize_filtered(root, ch, w, h, base_dir=None):
         img, _ = _pp.render_plan(d)
         from PIL import Image, ImageFilter
         im = Image.fromarray(img, "RGBA")
+        src0 = im.copy()
         fid = re.search(r"url\(#([^)]+)\)", fref)
         if fid:
             fel = next((e for e in root.iter() if _local(e.tag) == "filter" and e.get("id") == fid.group(1)), None)
@@ -1411,6 +1412,70 @@ def _rasterize_filtered(root, ch, w, h, base_dir=None):
                             shifted = Image.new("RGBA", im.size, (0, 0, 0, 0))
                             shifted.paste(im, (int(round(dx)), int(round(dy))), im)
                             im = shifted
+                        except Exception:
+                            pass
+                    elif t == "feFlood":
+                        try:
+                            col = _color(e.get("flood-color", "#000"), (0,0,0))
+                            a = max(0.0, min(1.0, float(e.get("flood-opacity", 1.0))))
+                            im = Image.new("RGBA", im.size, (col[0], col[1], col[2], int(round(a*255))))
+                        except Exception:
+                            pass
+                    elif t == "feMerge":
+                        try:
+                            layers = []
+                            for node in list(e):
+                                if _local(node.tag) != "feMergeNode": continue
+                                ref = str(node.get("in", ""))
+                                layers.append(src0.copy() if ref == "SourceGraphic" else im.copy())
+                            if layers:
+                                base = layers[0]
+                                for q in layers[1:]:
+                                    base = Image.alpha_composite(base, q)
+                                im = base
+                        except Exception:
+                            pass
+                    elif t == "feBlend":
+                        try:
+                            import numpy as _np
+                            ref = str(e.get("in", "SourceGraphic"))
+                            base = _np.asarray(src0 if ref == "SourceGraphic" else im, _np.float32)/255.0
+                            top = _np.asarray(im, _np.float32)/255.0
+                            mode = str(e.get("mode", "normal"))
+                            if mode == "multiply": rgb = base[...,:3]*top[...,:3]
+                            elif mode == "screen": rgb = 1-(1-base[...,:3])*(1-top[...,:3])
+                            elif mode == "darken": rgb = _np.minimum(base[...,:3], top[...,:3])
+                            elif mode == "lighten": rgb = _np.maximum(base[...,:3], top[...,:3])
+                            else: rgb = top[...,:3]
+                            out = _np.concatenate([rgb, top[...,3:4]], axis=-1)
+                            im = Image.fromarray(_np.clip(out*255.0,0,255).astype(_np.uint8), "RGBA")
+                        except Exception:
+                            pass
+                    elif t == "feComponentTransfer":
+                        try:
+                            import numpy as _np
+                            arr = _np.asarray(im, dtype=_np.float32) / 255.0
+                            for fn in list(e):
+                                ft = _local(fn.tag)
+                                ch = {"feFuncR":0, "feFuncG":1, "feFuncB":2, "feFuncA":3}.get(ft)
+                                if ch is None: continue
+                                typ = str(fn.get("type", "identity"))
+                                src = arr[..., ch]
+                                if typ == "linear":
+                                    slope = float(fn.get("slope", 1)); inter = float(fn.get("intercept", 0))
+                                    arr[..., ch] = _np.clip(slope*src + inter, 0, 1)
+                                elif typ == "gamma":
+                                    amp = float(fn.get("amplitude", 1)); exp = float(fn.get("exponent", 1)); off = float(fn.get("offset", 0))
+                                    arr[..., ch] = _np.clip(amp * _np.power(_np.clip(src,0,1), exp) + off, 0, 1)
+                                elif typ in ("table", "discrete"):
+                                    vals = [float(v) for v in re.split(r"[\s,]+", str(fn.get("tableValues", "")).strip()) if v]
+                                    if len(vals) >= 2:
+                                        if typ == "table":
+                                            arr[..., ch] = _np.interp(src, _np.linspace(0,1,len(vals)), vals)
+                                        else:
+                                            idx = _np.minimum((src * len(vals)).astype(int), len(vals)-1)
+                                            arr[..., ch] = _np.asarray(vals, _np.float32)[idx]
+                            im = Image.fromarray(_np.clip(arr*255.0,0,255).astype(_np.uint8), "RGBA")
                         except Exception:
                             pass
                     elif t == "feColorMatrix":
@@ -1568,7 +1633,7 @@ def needs_python_parser(svg_text):
         return True
 
     approx = os.environ.get("PLAN_SVG_CPP_APPROX", "0") == "1"
-    if not approx and "<pattern" in svg_text and any(k in svg_text for k in ("linearGradient", "radialGradient", "gradientTransform", "transform", "<text", "<use", "<image")):
+    if not approx and "<pattern" in svg_text and any(k in svg_text for k in ("linearGradient", "radialGradient", "gradientTransform", "<text", "<use", "<image")):
         return True
     if not approx and "<filter" in svg_text:
         prims = re.findall(r"<fe([A-Za-z]+)", svg_text)

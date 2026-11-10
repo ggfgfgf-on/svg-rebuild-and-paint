@@ -757,7 +757,21 @@ static int gdi_encoder_clsid(const wchar_t* mime, CLSID* out) {
     return 0;
 }
 
+struct GdiSave {
+    Gdiplus::Graphics& g; Gdiplus::GraphicsState st;
+    explicit GdiSave(Gdiplus::Graphics& gg) : g(gg), st(gg.Save()) {}
+    ~GdiSave() { g.Restore(st); }
+};
+
 static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, double sy) {
+    GdiSave save(g);
+    std::string tr = n.attribute("transform").as_string();
+    if (!tr.empty()) {
+        Mat m = parse_transform(tr);
+        Gdiplus::Matrix gm((Gdiplus::REAL)m.a, (Gdiplus::REAL)m.b, (Gdiplus::REAL)m.c,
+                           (Gdiplus::REAL)m.d, (Gdiplus::REAL)m.e, (Gdiplus::REAL)m.f);
+        g.MultiplyTransform(&gm, Gdiplus::MatrixOrderAppend);
+    }
     std::string tag = n.name();
     auto num = [&](const char* k, double d){ auto a=n.attribute(k); return a ? std::atof(a.as_string()) : d; };
     std::string fill = n.attribute("fill").as_string();
