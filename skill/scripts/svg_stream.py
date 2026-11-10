@@ -155,9 +155,145 @@ def stream_svg_to_plan(source, chunk_size=65536):
         m = mat_stack[-1]
         return [[_ps._mat_apply(m, float(p[0]), float(p[1]))[0], _ps._mat_apply(m, float(p[0]), float(p[1]))[1]] for p in q]
 
+    def paint_for(ref):
+        m = re.match(r"url\(#([^)]+)\)", str(ref or ""))
+        if not m:
+            return None
+        node = defs_map.get(m.group(1))
+        if not node or node["tag"] not in ("linearGradient", "radialGradient"):
+            return None
+        st = []
+        for ch in node.get("children", []):
+            if ch["tag"] != "stop":
+                continue
+            ca = ch["attrs"]
+            off = str(ca.get("offset", "0")).strip()
+            try:
+                off = float(off[:-1]) / 100.0 if off.endswith("%") else float(off)
+            except Exception:
+                off = 0.0
+            a = max(0.0, min(1.0, float(ca.get("stop-opacity", 1.0))))
+            st.append([off, list(_ps._color(ca.get("stop-color", "#000"), (0, 0, 0))), a])
+        if not st:
+            return None
+        p = {"type": "linear" if node["tag"] == "linearGradient" else "radial",
+             "units": node["attrs"].get("gradientUnits", "objectBoundingBox"), "stops": st,
+             "source": {"gradient": {"tag": node["tag"], "attrs": dict(node["attrs"])}}}
+        keys = ("x1", "y1", "x2", "y2") if p["type"] == "linear" else ("cx", "cy", "r")
+        for k in keys:
+            p[k] = node["attrs"].get(k, "0%" if p["type"] == "linear" and k in ("x1", "y1") else ("100%" if k == "x2" else "50%"))
+        return p
+
+    def node_xml(node):
+        tag = node["tag"]
+        attrs = "".join(' %s="%s"' % (k, html.escape(str(v), quote=True)) for k, v in node["attrs"].items())
+        kids = "".join(node_xml(ch) for ch in node.get("children", []))
+        return "<%s%s>%s</%s>" % (tag, attrs, kids, tag)
+
+    def pattern_for(ref):
+        m = re.match(r"url\(#([^)]+)\)", str(ref or ""))
+        if not m:
+            return None
+        node = defs_map.get(m.group(1))
+        if not node or node["tag"] != "pattern":
+            return None
+        def num(k, d):
+            try:
+                v = str(node["attrs"].get(k, d))
+                return float(v[:-1]) / 100.0 if v.endswith("%") else float(v)
+            except Exception:
+                return float(d)
+        units = node["attrs"].get("patternUnits", "objectBoundingBox")
+        fw, fh = num("width", 0.1), num("height", 0.1)
+        pw, ph = (max(8, int(fw * 256)), max(8, int(fh * 256))) if units == "objectBoundingBox" else (max(1, int(fw)), max(1, int(fh)))
+        children = "".join(node_xml(ch) for ch in node.get("children", []))
+        mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" width="%s" height="%s">%s</svg>'
+                % (pw, ph, pw, ph, children))
+        try:
+            d = _ps.svg_to_plan(mini)
+            import paint_plan as _pp
+            from PIL import Image
+            import io, base64
+            img, _ = _pp.render_plan(d)
+            buf = io.BytesIO(); Image.fromarray(img, "RGBA").save(buf, format="PNG")
+            return {"encoding": "png-base64", "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+                    "width": fw if units == "objectBoundingBox" else pw,
+                    "height": fh if units == "objectBoundingBox" else ph,
+                    "units": units}
+        except Exception:
+            return None
+
+    css_rules = []
+    style_buf = []
+    in_style = False
+
+    def parse_css(text):
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text or ""):
+            props = {}
+            for part in body.split(";"):
+                if ":" in part:
+                    k, v = part.split(":", 1)
+                    props[k.strip()] = v.strip()
+            if props:
+                for one in sel.split(","):
+                    one = one.strip()
+                    if one:
+                        css_rules.append((one, props))
+
+    def apply_css(tag, a):
+        a = dict(a)
+        for sel, props in css_rules:
+            ok = False
+            if sel == "*" or sel == tag:
+                ok = True
+            elif sel.startswith(".") and sel[1:] in str(a.get("class", "")).split():
+                ok = True
+            elif sel.startswith("#") and sel[1:] == a.get("id"):
+                ok = True
+            if ok:
+                a.update(props)
+        inline = a.get("style")
+        if inline:
+            for part in inline.split(";"):
+                if ":" in part:
+                    k, v = part.split(":", 1)
+                    a[k.strip()] = v.strip()
+        return a
+
+    def filter_for(tag, a):
+        fref = a.get("filter")
+        if not fref:
+            return None
+        m = re.match(r"url\(#([^)]+)\)", str(fref))
+        if not m:
+            return None
+        node = defs_map.get(m.group(1))
+        if not node or node["tag"] != "filter":
+            return None
+        attrs = "".join(' %s="%s"' % (k, html.escape(str(v), quote=True)) for k, v in a.items())
+        shape = "<%s%s/>" % (tag, attrs)
+        mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s"><defs>%s</defs>%s</svg>'
+                % (canvas[0], canvas[1], node_xml(node), shape))
+        try:
+            d = _ps.svg_to_plan(mini)
+            import paint_plan as _pp
+            from PIL import Image
+            import io, base64
+            img, _ = _pp.render_plan(d)
+            buf = io.BytesIO(); Image.fromarray(img, "RGBA").save(buf, format="PNG")
+            return {"encoding": "png-base64", "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+                    "width": canvas[0], "height": canvas[1]}
+        except Exception:
+            return None
+
     def emit_shape(tag, a):
         layer = layer_stack[-1] if layer_stack else "layer"
         add_layer(layer)
+        fimg = filter_for(tag, a)
+        if fimg:
+            strokes.append({"layer": layer, "preset": "image", "image": fimg,
+                            "x": 0, "y": 0, "width": canvas[0], "height": canvas[1], "opacity": 1.0})
+            return
         fill = a.get("fill", "")
         stroke = a.get("stroke", "")
         data_preset = a.get("data-preset", "")
@@ -176,6 +312,12 @@ def stream_svg_to_plan(source, chunk_size=65536):
                       "color": _ps._color(fill, (0, 0, 0)),
                       "points": [[float(p[0]), float(p[1]), 1.0] for p in q],
                       "fill_rule": a.get("fill-rule", "nonzero")}
+                pt = paint_for(fill)
+                if pt:
+                    st["paint"] = pt
+                pat = pattern_for(fill)
+                if pat:
+                    st["pattern"] = pat
                 strokes.append(st)
             return
         if tag == "path":
@@ -192,6 +334,9 @@ def stream_svg_to_plan(source, chunk_size=65536):
                   "hardness": float(a.get("data-hardness", 0.7) or 0.7),
                   "color": _ps._color(stroke or fill, (0, 0, 0)),
                   "points": [[float(p[0]), float(p[1]), 1.0] for p in q]}
+            pt = paint_for(stroke)
+            if pt:
+                st["paint"] = pt
             if a.get("data-tag"):
                 st["tag"] = a["data-tag"]
             strokes.append(st)
@@ -227,6 +372,10 @@ def stream_svg_to_plan(source, chunk_size=65536):
     for chunk in chunks:
         for ev in tok.feed(chunk):
             kind = ev[0]
+            if kind == "text":
+                if in_style:
+                    style_buf.append(ev[1])
+                continue
             if kind == "start":
                 _, tag, a = ev
                 if skip_tag is not None:
@@ -259,11 +408,16 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     layer_stack.append(name)
                     mat_stack.append(_ps._mat_mul(mat_stack[-1], _ps._parse_transform(a.get("transform"))))
                     continue
-                if tag in ("defs", "style", "clipPath", "mask", "linearGradient", "radialGradient", "pattern", "filter", "symbol"):
+                if tag == "style":
+                    in_style = True
+                    style_buf = []
+                    skip_tag = tag
+                    continue
+                if tag in ("defs", "clipPath", "mask", "linearGradient", "radialGradient", "pattern", "filter", "symbol"):
                     skip_tag = tag
                     continue
                 if tag in ("rect", "circle", "ellipse", "polygon", "polyline", "line", "path"):
-                    emit_shape(tag, a)
+                    emit_shape(tag, apply_css(tag, a))
             elif kind == "end":
                 tag = ev[1]
                 if in_defs:
@@ -274,6 +428,9 @@ def stream_svg_to_plan(source, chunk_size=65536):
                         defs_stack.pop()
                     continue
                 if tag == skip_tag:
+                    if tag == "style":
+                        parse_css("".join(style_buf))
+                        in_style = False
                     skip_tag = None
                     continue
                 if tag == "g" and layer_stack:
