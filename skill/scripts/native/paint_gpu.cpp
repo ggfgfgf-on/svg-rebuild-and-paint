@@ -318,6 +318,8 @@ void cs_final(uint3 dt : SV_DispatchThreadID) {
 }
 
 [numthreads(256,1,1)]
+)HLSL"
+R"HLSL(
 void cs_over(uint3 dt : SV_DispatchThreadID) {
     int bw = p.bx1 - p.bx0 + 1, bh = p.by1 - p.by0 + 1;
     uint n = (uint)(bw * bh);
@@ -343,7 +345,10 @@ void cs_over(uint3 dt : SV_DispatchThreadID) {
                     float2 gv = float2(gradmeta[4] - gradmeta[2], gradmeta[5] - gradmeta[3]);
                     float gl = dot(gv, gv);
                     float t = gl > 1e-9f ? dot(q - float2(gradmeta[2], gradmeta[3]), gv) / gl : 0.0f;
-                    t = saturate(t);
+                    int spread = (int)gradmeta[6];
+                    if (spread == 1) { t = abs(t); t = t - floor(t * 0.5f) * 2.0f; if (t > 1.0f) t = 2.0f - t; }
+                    else if (spread == 2) { t = t - floor(t); }
+                    else t = saturate(t);
                     uint k0 = 0;
                     while (k0 + 1 < ns && gradstops[(k0 + 1) * 5] < t) ++k0;
                     uint k1 = min(ns - 1, k0 + 1);
@@ -383,6 +388,8 @@ void cs_mask(uint3 dt : SV_DispatchThreadID) {
 }
 
 [numthreads(256,1,1)]
+)HLSL"
+R"HLSL(
 void cs_fill(uint3 dt : SV_DispatchThreadID) {
     uint idx = dt.x;
     uint npix = p.W * p.H;
@@ -407,7 +414,14 @@ void cs_fill(uint3 dt : SV_DispatchThreadID) {
         float2 g = float2(fx2 - fx1, fy2 - fy1);
         float gl = dot(g, g);
         float t = gl > 1e-9f ? dot(q - float2(fx1, fy1), g) / gl : 0.0f;
-        t = saturate(t);
+        int spread = (int)fillmeta[8];
+        if (spread == 1) {
+            t = abs(t); t = t - floor(t * 0.5f) * 2.0f; if (t > 1.0f) t = 2.0f - t;
+        } else if (spread == 2) {
+            t = t - floor(t);
+        } else {
+            t = saturate(t);
+        }
         uint k0 = 0;
         while (k0 + 1 < fill_ns && fillstops[(k0 + 1) * 5] < t) ++k0;
         uint k1 = min(fill_ns - 1, k0 + 1);
@@ -962,6 +976,7 @@ static void upload_params(Gpu* g, Params& p) {
 static std::vector<float> g_grad_stops;
 static int g_grad_n = 0;
 static float g_grad_x1 = 0, g_grad_y1 = 0, g_grad_x2 = 1, g_grad_y2 = 0;
+static int g_grad_spread = 0;
 
 EXPORT void pg_set_stroke_gradient(const float* stops, int ns, float x1, float y1, float x2, float y2) {
     g_grad_n = 0;
@@ -969,7 +984,13 @@ EXPORT void pg_set_stroke_gradient(const float* stops, int ns, float x1, float y
         g_grad_stops.assign(stops, stops + ns * 5);
         g_grad_n = ns;
         g_grad_x1 = x1; g_grad_y1 = y1; g_grad_x2 = x2; g_grad_y2 = y2;
+        g_grad_spread = 0;
     }
+}
+
+EXPORT void pg_set_stroke_gradient_spread(const float* stops, int ns, float x1, float y1, float x2, float y2, int spread) {
+    pg_set_stroke_gradient(stops, ns, x1, y1, x2, y2);
+    g_grad_spread = spread;
 }
 
 EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs,
@@ -981,7 +1002,7 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
     if (layer < 0 || layer >= (int)g->layers.size()) return 0;
     Layer& L = g->layers[layer];
     if (g->gradStops && g->gradMeta) {
-        float gm[6] = { g_grad_n >= 2 ? 1.0f : 0.0f, (float)g_grad_n, g_grad_x1, g_grad_y1, g_grad_x2, g_grad_y2 };
+        float gm[7] = { g_grad_n >= 2 ? 1.0f : 0.0f, (float)g_grad_n, g_grad_x1, g_grad_y1, g_grad_x2, g_grad_y2, (float)g_grad_spread };
         g->ctx->UpdateSubresource(g->gradMeta, 0, nullptr, gm, 0, 0);
         if (g_grad_n >= 2) g->ctx->UpdateSubresource(g->gradStops, 0, nullptr, g_grad_stops.data(), 0, 0);
     }
@@ -1278,7 +1299,7 @@ EXPORT int pg_read_acc(void* p, float* out) {
 
 
 static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float* stops, int ns,
-                           float x1, float y1, float x2, float y2, float a, int use_grad) {
+                           float x1, float y1, float x2, float y2, float a, int use_grad, int spread) {
     if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillPts || !g->fillStops || !g->fillMeta) return 0;
     UINT npix = (UINT)g->W * (UINT)g->H;
     if ((UINT)n > npix || ns > 64) return 0;
@@ -1286,7 +1307,7 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
     float one[5] = {0, 0, 0, 0, 1};
     if (!stops || ns < 1) { stops = one; ns = 1; }
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
-    float meta[8] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a};
+    float meta[9] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread};
     g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
     Params cp{}; cp.W = g->W; cp.H = g->H;
     cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
@@ -1364,12 +1385,17 @@ static int gpu_fill_common(Gpu* g, int idx, const float* pts, int n, const float
 
 EXPORT int pg_fill_polygon(void* p, int idx, const float* pts, int n, float r, float g_, float b, float a) {
     float one[5] = {0, r, g_, b, 1};
-    return gpu_fill_shader((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0);
+    return gpu_fill_shader((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0, 0);
 }
 
 EXPORT int pg_fill_gradient_polygon(void* p, int idx, const float* pts, int n,
                                     const float* stops, int ns, float x1, float y1, float x2, float y2, float a) {
-    return gpu_fill_shader((Gpu*)p, idx, pts, n, stops, ns, x1, y1, x2, y2, a, 1);
+    return gpu_fill_shader((Gpu*)p, idx, pts, n, stops, ns, x1, y1, x2, y2, a, 1, 0);
+}
+
+EXPORT int pg_fill_gradient_polygon_spread(void* p, int idx, const float* pts, int n,
+                                           const float* stops, int ns, float x1, float y1, float x2, float y2, float a, int spread) {
+    return gpu_fill_shader((Gpu*)p, idx, pts, n, stops, ns, x1, y1, x2, y2, a, 1, spread);
 }
 
 EXPORT int pg_apply_layer_mask(void* p, int idx, const unsigned char* mask, int mw, int mh) {

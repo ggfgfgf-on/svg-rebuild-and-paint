@@ -35,6 +35,8 @@ def load():
     lib.pg_read_layer.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float)]
     lib.pg_fill_polygon.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4
     lib.pg_fill_gradient_polygon.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5
+    lib.pg_fill_gradient_polygon_spread.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5 + [ctypes.c_int]
+    lib.pg_set_stroke_gradient_spread.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_int]
     lib.pg_set_stroke_gradient.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4
     lib.pg_apply_layer_mask.restype = ctypes.c_int
     lib.pg_apply_layer_mask.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int]
@@ -165,7 +167,11 @@ class GpuPainter:
                 return (minx + (maxx-minx)*q) if k in ("x1", "x2", "cx") else (miny + (maxy-miny)*q)
             return float(v)
         x1, y1, x2, y2 = coord("x1", 0.0), coord("y1", 0.0), coord("x2", 1.0), coord("y2", 0.0)
-        self._lib.pg_set_stroke_gradient(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2)
+        sp = paint_native._spread(paint)
+        if sp:
+            self._lib.pg_set_stroke_gradient_spread(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2, sp)
+        else:
+            self._lib.pg_set_stroke_gradient(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2)
         try:
             params = np.array([[float(size), float(opacity), 1.0, 1.0, 1.0, float(hardness), 1.0,
                                 float(paint_native._pid(preset))]], np.float32)
@@ -223,6 +229,10 @@ class GpuPainter:
                 return (minx + (maxx - minx) * q) if k in ("x1", "x2", "cx") else (miny + (maxy - miny) * q)
             return float(v)
         x1, y1, x2, y2 = coord("x1", 0.0), coord("y1", 0.0), coord("x2", 1.0), coord("y2", 0.0)
+        sp = paint_native._spread(paint)
+        if sp:
+            return self._lib.pg_fill_gradient_polygon_spread(self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+                                                             arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2, float(opacity), sp)
         return self._lib.pg_fill_gradient_polygon(self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
                                                   arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2, float(opacity))
 

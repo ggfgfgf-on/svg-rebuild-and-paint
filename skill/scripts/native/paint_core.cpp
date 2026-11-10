@@ -754,11 +754,22 @@ EXPORT int paint_apply_layer_mask(void* p, int layer, const unsigned char* mask,
 }
 
 
-EXPORT int paint_stroke_gradient_l(void* p, int layer, const float* pts, int n,
+static inline float grad_spread(float t, int mode) {
+    if (mode == 1) {
+        t = std::fabs(t);
+        t = t - std::floor(t * 0.5f) * 2.0f;
+        if (t > 1.0f) t = 2.0f - t;
+        return t;
+    }
+    if (mode == 2) return t - std::floor(t);
+    return t < 0 ? 0 : (t > 1 ? 1 : t);
+}
+
+static int stroke_gradient_impl(void* p, int layer, const float* pts, int n,
                                    float size, float opacity,
                                    const float* stops, int ns,
                                    float gx1, float gy1, float gx2, float gy2,
-                                   int preset, float hardness) {
+                                   int preset, float hardness, int spread) {
     Ctx* c = (Ctx*)p;
     if (!c || !pts || n < 1 || !stops || ns < 2) return 0;
     if (layer < 0 || layer >= (int)c->layers.size()) return 0;
@@ -781,7 +792,7 @@ EXPORT int paint_stroke_gradient_l(void* p, int layer, const float* pts, int n,
             float sa = scratch[(size_t)y * c->w + x] * opacity;
             if (sa <= 0.0f) continue;
             float t = gl > 1e-9f ? ((x + 0.5f - gx1)*gx + (y + 0.5f - gy1)*gy) / gl : 0.0f;
-            t = t < 0 ? 0 : (t > 1 ? 1 : t);
+            t = grad_spread(t, spread);
             int k0 = 0; while (k0 + 1 < ns && stops[(k0+1)*5] < t) ++k0;
             int k1 = std::min(ns - 1, k0 + 1);
             float o0 = stops[k0*5], o1 = stops[k1*5];
@@ -803,9 +814,9 @@ EXPORT int paint_stroke_gradient_l(void* p, int layer, const float* pts, int n,
     return 1;
 }
 
-EXPORT int paint_fill_gradient_polygon(void* p, int layer, const float* pts, int n,
+static int fill_gradient_impl(void* p, int layer, const float* pts, int n,
                                        const float* stops, int ns,
-                                       float gx1, float gy1, float gx2, float gy2, float a) {
+                                       float gx1, float gy1, float gx2, float gy2, float a, int spread) {
     Ctx* c = (Ctx*)p;
     if (!c || !pts || n < 3 || !stops || ns < 2) return 0;
     if (layer < 0 || layer >= (int)c->layers.size()) return 0;
@@ -833,7 +844,7 @@ EXPORT int paint_fill_gradient_polygon(void* p, int layer, const float* pts, int
             int xb = std::min(c->w - 1, (int)std::floor(xs[k+1] - 0.5f));
             for (int x = xa; x <= xb; ++x) {
                 float t = gl > 1e-9f ? ((x + 0.5f - gx1)*gx + (y + 0.5f - gy1)*gy) / gl : 0.0f;
-                t = t < 0 ? 0 : (t > 1 ? 1 : t);
+                t = grad_spread(t, spread);
                 int k0 = 0; while (k0 + 1 < ns && stops[(k0+1)*5] < t) ++k0;
                 int k1 = std::min(ns - 1, k0 + 1);
                 float o0 = stops[k0*5], o1 = stops[k1*5];
@@ -854,6 +865,27 @@ EXPORT int paint_fill_gradient_polygon(void* p, int layer, const float* pts, int
         }
     }
     return 1;
+}
+
+EXPORT int paint_stroke_gradient_l(void* p, int layer, const float* pts, int n,
+                                   float size, float opacity, const float* stops, int ns,
+                                   float gx1, float gy1, float gx2, float gy2, int preset, float hardness) {
+    return stroke_gradient_impl(p, layer, pts, n, size, opacity, stops, ns, gx1, gy1, gx2, gy2, preset, hardness, 0);
+}
+EXPORT int paint_stroke_gradient_spread(void* p, int layer, const float* pts, int n,
+                                        float size, float opacity, const float* stops, int ns,
+                                        float gx1, float gy1, float gx2, float gy2, int preset, float hardness, int spread) {
+    return stroke_gradient_impl(p, layer, pts, n, size, opacity, stops, ns, gx1, gy1, gx2, gy2, preset, hardness, spread);
+}
+EXPORT int paint_fill_gradient_polygon(void* p, int layer, const float* pts, int n,
+                                       const float* stops, int ns,
+                                       float gx1, float gy1, float gx2, float gy2, float a) {
+    return fill_gradient_impl(p, layer, pts, n, stops, ns, gx1, gy1, gx2, gy2, a, 0);
+}
+EXPORT int paint_fill_gradient_polygon_spread(void* p, int layer, const float* pts, int n,
+                                              const float* stops, int ns,
+                                              float gx1, float gy1, float gx2, float gy2, float a, int spread) {
+    return fill_gradient_impl(p, layer, pts, n, stops, ns, gx1, gy1, gx2, gy2, a, spread);
 }
 
 EXPORT int paint_fill_polygon(void* p, int layer, const float* pts, int n,

@@ -52,6 +52,10 @@ def load():
     lib.paint_apply_layer_mask.restype = ctypes.c_int
     lib.paint_apply_layer_mask.argtypes = [vp, ctypes.c_int, u8, ctypes.c_int, ctypes.c_int]
     lib.paint_apply_layer_mask_rect.argtypes = [vp, ctypes.c_int, u8, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    lib.paint_fill_gradient_polygon_spread.restype = ctypes.c_int
+    lib.paint_fill_gradient_polygon_spread.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_float, ctypes.c_int]
+    lib.paint_stroke_gradient_spread.restype = ctypes.c_int
+    lib.paint_stroke_gradient_spread.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, ctypes.c_float, ctypes.c_float, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_int, ctypes.c_float, ctypes.c_int]
     lib.paint_fill_gradient_polygon.restype = ctypes.c_int
     lib.paint_fill_gradient_polygon.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_float]
     lib.paint_fill_polygon.restype = ctypes.c_int
@@ -179,6 +183,13 @@ def load_catalog(painter, tips_dir=None, limit=None):
     return out
 
 
+def _spread(paint):
+    v = paint.get("spreadMethod")
+    if v is None:
+        v = ((paint.get("source") or {}).get("gradient") or {}).get("attrs", {}).get("spreadMethod", "pad")
+    return {"reflect": 1, "repeat": 2}.get(str(v), 0)
+
+
 class Painter:
     def __init__(self, w, h):
         lib = load()
@@ -276,6 +287,11 @@ class Painter:
             return float(v)
         x1, y1 = coord("x1", 0.0), coord("y1", 0.0)
         x2, y2 = coord("x2", 1.0), coord("y2", 0.0)
+        sp = _spread(paint)
+        if sp:
+            return self._lib.paint_fill_gradient_polygon_spread(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                                               len(pts), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                               x1, y1, x2, y2, float(opacity), sp)
         return self._lib.paint_fill_gradient_polygon(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
                                                      len(pts), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
                                                      x1, y1, x2, y2, float(opacity))
@@ -300,6 +316,11 @@ class Painter:
         x1, y1 = coord("x1", 0.0), coord("y1", 0.0)
         x2, y2 = coord("x2", 1.0), coord("y2", 0.0)
         pid = PRESETS.get(preset, 0) if isinstance(preset, str) else int(preset)
+        sp = _spread(paint)
+        if sp:
+            return self._lib.paint_stroke_gradient_spread(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+                                                         float(size), float(opacity), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                         x1, y1, x2, y2, pid, float(hardness), sp)
         return self._lib.paint_stroke_gradient_l(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
                                                  float(size), float(opacity), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
                                                  x1, y1, x2, y2, pid, float(hardness))
