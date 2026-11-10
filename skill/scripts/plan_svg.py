@@ -644,6 +644,7 @@ def plan_to_svg_stamps(doc, title=None, fast=False):
             pattern_defs.append('<pattern id="%s" width="%s" height="%s" patternUnits="userSpaceOnUse"><image href="data:image/png;base64,%s" width="%s" height="%s"/></pattern>' % (
                 gid, _f(ptn.get("width", 32)), _f(ptn.get("height", 32)), ptn.get("data"), _f(ptn.get("width", 32)), _f(ptn.get("height", 32))))
     defs = []; used = {}; body = []
+    stamp_defs = []; stamp_ids = {}
     def grad_id(col, hard):
         q = max(0.0, min(1.0, hard)); q = round(q * 4.0) / 4.0
         if q >= 0.95:
@@ -714,9 +715,21 @@ def plan_to_svg_stamps(doc, title=None, fast=False):
                         fill = ("url(#%s)" % gid) if gid else col
                     op_attr = "" if const_op else (' fill-opacity="%s"' % _fc(op))
                     if preset in ("flat", "bristle"):
-                        body.append('<ellipse cx="%s" cy="%s" rx="%s" ry="%s"%s transform="rotate(%s %s %s)"/>' % (_fc(x), _fc(y), _fc(r), _fc(max(0.8, r * 0.35)), op_attr, _fc(ang), _fc(x), _fc(y)))
+                        rb = round(r * 2) / 2.0; ry = round(max(0.8, r * 0.35) * 2) / 2.0
+                        key = ("e", rb, ry)
+                        sid = stamp_ids.get(key)
+                        if sid is None:
+                            sid = "st%d" % len(stamp_defs); stamp_ids[key] = sid
+                            stamp_defs.append('<ellipse id="%s" cx="0" cy="0" rx="%s" ry="%s"/>' % (sid, _fc(rb), _fc(ry)))
+                        body.append('<use href="#%s" x="%s" y="%s"%s transform="rotate(%s %s %s)"/>' % (sid, _fc(x), _fc(y), op_attr, _fc(ang), _fc(x), _fc(y)))
                     else:
-                        body.append('<circle cx="%s" cy="%s" r="%s"%s/>' % (_fc(x), _fc(y), _fc(r), op_attr))
+                        rb = round(r * 2) / 2.0
+                        key = ("c", rb)
+                        sid = stamp_ids.get(key)
+                        if sid is None:
+                            sid = "st%d" % len(stamp_defs); stamp_ids[key] = sid
+                            stamp_defs.append('<circle id="%s" cx="0" cy="0" r="%s"/>' % (sid, _fc(rb)))
+                        body.append('<use href="#%s" x="%s" y="%s"%s/>' % (sid, _fc(x), _fc(y), op_attr))
             body.append(post + "</g>")
         body.append("</g>")
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
@@ -724,7 +737,7 @@ def plan_to_svg_stamps(doc, title=None, fast=False):
     if title:
         out.append("<title>%s</title>" % escape(str(title)))
     if defs or paint_defs or mask_defs:
-        out.append("<defs>%s</defs>" % "\n".join(defs + paint_defs + mask_defs))
+        out.append("<defs>%s</defs>" % "\n".join(stamp_defs + defs + paint_defs + mask_defs))
     out.extend(body); out.append("</svg>")
     return "\n".join(out) + "\n"
 
