@@ -160,8 +160,134 @@ def _canvas(attrs):
     return int(_length(attrs, "width", 1200)), int(_length(attrs, "height", 900))
 
 
+class _SubpathStream:
+    """Incrementally split a path d string into subpaths, keeping only one."""
+
+    def __init__(self):
+        self.buf = ""
+        self.cur = ""
+        self.out = []
+
+    def feed(self, text):
+        self.buf += text
+        parts = re.split(r"(?=[Mm])", self.buf)
+        if len(parts) == 1:
+            return
+        self.buf = parts[-1]
+        if self.cur:
+            self.cur += parts[0]
+            self._emit(self.cur)
+            self.cur = ""
+        for p in parts[1:-1]:
+            if p.strip():
+                self._emit(p)
+        self.cur = parts[-1]
+
+    def finish(self):
+        if self.buf:
+            self.cur += self.buf
+            self.buf = ""
+        if self.cur.strip():
+            self._emit(self.cur)
+
+    def _emit(self, seg):
+        try:
+            q = _ps._parse_d(seg)
+        except Exception:
+            return
+        if len(q) >= 3:
+            self.out.append(q)
+
+
+def _stream_simple_file(path, chunk_size=1 << 20):
+    """Fast path for path/rect-only SVG files: mmap + chunked d parsing."""
+    import mmap
+    import os
+    with open(path, "rb") as f:
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+            head_m = re.search(br"<svg\b[^>]*>", mm)
+            if not head_m:
+                return None
+            head = head_m.group(0).decode("utf-8", "replace")
+            vb = re.search(r'viewBox="([^"]+)"', head)
+            if vb:
+                nums = re.findall(r"[-+]?[0-9.]+", vb.group(1))
+                w, h = (int(float(nums[2])), int(float(nums[3]))) if len(nums) >= 4 else (1200, 900)
+            else:
+                wm = re.search(r'width="([0-9.]+)"', head)
+                hm = re.search(r'height="([0-9.]+)"', head)
+                w = int(float(wm.group(1))) if wm else 1200
+                h = int(float(hm.group(1))) if hm else 900
+            if any(x in mm for x in (b"<defs", b"<g", b"<use", b"<mask", b"<clipPath",
+                                      b"<pattern", b"<filter", b"<style", b"<image", b"<text")):
+                return None
+            strokes = []
+
+            def add_fill(attrs, subpaths):
+                fill = attrs.get("fill", "")
+                if not fill or fill == "none":
+                    return
+                try:
+                    op = float(attrs.get("fill-opacity", attrs.get("opacity", 1.0)) or 1.0)
+                except Exception:
+                    op = 1.0
+                rule = attrs.get("fill-rule", "nonzero")
+                color = _ps._color(fill, (0, 0, 0))
+                for q in subpaths:
+                    strokes.append({"layer": "layer", "preset": "fill", "opacity": op,
+                                    "color": color,
+                                    "points": [[float(p[0]), float(p[1]), 1.0] for p in q],
+                                    "fill_rule": rule})
+
+            for rm in re.finditer(br"<rect\b([^>]*)>", mm):
+                raw = rm.group(1).decode("utf-8", "replace")
+                attrs = dict(re.findall(r'([\w:-]+)="([^"]*)"', raw))
+                try:
+                    x = float(attrs.get("x", 0)); y = float(attrs.get("y", 0))
+                    rw = float(attrs.get("width", 0)); rh = float(attrs.get("height", 0))
+                except Exception:
+                    continue
+                if rw > 0 and rh > 0:
+                    add_fill(attrs, [[[x, y], [x + rw, y], [x + rw, y + rh], [x, y + rh]]])
+
+            for pm in re.finditer(br"<path\b", mm):
+                start = pm.start()
+                tag_end = mm.find(b">", start)
+                if tag_end < 0:
+                    continue
+                dpos = mm.find(b'd="', start, tag_end)
+                q = b'"'
+                if dpos < 0:
+                    dpos = mm.find(b"d='", start, tag_end)
+                    q = b"'"
+                if dpos < 0:
+                    continue
+                qstart = dpos + 3
+                qend = mm.find(q, qstart, tag_end)
+                if qend < 0:
+                    continue
+                pre = mm[start:qstart].decode("utf-8", "replace")
+                post = mm[qend + 1:tag_end].decode("utf-8", "replace")
+                attrs = dict(re.findall(r'([\w:-]+)="([^"]*)"', pre + " " + post))
+                ps = _SubpathStream()
+                for i in range(qstart, qend, chunk_size):
+                    ps.feed(mm[i:min(i + chunk_size, qend)].decode("ascii", "ignore"))
+                ps.finish()
+                add_fill(attrs, ps.out)
+            if not strokes:
+                return None
+            return {"canvas": [w, h], "layers": [{"name": "layer", "blend": "normal"}], "strokes": strokes}
+
+
 def stream_svg_to_plan(source, chunk_size=65536):
     """Parse a basic SVG from a path or text using the streaming tokenizer."""
+    if isinstance(source, (str, Path)) and "<" not in str(source) and Path(str(source)).exists():
+        try:
+            doc = _stream_simple_file(str(source))
+            if doc:
+                return doc
+        except Exception:
+            pass
     if hasattr(source, "read"):
         chunks = iter(lambda: source.read(chunk_size), "")
     elif isinstance(source, (str, Path)):

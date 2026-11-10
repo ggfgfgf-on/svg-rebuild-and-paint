@@ -384,6 +384,17 @@ def test_stream_evenodd_disjoint():
     assert all(not st.get("holes") for st in d["strokes"])
 
 
+def test_stream_file_incremental(tmp_path):
+    import svg_stream
+    p = tmp_path / "big.svg"
+    p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+                 '<path fill="#f00" d="M0 0 L10 0 L10 10 Z M20 20 L30 20 L30 30 Z"/>'
+                 '</svg>', encoding="utf-8")
+    d = svg_stream.stream_svg_to_plan(str(p))
+    assert len(d["strokes"]) == 2
+    assert len(d["strokes"][0]["points"]) >= 3
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
