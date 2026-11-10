@@ -263,10 +263,19 @@ static std::string svg_from_plan(const std::string& input) {
             Value dummy(kArrayType); dummy.PushBack(217, d.GetAllocator()).PushBack(180, d.GetAllocator()).PushBack(90, d.GetAllocator());
             const Value& col = (ci != s.MemberEnd() && ci->value.IsArray()) ? ci->value : dummy;
             if (preset == "fill") {
-                out += "<path d=\""; out += d_from(*pts); out += " Z\" fill=\"";
+                out += "<path d=\""; out += d_from(*pts); out += " Z";
+                auto hh = s.FindMember("holes");
+                if (hh != s.MemberEnd() && hh->value.IsArray()) {
+                    for (const auto& h : hh->value.GetArray()) {
+                        if (h.IsArray() && h.Size() >= 3) { out += " "; out += d_from(h); out += " Z"; }
+                    }
+                }
+                out += "\" fill=\"";
                 auto pfill = paint_ids.find(&s);
                 if (pfill != paint_ids.end()) out += "url(#" + pfill->second + ")"; else out += color_hex(col);
-                out += "\" fill-opacity=\""; out += fmt(op); out += "\" fill-rule=\"nonzero\" data-layer=\""; esc_to(out, name);
+                out += "\" fill-opacity=\""; out += fmt(op); out += "\" fill-rule=\"";
+                esc_to(out, get_str(s, "fill_rule", "nonzero"));
+                out += "\" data-layer=\""; esc_to(out, name);
                 out += "\" data-preset=\"fill\" data-color=\""; out += color_text(col); out += "\"";
                 auto ft = s.FindMember("tag"); if (ft != s.MemberEnd() && ft->value.IsString()) { out += " data-tag=\""; esc_to(out, ft->value.GetString()); out += "\""; }
                 out += "/>\n"; continue;
