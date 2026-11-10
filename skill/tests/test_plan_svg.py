@@ -200,6 +200,27 @@ def test_clip_evenodd_line():
     assert segs == [(0.0, 20.0), (60.0, 80.0)]
 
 
+
+
+def test_clip_evenodd_fill_hole():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<defs><clipPath id="c" clip-rule="evenodd">'
+           '<rect x="0" y="0" width="100" height="100"/>'
+           '<rect x="25" y="25" width="50" height="50"/>'
+           '</clipPath></defs>'
+           '<rect width="100" height="100" fill="#f00" clip-path="url(#c)"/>'
+           '</svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert len(d["strokes"]) == 1
+    st = d["strokes"][0]
+    assert st["fill_rule"] == "evenodd"
+    assert len(st["holes"]) == 1
+    assert isinstance(st["mask"], dict)
+    out = plan_svg.plan_to_svg(d)
+    assert 'fill-rule="evenodd"' in out
+    assert out.count("Z") == 2
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -211,6 +232,7 @@ if __name__ == "__main__":
     test_native_fallback_metadata()
     test_clip_fill_multi_subpath()
     test_clip_evenodd_line()
+    test_clip_evenodd_fill_hole()
     test_gradient_paint_roundtrip()
     test_mask_layer_alpha()
     print("all plan_svg tests passed")

@@ -72,6 +72,14 @@ def _path_d(points):
     return " ".join(out)
 
 
+def _path_d_holes(points, holes):
+    d = _path_d(points) + " Z"
+    for h in holes or []:
+        if len(h) >= 3:
+            d += " " + _path_d(h) + " Z"
+    return d
+
+
 def _p_text(points):
     return ",".join(_f(p[2] if len(p) > 2 else 1.0) for p in points)
 
@@ -216,8 +224,8 @@ def plan_to_svg(doc, *, filters=False, title=None):
             gid = paint_gid.get(id(s))
             paint_ref = ("url(#%s)" % gid) if gid else _rgb(s.get("color"))
             if preset == "fill":
-                out.append('<path d="%s Z" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
-                           (_path_d(pts), paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
+                out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
+                           (_path_d_holes(pts, s.get("holes") or []), paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
                             (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))
                 continue
             cap = "butt" if preset in ("flat", "bristle") else "round"
@@ -546,7 +554,7 @@ def plan_to_svg_stamps(doc, title=None):
             pre = ('<g mask="url(#%s)">' % sm) if sm else ""
             post = "</g>" if sm else ""
             if preset == "fill":
-                d0 = "M " + " L ".join("%s %s" % (_f(float(q[0])), _f(float(q[1]))) for q in pts) + " Z"
+                d0 = _path_d_holes(pts, st.get("holes") or [])
                 pg = paint_gid.get(id(st))
                 body.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer=%s data-preset="fill" data-color="%s"/>' % (
                     d0, ("url(#%s)" % pg) if pg else col, _f(op0), st.get("fill_rule", "nonzero"), quoteattr(name), col) + post)
@@ -678,7 +686,7 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
             pre = ('<g mask="url(#%s)">' % sm) if sm else ""
             post = "</g>" if sm else ""
             if preset == "fill":
-                d0 = "M " + " L ".join("%s %s" % (_f(float(q[0])), _f(float(q[1]))) for q in pts) + " Z"
+                d0 = _path_d_holes(pts, st.get("holes") or [])
                 out.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer=%s data-preset="fill" data-color="%s"/>' % (
                     d0, paint_ref, _f(st.get("opacity", 1.0)), st.get("fill_rule", "nonzero"), quoteattr(name), _rgb(st.get("color"))) + post)
                 continue
@@ -1301,16 +1309,60 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
         entry = clips.get(key) if key else None
         polys = entry["polys"] if entry else None
         evenodd = bool(entry and entry.get("evenodd"))
+        if (not polys and str(a.get("fill-rule", "")) == "evenodd" and a.get("d")
+                and (a.get("data-preset") == "fill" or (a.get("fill") and a.get("fill") != "none" and not a.get("stroke")))):
+            subs = [q for q in _parse_d_subpaths(a.get("d")) if len(q) >= 3]
+            if len(subs) > 1:
+                def area(q):
+                    return abs(sum(q[i][0]*q[(i+1) % len(q)][1] - q[(i+1) % len(q)][0]*q[i][1] for i in range(len(q))))
+                def inside(pt, q):
+                    c = False
+                    for i in range(len(q)):
+                        u, v = q[i], q[(i+1) % len(q)]
+                        if ((u[1] > pt[1]) != (v[1] > pt[1])) and (pt[0] < (v[0]-u[0])*(pt[1]-u[1])/(v[1]-u[1]) + u[0]):
+                            c = not c
+                    return c
+                subs.sort(key=area, reverse=True)
+                outer, holes = subs[0], []
+                for q in subs[1:]:
+                    if area(q) < area(outer) and inside(q[0], outer):
+                        holes.append(q)
+                st = _stroke_from_attrs(a, name, [[x, y, 1.0] for x, y in outer])
+                st["preset"] = "fill"; st.pop("size", None); st.pop("hardness", None)
+                st["holes"] = holes; st["fill_rule"] = "evenodd"; st["_evenodd"] = True
+                strokes.append(st); return
         if not polys:
             strokes.append(_stroke_from_attrs(a, name, pts)); return
         if a.get("data-preset") == "fill" or (a.get("fill") and a.get("fill") != "none" and not a.get("stroke")):
             if evenodd and _native is not None and _native.available():
                 try:
                     out = _native.clip_polygons([[(p[0], p[1]) for p in pts]], [[(q[0], q[1]) for q in poly] for poly in polys], True)
-                    for q in out:
-                        if len(q) >= 3:
-                            st = _stroke_from_attrs(a, name, [[x, y, 1.0] for x, y in q])
+                    out = [q for q in out if len(q) >= 3]
+                    if out:
+                        def area(q):
+                            return abs(sum(q[i][0]*q[(i+1) % len(q)][1] - q[(i+1) % len(q)][0]*q[i][1] for i in range(len(q))))
+                        def inside(pt, q):
+                            c = False
+                            for i in range(len(q)):
+                                a, b = q[i], q[(i+1) % len(q)]
+                                if ((a[1] > pt[1]) != (b[1] > pt[1])) and (pt[0] < (b[0]-a[0])*(pt[1]-a[1])/(b[1]-a[1]) + a[0]):
+                                    c = not c
+                            return c
+                        out.sort(key=area, reverse=True)
+                        groups = []
+                        for q in out:
+                            owner = None
+                            for g in groups:
+                                if area(q) < area(g[0]) and inside(q[0], g[0]):
+                                    owner = g; break
+                            if owner is None:
+                                groups.append([q, []])
+                            else:
+                                owner[1].append(q)
+                        for outer, holes in groups:
+                            st = _stroke_from_attrs(a, name, [[x, y, 1.0] for x, y in outer])
                             st["preset"] = "fill"; st.pop("size", None); st.pop("hardness", None)
+                            st["holes"] = holes; st["fill_rule"] = "evenodd"; st["_evenodd"] = True
                             strokes.append(st)
                     return
                 except Exception:
@@ -1449,6 +1501,18 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
 
     for ch in list(root):
         visit(ch)
+    for st in strokes:
+        if st.pop("_evenodd", False):
+            outer = [(float(p[0]), float(p[1])) for p in (st.get("points") or [])]
+            holes = [[(float(p[0]), float(p[1])) for p in h] for h in (st.get("holes") or [])]
+            if len(outer) >= 3:
+                from PIL import Image, ImageDraw
+                im = Image.new("L", (w, h), 0)
+                ImageDraw.Draw(im).polygon(outer, fill=255)
+                for hole in holes:
+                    if len(hole) >= 3:
+                        ImageDraw.Draw(im).polygon(hole, fill=0)
+                st["mask"] = _mask_png(im)
     by = {}
     for st in strokes:
         by.setdefault(st["layer"], []).append(st.get("points") or [])
