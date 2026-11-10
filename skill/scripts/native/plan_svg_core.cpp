@@ -244,7 +244,19 @@ static std::string svg_from_plan(const std::string& input) {
                     out += ")\"";
                 }
                 out += ">";
-                esc_to(out, get_str(s, "text", ""));
+                auto rr = s.FindMember("runs");
+                if (rr != s.MemberEnd() && rr->value.IsArray()) {
+                    for (const auto& r : rr->value.GetArray()) {
+                        out += "<tspan fill=\"";
+                        auto rc = r.FindMember("color");
+                        if (rc != r.MemberEnd() && rc->value.IsArray()) esc_to(out, color_hex(rc->value)); else out += "#000";
+                        out += "\" font-size=\"" + fmt(get_num(r, "font_size", 16.0)) + "\">";
+                        esc_to(out, get_str(r, "text", ""));
+                        out += "</tspan>";
+                    }
+                } else {
+                    esc_to(out, get_str(s, "text", ""));
+                }
                 out += "</text>\n";
                 continue;
             }
@@ -1037,7 +1049,6 @@ static std::string plan_from_svg(const std::string& input) {
                 walk(ch,n,m,my);
             } else if (tag=="text") {
                 std::string txt=ch.text().get();
-                if(txt.empty())continue;
                 std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
                 add_layer(names,blends,idx,layer,"");
                 double x=std::atof(at("x").c_str()), y=std::atof(at("y").c_str());
@@ -1046,13 +1057,37 @@ static std::string plan_from_svg(const std::string& input) {
                 std::string fam=at("font-family"); if(fam.empty())fam="Arial";
                 std::string anch=at("text-anchor"); if(anch.empty())anch="start";
                 std::string fill=at("fill"); if(fill.empty())fill="#000";
+                std::vector<std::string> runs;
+                if (!txt.empty()) {
+                    auto c0=color_from(fill);
+                    std::string r="{\"text\":\""; jesc_to(r,txt); r+="\",\"font_family\":\""; jesc_to(r,fam);
+                    r+="\",\"font_size\":"+fmt(fs)+",\"color\":["+fmt(c0[0])+","+fmt(c0[1])+","+fmt(c0[2])+"]}";
+                    runs.push_back(r);
+                }
+                for (pugi::xml_node tch : ch.children()) {
+                    if (std::string(tch.name()) != "tspan" || !tch.text()) continue;
+                    std::string rf = tch.attribute("fill").as_string(); if (rf.empty()) rf = fill;
+                    double rfs = tch.attribute("font-size") ? std::atof(tch.attribute("font-size").as_string()) : fs;
+                    std::string rfam = tch.attribute("font-family").as_string(); if (rfam.empty()) rfam = fam;
+                    auto c0=color_from(rf);
+                    std::string r="{\"text\":\""; jesc_to(r,tch.text().get()); r+="\",\"font_family\":\""; jesc_to(r,rfam);
+                    r+="\",\"font_size\":"+fmt(rfs)+",\"color\":["+fmt(c0[0])+","+fmt(c0[1])+","+fmt(c0[2])+"]}";
+                    runs.push_back(r);
+                }
+                if (txt.empty() && runs.empty()) continue;
                 std::string sj="{\"layer\":\""; jesc_to(sj,layer);
                 sj += "\",\"preset\":\"text\",\"text\":\""; jesc_to(sj,txt);
                 sj += "\",\"x\":"; sj += fmt(x); sj += ",\"y\":"; sj += fmt(y);
                 sj += ",\"font_family\":\""; jesc_to(sj,fam); sj += "\",\"font_size\":"; sj += fmt(fs);
                 sj += ",\"text_anchor\":\""; jesc_to(sj,anch); sj += "\",\"opacity\":"; sj += fmt(op);
                 auto col=color_from(fill);
-                sj += ",\"color\":["; sj += fmt(col[0]); sj += ","; sj += fmt(col[1]); sj += ","; sj += fmt(col[2]); sj += "]}";
+                sj += ",\"color\":["; sj += fmt(col[0]); sj += ","; sj += fmt(col[1]); sj += ","; sj += fmt(col[2])+"]";
+                if (!runs.empty()) { sj += ",\"runs\":["; for(size_t ri=0;ri<runs.size();++ri){if(ri)sj+=",";sj+=runs[ri];} sj += "]"; }
+                Mat tm = mat_mul(parent, parse_transform(at("transform")));
+                bool tident = (std::fabs(tm.a-1)<1e-9 && std::fabs(tm.b)<1e-9 && std::fabs(tm.c)<1e-9 &&
+                               std::fabs(tm.d-1)<1e-9 && std::fabs(tm.e)<1e-9 && std::fabs(tm.f)<1e-9);
+                if (!tident) sj += ",\"transform\":["+fmt(tm.a)+","+fmt(tm.b)+","+fmt(tm.c)+","+fmt(tm.d)+","+fmt(tm.e)+","+fmt(tm.f)+"]";
+                sj += "}";
                 strokes.push_back(sj);
             } else if (tag=="image") {
                 std::string href=at("href"); if(href.empty())href=std::string(ch.attribute("{http://www.w3.org/1999/xlink}href").as_string());

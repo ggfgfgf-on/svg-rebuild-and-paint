@@ -1530,10 +1530,7 @@ def needs_python_parser(svg_text):
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
         return True
-    if "<tspan" in svg_text:
-        return True
-    if "<text" in svg_text and re.search(r"<text[^>]*\btransform\s*=", svg_text):
-        return True
+
     approx = os.environ.get("PLAN_SVG_CPP_APPROX", "0") == "1"
     if not approx and "<pattern" in svg_text and any(k in svg_text for k in ("linearGradient", "radialGradient", "gradientTransform", "transform", "<text", "<use", "<image")):
         return True
