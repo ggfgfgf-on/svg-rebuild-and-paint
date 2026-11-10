@@ -103,6 +103,24 @@ def _path_d_compact(points, holes=None):
     return out
 
 
+def _path_line_compact(points):
+    pts = [(float(p[0]), float(p[1])) for p in points]
+    if not pts:
+        return ""
+    d = "M %s %s" % (_fc(pts[0][0]), _fc(pts[0][1]))
+    cur = pts[0]
+    for x, y in pts[1:]:
+        dx, dy = x - cur[0], y - cur[1]
+        if abs(dy) < 1e-9:
+            d += " h %s" % _fc(dx)
+        elif abs(dx) < 1e-9:
+            d += " v %s" % _fc(dy)
+        else:
+            d += " l %s %s" % (_fc(dx), _fc(dy))
+        cur = (x, y)
+    return d
+
+
 def _path_d_holes(points, holes):
     d = _path_d(points) + " Z"
     for h in holes or []:
@@ -800,6 +818,14 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
             size = float(st.get("size", 8.0)); base = size * 0.5
             ps = [(float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)) for p in pts]
             radii = [max(0.3, base * (0.30 + 0.70 * p[2])) for p in ps]
+            vary = len({round(p[2], 6) for p in ps}) > 1
+            if not vary and len(ps) >= 2:
+                d = _path_line_compact([(p[0], p[1]) for p in ps])
+                out.append(pre + '<path d="%s" fill="none" stroke="%s" stroke-width="%s" stroke-opacity="%s" stroke-linecap="round" stroke-linejoin="round" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-d-hash="%s"%s/>' %
+                           (d, paint_ref, _fc(2*radii[0]), _f(st.get("opacity", 1.0)), quoteattr(name), quoteattr(preset),
+                            _f(size), _f(st.get("opacity", 1.0)), _f(st.get("hardness", 0.7)), _rgb(st.get("color")),
+                            _center_attr(ps), _d_hash(d), (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else "") + post)
+                continue
             if len(ps) == 1:
                 x, y = ps[0][0], ps[0][1]; r = radii[0]
                 d = "M %s %s m -%s 0 a %s %s 0 1 0 %s 0 a %s %s 0 1 0 -%s 0 Z" % (_f(x), _f(y), _f(r), _f(r), _f(r), _f(2*r), _f(r), _f(r), _f(2*r))
