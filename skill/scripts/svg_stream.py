@@ -207,8 +207,10 @@ def stream_svg_to_plan(source, chunk_size=65536):
         fw, fh = num("width", 0.1), num("height", 0.1)
         pw, ph = (max(8, int(fw * 256)), max(8, int(fh * 256))) if units == "objectBoundingBox" else (max(1, int(fw)), max(1, int(fh)))
         children = "".join(node_xml(ch) for ch in node.get("children", []))
-        mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" width="%s" height="%s">%s</svg>'
-                % (pw, ph, pw, ph, children))
+        extra = "".join(node_xml(n) for n in {id(v): v for v in defs_map.values()}.values()
+                        if n["tag"] in ("linearGradient", "radialGradient"))
+        mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" width="%s" height="%s"><defs>%s</defs>%s</svg>'
+                % (pw, ph, pw, ph, extra, children))
         try:
             d = _ps.svg_to_plan(mini)
             import paint_plan as _pp
@@ -227,7 +229,14 @@ def stream_svg_to_plan(source, chunk_size=65536):
     style_buf = []
     in_style = False
 
+    def _spec(sel):
+        return sel.count("#") * 100 + sel.count(".") * 10 + (1 if sel and sel[0] not in ".#*" else 0)
+
     def parse_css(text):
+        try:
+            text = _ps._css_media_text(text or "")
+        except Exception:
+            pass
         for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text or ""):
             props = {}
             for part in body.split(";"):
@@ -238,11 +247,11 @@ def stream_svg_to_plan(source, chunk_size=65536):
                 for one in sel.split(","):
                     one = one.strip()
                     if one:
-                        css_rules.append((one, props))
+                        css_rules.append((_spec(one), len(css_rules), one, props))
 
     def apply_css(tag, a):
         a = dict(a)
-        for sel, props in css_rules:
+        for _, _, sel, props in sorted(css_rules):
             ok = False
             if sel == "*" or sel == tag:
                 ok = True
