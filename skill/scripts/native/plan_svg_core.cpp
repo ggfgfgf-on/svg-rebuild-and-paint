@@ -14,9 +14,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 #include <wchar.h>
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 #include <functional>
 #include <map>
@@ -439,6 +441,12 @@ static void load_icc_profiles(pugi::xml_node root) {
         if (name.empty() || href.empty() || g_base_dir.empty()) continue;
         std::string path=href;
         if (path.size() && path[0]!='/' && path[1]!=':') path=g_base_dir+"/"+path;
+        std::error_code ec;
+        auto base = std::filesystem::weakly_canonical(std::filesystem::path(g_base_dir), ec);
+        auto full = std::filesystem::weakly_canonical(std::filesystem::path(path), ec);
+        if (ec || base.empty() || full.empty()) continue;
+        auto bs = base.generic_string(), fs = full.generic_string();
+        if (fs.rfind(bs, 0) != 0 || (fs.size() > bs.size() && fs[bs.size()] != '/')) continue;
         std::ifstream f(path, std::ios::binary);
         if (!f) continue;
         std::vector<unsigned char> data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -478,13 +486,15 @@ static std::vector<double> color_from(const std::string& s) {
         return {217,180,90};
     }
     if (s.rfind("lab(",0)==0 || s.rfind("lch(",0)==0) {
-        std::string z=s; for(char& c:z) if(c=='%') c=' ';
+        size_t e=s.find(')'); std::string z=s.substr(4, e==std::string::npos?std::string::npos:e-4);
+        for(char& c:z) if(c=='%') c=' ';
         auto v=nums(z); if(v.size()<3) return {217,180,90};
         if(s.rfind("lch(",0)==0){ double h=v[2]*3.14159265358979323846/180; return lab_color(v[0],std::cos(h)*v[1],std::sin(h)*v[1]); }
         return lab_color(v[0],v[1],v[2]);
     }
     if (s.rfind("oklab(",0)==0 || s.rfind("oklch(",0)==0) {
-        std::string z=s; for(char& c:z) if(c=='%') c=' ';
+        size_t e=s.find(')'); std::string z=s.substr(6, e==std::string::npos?std::string::npos:e-6);
+        for(char& c:z) if(c=='%') c=' ';
         auto v=nums(z); if(v.size()<3) return {217,180,90};
         if(s.rfind("oklch(",0)==0){ double h=v[2]*3.14159265358979323846/180; return oklab_color(v[0],std::cos(h)*v[1],std::sin(h)*v[1]); }
         return oklab_color(v[0],v[1],v[2]);
