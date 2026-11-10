@@ -308,6 +308,19 @@ def test_pattern_roundtrip():
     assert "<pattern" in out and "url(#pat" in out
 
 
+
+
+def test_filter_rasterized():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<defs><filter id="f"><feGaussianBlur stdDeviation="4"/></filter></defs>'
+           '<rect x="30" y="30" width="40" height="40" fill="#ff0000" filter="url(#f)"/>'
+           '</svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert d["strokes"][0]["preset"] == "image"
+    out = plan_svg.plan_to_svg(d)
+    assert "<image" in out
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -326,6 +339,7 @@ if __name__ == "__main__":
     test_gradient_transform_roundtrip()
     test_text_roundtrip()
     test_pattern_roundtrip()
+    test_filter_rasterized()
     test_gradient_paint_roundtrip()
     test_mask_layer_alpha()
     print("all plan_svg tests passed")

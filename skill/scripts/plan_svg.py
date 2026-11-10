@@ -1281,6 +1281,42 @@ def _raster_mask_element(el, w, h, bbox=None, content_units="userSpaceOnUse", ro
     return p
 
 
+def _rasterize_filtered(root, ch, w, h, base_dir=None):
+    try:
+        clone = ET.fromstring(ET.tostring(ch, encoding="unicode"))
+        fref = clone.attrib.pop("filter", None)
+        if not fref:
+            return None
+        clone.attrib.pop("id", None)
+        xml = ET.tostring(clone, encoding="unicode")
+        xml = xml.replace("ns0:", "").replace(' xmlns:ns0="http://www.w3.org/2000/svg"', "")
+        mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" width="%s" height="%s">%s</svg>'
+                % (w, h, w, h, xml))
+        d = svg_to_plan(mini, base_dir=base_dir)
+        import paint_plan as _pp
+        img, _ = _pp.render_plan(d)
+        from PIL import Image, ImageFilter
+        im = Image.fromarray(img, "RGBA")
+        fid = re.search(r"url\(#([^)]+)\)", fref)
+        if fid:
+            fel = next((e for e in root.iter() if _local(e.tag) == "filter" and e.get("id") == fid.group(1)), None)
+            if fel is not None:
+                blur = next((e for e in fel.iter() if _local(e.tag) == "feGaussianBlur"), None)
+                if blur is not None:
+                    try:
+                        sd = [float(x) for x in re.split(r"[\s,]+", str(blur.get("stdDeviation", "0")).strip()) if x]
+                        rad = sum(sd) / max(1, len(sd)) if sd else 0.0
+                        if rad > 0:
+                            im = im.filter(ImageFilter.GaussianBlur(radius=rad))
+                    except Exception:
+                        pass
+        buf = io.BytesIO(); im.save(buf, format="PNG")
+        return {"encoding": "png-base64", "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+                "width": w, "height": h}
+    except Exception:
+        return None
+
+
 def _pattern_tiles(root, w, h, base_dir=None):
     out = {}
     for el in root.iter():
@@ -1367,7 +1403,7 @@ def needs_python_parser(svg_text):
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
         return True
-    if "<image" in svg_text or "<text" in svg_text or "<tspan" in svg_text or "<pattern" in svg_text:
+    if "<image" in svg_text or "<text" in svg_text or "<tspan" in svg_text or "<pattern" in svg_text or "<filter" in svg_text:
         return True
     if "<style" in svg_text or "<link" in svg_text or re.search(r'href="[^"]+\.svg#', svg_text):
         return True
@@ -1508,6 +1544,7 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
                         strokes.append(_stroke_from_attrs(a, name, [[seg[0][0], seg[0][1], pts[i-1][2] if len(pts[i-1]) > 2 else 1.0],
                                                                     [seg[1][0], seg[1][1], pts[i][2] if len(pts[i]) > 2 else 1.0]]))
 
+    canvas_w, canvas_h = w, h
     def visit(ch, inherited_layer=None, parent=(1, 0, 0, 1, 0, 0), active=None, inh=None):
         active = active or set()
         inh = inh or {}
@@ -1571,6 +1608,15 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
             for sub in list(ch):
                 visit(sub, name, m, active, my)
             return
+        fref = a.get("filter")
+        if fref:
+            im = _rasterize_filtered(root, ch, canvas_w, canvas_h, base_dir)
+            if im:
+                name = a.get("data-layer") or inherited_layer or "layer"
+                add_layer(name, "normal")
+                strokes.append({"layer": name, "preset": "image", "image": im,
+                                "x": 0, "y": 0, "width": canvas_w, "height": canvas_h, "opacity": 1.0})
+                return
         if tag in ("text", "tspan"):
             def _num_attr(k, d=0.0):
                 v = a.get(k)
