@@ -886,7 +886,7 @@ def _clip_geoms(root):
     return out
 
 def _load_css(root, base_dir=None):
-    css = {}
+    rules = []
     texts = []
     for el in root.iter():
         if _local(el.tag) == "style":
@@ -905,16 +905,27 @@ def _load_css(root, base_dir=None):
             except Exception:
                 raise ValueError("stylesheet escapes base_dir: %s" % href)
             texts.append(path.read_text(encoding="utf-8"))
+    order = 0
     for text in texts:
         for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text or ""):
-            d = _style_decls(body)
+            decls = {}
+            important = set()
+            for part in body.split(";"):
+                if ":" not in part:
+                    continue
+                k, v = part.split(":", 1)
+                k = k.strip(); v = v.strip()
+                if v.endswith("!important"):
+                    important.add(k); v = v[:-10].strip()
+                decls[k] = v
             for one in sel.split(","):
                 one = one.strip()
-                if one:
-                    css.setdefault(one, {}).update(d)
-    return css
-
-
+                if not one:
+                    continue
+                spec = one.count("#") * 100 + one.count(".") * 10 + sum(1 for c in one if c.isalpha())
+                order += 1
+                rules.append({"sel": one, "decl": decls, "imp": important, "spec": spec, "order": order})
+    return rules
 def _selector_match(sel, ch, pseudo_mode="ignore"):
     import re as _re
     m = _re.search(r":([a-z-]+)", sel)
@@ -937,10 +948,11 @@ def _selector_match(sel, ch, pseudo_mode="ignore"):
 
 def _resolved_attrs(ch, css, grads, paints=None, inh=None, pseudo_mode="ignore"):
     a = dict(ch.attrib)
-    for sel, d in css.items():
-        if _selector_match(sel, a, pseudo_mode):
-            for k, v in d.items():
-                a.setdefault(k, v)
+    for rule in sorted(css or [], key=lambda r: (bool(r["imp"]), r["spec"], r["order"])):
+        if _selector_match(rule["sel"], a, pseudo_mode):
+            for k, v in rule["decl"].items():
+                if k in rule["imp"] or k not in a:
+                    a[k] = v
     for k, v in _style_decls(a.get("style", "")).items():
         a[k] = v
     if inh:
@@ -1106,6 +1118,10 @@ def _gradient_colors(root):
 
 def needs_python_parser(svg_text):
     if "linearGradient" in svg_text or "radialGradient" in svg_text:
+        return True
+    if "<style" in svg_text or "<link" in svg_text or re.search(r'href="[^"]+\.svg#', svg_text):
+        return True
+    if 'fill-rule="evenodd"' in svg_text:
         return True
     if "<mask" in svg_text or "mask=\"url(" in svg_text:
         return True
