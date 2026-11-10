@@ -1129,7 +1129,7 @@ def needs_python_parser(svg_text):
         return True
     return False
 
-def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore"):
+def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_external=False, max_depth=8):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
     root = ET.fromstring(svg_text)
     vb = root.attrib.get("viewBox", "0 0 1200 900").replace(",", " ").split()
@@ -1194,7 +1194,9 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore"):
                 return
             if href:
                 if "://" in href:
-                    raise ValueError("external use is not allowed: %s" % href)
+                    raise ValueError("external network use is not allowed: %s" % href)
+                if len(active) >= max_depth:
+                    raise ValueError("external use depth exceeds %d" % max_depth)
                 if base_dir is None:
                     raise ValueError("external use requires base_dir: %s" % href)
                 if "#" not in href:
@@ -1290,10 +1292,11 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore"):
     return {"canvas": [w, h], "layers": layers, "strokes": strokes}
 
 
-def svg_to_plan(svg_text, base_dir=None, pseudo_mode="ignore"):
+def svg_to_plan(svg_text, base_dir=None, pseudo_mode="ignore", allow_external=False, max_depth=8):
     if _native is not None and _native.available() and not needs_python_parser(svg_text) and base_dir is None:
         return _native.svg_to_plan(svg_text)
-    return _svg_to_plan_py(svg_text, base_dir=base_dir, pseudo_mode=pseudo_mode)
+    return _svg_to_plan_py(svg_text, base_dir=base_dir, pseudo_mode=pseudo_mode,
+                           allow_external=allow_external, max_depth=max_depth)
 
 
 def load_plan_svg(path):
