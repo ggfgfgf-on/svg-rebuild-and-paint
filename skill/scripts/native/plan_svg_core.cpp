@@ -763,6 +763,14 @@ struct GdiSave {
     ~GdiSave() { g.Restore(st); }
 };
 
+static std::wstring u2w(const std::string& s) {
+    if (s.empty()) return L"";
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    std::wstring w(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], n);
+    return w;
+}
+
 static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, double sy) {
     GdiSave save(g);
     std::string tr = n.attribute("transform").as_string();
@@ -779,6 +787,16 @@ static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, dou
     auto col = color_from(fill);
     Gdiplus::SolidBrush br(Gdiplus::Color(255, (BYTE)col[0], (BYTE)col[1], (BYTE)col[2]));
     if (tag == "g") { for (auto ch : n.children()) gdi_draw_node(g, ch, sx, sy); return; }
+    if (tag == "text") {
+        std::string txt = n.text().get();
+        if (txt.empty()) return;
+        double fs = n.attribute("font-size") ? std::atof(n.attribute("font-size").as_string()) : 16.0;
+        std::string fam = n.attribute("font-family") ? n.attribute("font-family").as_string() : "Arial";
+        std::wstring wfam = u2w(fam);
+        Gdiplus::Font font(wfam.c_str(), (Gdiplus::REAL)(fs * sy), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+        g.DrawString(u2w(txt).c_str(), -1, &font, Gdiplus::PointF((Gdiplus::REAL)(num("x",0)*sx), (Gdiplus::REAL)(num("y",0)*sy)), &br);
+        return;
+    }
     if (tag == "rect") {
         g.FillRectangle(&br, (Gdiplus::REAL)(num("x",0)*sx), (Gdiplus::REAL)(num("y",0)*sy),
                         (Gdiplus::REAL)(num("width",0)*sx), (Gdiplus::REAL)(num("height",0)*sy));
