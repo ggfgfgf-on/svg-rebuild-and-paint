@@ -36,8 +36,20 @@ def draw_full(p, cat, doc, w, h, gpu=False, nthreads=8):
     return plan, spec, region
 
 
+def _gpu_unsupported(doc):
+    for st in doc.get("strokes") or []:
+        if isinstance(st.get("paint"), dict) or isinstance(st.get("mask"), dict) or str(st.get("preset")) == "fill":
+            return True
+    for ly in doc.get("layers") or []:
+        if isinstance(ly.get("mask"), dict):
+            return True
+    return False
+
+
 def render_arr(doc, gpu=False, nthreads=8):
     """整份计划渲染一次，返回 RGBA 数组（composite 结果）。"""
+    if gpu and _gpu_unsupported(doc):
+        gpu = False
     p, cat, w, h = D.new_painter(doc, gpu=gpu)
     try:
         plan, spec = D.doc_to_plan(doc, cat)
