@@ -10,6 +10,10 @@ import re
 from pathlib import Path
 
 import plan_svg as _ps
+try:
+    import plan_svg_native as _native
+except Exception:
+    _native = None
 
 _TAG = re.compile(r"([A-Za-z_][\w:.-]*)")
 _ATTR = re.compile(r"""([A-Za-z_][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
@@ -381,11 +385,19 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 pre = mm[start:qstart].decode("utf-8", "replace")
                 post = mm[qend + 1:tag_end].decode("utf-8", "replace")
                 attrs = dict(re.findall(r'([\w:-]+)="([^"]*)"', pre + " " + post))
-                ps = _PathStreamParser()
-                for i in range(qstart, qend, chunk_size):
-                    ps.feed(mm[i:min(i + chunk_size, qend)].decode("ascii", "ignore"))
-                ps.finish()
-                add_fill(attrs, ps.out)
+                subs = None
+                if _native is not None and _native.available():
+                    try:
+                        subs = _native.parse_d_subpaths(mm[qstart:qend].decode("ascii", "ignore"))
+                    except Exception:
+                        subs = None
+                if subs is None:
+                    ps = _PathStreamParser()
+                    for i in range(qstart, qend, chunk_size):
+                        ps.feed(mm[i:min(i + chunk_size, qend)].decode("ascii", "ignore"))
+                    ps.finish()
+                    subs = ps.out
+                add_fill(attrs, subs)
             if not strokes:
                 return None
             return {"canvas": [w, h], "layers": [{"name": "layer", "blend": "normal"}], "strokes": strokes}

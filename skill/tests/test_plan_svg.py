@@ -394,6 +394,15 @@ def test_stream_evenodd_disjoint():
     assert all(not st.get("holes") for st in d["strokes"])
 
 
+def test_native_parse_d_subpaths():
+    import plan_svg_native as n
+    if not n.available():
+        return
+    subs = n.parse_d_subpaths("M0 0 L10 0 L10 10 Z M20 20 L30 20 L30 30 Z")
+    assert len(subs) == 2
+    assert subs[0][0] == [0.0, 0.0]
+
+
 def test_stream_file_incremental(tmp_path):
     import svg_stream
     p = tmp_path / "big.svg"

@@ -28,7 +28,7 @@ def _load():
             f.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p]
         else:
             f.argtypes = [ctypes.c_char_p, ctypes.c_int]
-    for n in ("psvg_bin_to_svg", "psvg_svg_to_bin", "psvg_plan_json_to_bin", "psvg_bin_to_plan_json", "psvg_bin_to_svg_stamps"):
+    for n in ("psvg_bin_to_svg", "psvg_svg_to_bin", "psvg_plan_json_to_bin", "psvg_bin_to_plan_json", "psvg_bin_to_svg_stamps", "psvg_parse_d_bin"):
         f = getattr(lib, n)
         f.restype = ctypes.c_void_p
         f.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
@@ -388,3 +388,28 @@ def plan_to_svg_stamps(doc) -> str:
     if raw.startswith(b"ERR:"):
         raise ValueError(raw[4:].decode("utf-8", "replace"))
     return raw.decode("utf-8")
+
+def parse_d_subpaths(d: str):
+    """C++ path command state machine -> [[x,y],...] per subpath."""
+    if _LIB is None:
+        raise RuntimeError("plan_svg_core.dll not found")
+    b = d.encode("ascii", "ignore")
+    n = ctypes.c_int(0)
+    ptr = _LIB.psvg_parse_d_bin(ctypes.c_char_p(b), len(b), ctypes.byref(n))
+    if not ptr:
+        return []
+    try:
+        raw = ctypes.string_at(ptr, n.value)
+    finally:
+        _free(ptr)
+    if len(raw) < 4:
+        return []
+    off = 0
+    ns = struct.unpack_from("<I", raw, off)[0]; off += 4
+    out = []
+    for _ in range(ns):
+        np = struct.unpack_from("<I", raw, off)[0]; off += 4
+        vals = struct.unpack_from("<%dd" % (np * 2), raw, off); off += np * 16
+        out.append([[vals[i], vals[i + 1]] for i in range(0, len(vals), 2)])
+    return out
+

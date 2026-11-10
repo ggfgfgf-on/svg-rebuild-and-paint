@@ -2027,4 +2027,36 @@ EXPORT char* psvg_bin_to_svg_stamps(const char* data,int n,int* out_len){
     catch(const std::exception&e){*out_len=(int)(std::string("ERR:")+e.what()).size();return dupstr(std::string("ERR:")+e.what());}
 }
 
+EXPORT unsigned char* psvg_parse_d_bin(const char* in, int n, int* out_len) {
+    try {
+        std::string d(in, (size_t)n);
+        std::vector<std::vector<double>> subs;
+        std::vector<std::string> parts = split_d_subpaths(d);
+        for (auto& part : parts) {
+            std::vector<double> xs, ys;
+            parse_d(part, xs, ys);
+            if (xs.size() < 2) continue;
+            std::vector<double> v;
+            v.reserve(xs.size() * 2);
+            for (size_t i = 0; i < xs.size(); ++i) { v.push_back(xs[i]); v.push_back(ys[i]); }
+            subs.push_back(std::move(v));
+        }
+        size_t total = 4;
+        for (auto& v : subs) total += 4 + v.size() * 8;
+        unsigned char* buf = (unsigned char*)std::malloc(total);
+        if (!buf) return nullptr;
+        unsigned char* p = buf;
+        uint32_t ns = (uint32_t)subs.size();
+        std::memcpy(p, &ns, 4); p += 4;
+        for (auto& v : subs) {
+            uint32_t np = (uint32_t)(v.size() / 2);
+            std::memcpy(p, &np, 4); p += 4;
+            if (!v.empty()) { std::memcpy(p, v.data(), v.size() * 8); p += v.size() * 8; }
+        }
+        if (out_len) *out_len = (int)total;
+        return buf;
+    } catch (...) { return nullptr; }
+}
+
+
 EXPORT void psvg_free(char* p){ std::free(p); }
