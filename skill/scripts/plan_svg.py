@@ -871,18 +871,26 @@ def _triangulate(poly):
 def _clip_geoms(root):
     out = {}
     for el in root.iter():
-        if _local(el.tag) in ("clipPath", "mask") and el.get("id"):
-            polys = []
-            for ch in list(el):
+        if _local(el.tag) not in ("clipPath", "mask") or not el.get("id"):
+            continue
+        polys = []
+        def walk(node, parent):
+            for ch in list(node):
                 tag = _local(ch.tag)
-                if tag == "path":
+                m = _mat_mul(parent, _parse_transform(ch.get("transform")))
+                if tag in ("g",):
+                    walk(ch, m)
+                elif tag == "path":
                     for sub in _parse_d_subpaths(ch.get("d", "")):
-                        if len(sub) >= 3: polys.append(sub)
+                        if len(sub) >= 3:
+                            polys.append([[*_mat_apply(m, q[0], q[1])] for q in sub])
                 elif tag in ("rect", "circle", "ellipse", "polygon"):
                     q = _shape_points(tag, ch.attrib)
-                    if len(q) >= 3: polys.append(q)
-            if polys:
-                out[el.get("id")] = polys
+                    if len(q) >= 3:
+                        polys.append([[*_mat_apply(m, qq[0], qq[1])] for qq in q])
+        walk(el, _parse_transform(el.get("transform")))
+        if polys:
+            out[el.get("id")] = polys
     return out
 
 def _load_css(root, base_dir=None):
@@ -1123,7 +1131,7 @@ def needs_python_parser(svg_text):
         return True
     if 'fill-rule="evenodd"' in svg_text:
         return True
-    if "<mask" in svg_text or "mask=\"url(" in svg_text:
+    if "<mask" in svg_text or "mask=\"url(" in svg_text or "<clipPath" in svg_text or "clip-path=" in svg_text:
         return True
     if "<line" in svg_text or re.search(r"<rect[^>]*\brx\s*=", svg_text):
         return True
