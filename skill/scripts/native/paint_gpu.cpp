@@ -344,10 +344,15 @@ void cs_over(uint3 dt : SV_DispatchThreadID) {
                     float2 q = float2((float)x + 0.5f, (float)y + 0.5f);
                     int gmode = (int)gradmeta[7];
                     float t;
-                    if (gmode == 1) {
+                    if (gmode == 1 || gmode == 2) {
                         float cx = gradmeta[8], cy = gradmeta[9], rr = max(1e-6f, gradmeta[10]);
                         float fx = gradmeta[11], fy = gradmeta[12];
-                        float2 d = q - float2(fx, fy);
+                        float2 qq = q;
+                        if (gmode == 2) {
+                            qq = float2(gradmeta[13] * q.x + gradmeta[15] * q.y + gradmeta[17],
+                                        gradmeta[14] * q.x + gradmeta[16] * q.y + gradmeta[18]);
+                        }
+                        float2 d = qq - float2(fx, fy);
                         float2 D = float2(cx - fx, cy - fy);
                         float A = dot(D, D) - rr * rr;
                         float B = -2.0f * dot(d, D);
@@ -427,10 +432,15 @@ void cs_fill(uint3 dt : SV_DispatchThreadID) {
     if (use_fill_grad && fill_ns >= 2) {
         float t;
         int fmode = (int)fillmeta[9];
-        if (fmode == 1) {
+        if (fmode == 1 || fmode == 2) {
             float cx = fillmeta[10], cy = fillmeta[11], rr = max(1e-6f, fillmeta[12]);
             float fx = fillmeta[13], fy = fillmeta[14];
-            float2 d = q - float2(fx, fy);
+            float2 qq = q;
+            if (fmode == 2) {
+                qq = float2(fillmeta[15] * q.x + fillmeta[17] * q.y + fillmeta[19],
+                            fillmeta[16] * q.x + fillmeta[18] * q.y + fillmeta[20]);
+            }
+            float2 d = qq - float2(fx, fy);
             float2 D = float2(cx - fx, cy - fy);
             float A = dot(D, D) - rr * rr;
             float B = -2.0f * dot(d, D);
@@ -682,9 +692,9 @@ EXPORT void* pg_create(int w, int h) {
     }
     g->fillPts = make_buf(g->dev, npix * 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->fillStops = make_buf(g->dev, 320 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
-    g->fillMeta = make_buf(g->dev, 16 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillMeta = make_buf(g->dev, 24 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->gradStops = make_buf(g->dev, 64 * 5 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
-    g->gradMeta = make_buf(g->dev, 16 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->gradMeta = make_buf(g->dev, 24 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     if (g->fillPts) {
         D3D11_SHADER_RESOURCE_VIEW_DESC fs{};
         fs.Format = DXGI_FORMAT_UNKNOWN; fs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; fs.Buffer.NumElements = npix;
@@ -697,7 +707,7 @@ EXPORT void* pg_create(int w, int h) {
     }
     if (g->fillMeta) {
         D3D11_SHADER_RESOURCE_VIEW_DESC ms{};
-        ms.Format = DXGI_FORMAT_UNKNOWN; ms.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ms.Buffer.NumElements = 16;
+        ms.Format = DXGI_FORMAT_UNKNOWN; ms.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ms.Buffer.NumElements = 24;
         g->dev->CreateShaderResourceView(g->fillMeta, &ms, &g->fillMetaSrv);
     }
     if (g->gradStops) {
@@ -707,7 +717,7 @@ EXPORT void* pg_create(int w, int h) {
     }
     if (g->gradMeta) {
         D3D11_SHADER_RESOURCE_VIEW_DESC gm{};
-        gm.Format = DXGI_FORMAT_UNKNOWN; gm.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; gm.Buffer.NumElements = 16;
+        gm.Format = DXGI_FORMAT_UNKNOWN; gm.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; gm.Buffer.NumElements = 24;
         g->dev->CreateShaderResourceView(g->gradMeta, &gm, &g->gradMetaSrv);
     }
     g->dummy = make_buf(g->dev, 16, 16, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
@@ -1006,6 +1016,7 @@ static int g_grad_n = 0;
 static float g_grad_x1 = 0, g_grad_y1 = 0, g_grad_x2 = 1, g_grad_y2 = 0;
 static int g_grad_spread = 0;
 static int g_grad_mode = 0;
+static float g_grad_m[6] = {0,0,0,0,0,0};
 static float g_grad_cx = 0, g_grad_cy = 0, g_grad_r = 1, g_grad_fx = 0, g_grad_fy = 0;
 
 EXPORT void pg_set_stroke_gradient(const float* stops, int ns, float x1, float y1, float x2, float y2) {
@@ -1029,6 +1040,13 @@ EXPORT void pg_set_stroke_gradient_radial(const float* stops, int ns, float cx, 
     g_grad_mode = 1; g_grad_cx = cx; g_grad_cy = cy; g_grad_r = r; g_grad_fx = fx; g_grad_fy = fy; g_grad_spread = spread;
 }
 
+EXPORT void pg_set_stroke_gradient_radial_xform(const float* stops, int ns, float cx, float cy, float r, float fx, float fy,
+                                                 float ma, float mb, float mc, float md, float me, float mf, int spread) {
+    pg_set_stroke_gradient(stops, ns, 0, 0, 1, 0);
+    g_grad_mode = 2; g_grad_cx = cx; g_grad_cy = cy; g_grad_r = r; g_grad_fx = fx; g_grad_fy = fy; g_grad_spread = spread;
+    g_grad_m[0]=ma; g_grad_m[1]=mb; g_grad_m[2]=mc; g_grad_m[3]=md; g_grad_m[4]=me; g_grad_m[5]=mf;
+}
+
 EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs,
                            int n_strokes, const float* params, const int* rids) {
     Gpu* g = (Gpu*)p;
@@ -1038,7 +1056,9 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
     if (layer < 0 || layer >= (int)g->layers.size()) return 0;
     Layer& L = g->layers[layer];
     if (g->gradStops && g->gradMeta) {
-        float gm[13] = { g_grad_n >= 2 ? 1.0f : 0.0f, (float)g_grad_n, g_grad_x1, g_grad_y1, g_grad_x2, g_grad_y2, (float)g_grad_spread, (float)g_grad_mode, g_grad_cx, g_grad_cy, g_grad_r, g_grad_fx, g_grad_fy };
+        float gm[19] = { g_grad_n >= 2 ? 1.0f : 0.0f, (float)g_grad_n, g_grad_x1, g_grad_y1, g_grad_x2, g_grad_y2,
+                         (float)g_grad_spread, (float)g_grad_mode, g_grad_cx, g_grad_cy, g_grad_r, g_grad_fx, g_grad_fy,
+                         g_grad_m[0], g_grad_m[1], g_grad_m[2], g_grad_m[3], g_grad_m[4], g_grad_m[5] };
         g->ctx->UpdateSubresource(g->gradMeta, 0, nullptr, gm, 0, 0);
         if (g_grad_n >= 2) g->ctx->UpdateSubresource(g->gradStops, 0, nullptr, g_grad_stops.data(), 0, 0);
     }
@@ -1343,7 +1363,8 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
     float one[5] = {0, 0, 0, 0, 1};
     if (!stops || ns < 1) { stops = one; ns = 1; }
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
-    float meta[15] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread, 0, 0, 0, 0, 0, 0};
+    float meta[21] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread, 0,
+                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
     Params cp{}; cp.W = g->W; cp.H = g->H;
     cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
@@ -1433,7 +1454,40 @@ EXPORT int pg_fill_radial_polygon_spread(void* p, int idx, const float* pts, int
     if ((UINT)n > npix || ns > 64) return 0;
     g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
-    float meta[15] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 1.0f, cx, cy, r, fx, fy};
+    float meta[21] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 1.0f, cx, cy, r, fx, fy,
+                      0, 0, 0, 0, 0, 0};
+    g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
+    Params cp{}; cp.W = g->W; cp.H = g->H;
+    cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
+    cp.opacity = a;
+    g->ctx->UpdateSubresource(g->cb, 0, nullptr, &cp, 0, 0);
+    ID3D11UnorderedAccessView* uav = g->layers[idx].uav;
+    ID3D11ShaderResourceView* srvs[3] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv };
+    g->ctx->CSSetShader(g->cs_fill, nullptr, 0);
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
+    g->ctx->CSSetShaderResources(8, 3, srvs);
+    g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
+    g->ctx->Dispatch((npix + 255) / 256, 1, 1);
+    ID3D11UnorderedAccessView* none = nullptr;
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
+    ID3D11ShaderResourceView* no[3] = { nullptr, nullptr, nullptr };
+    g->ctx->CSSetShaderResources(8, 3, no);
+    g->ctx->CSSetShader(nullptr, nullptr, 0);
+    return 1;
+}
+
+EXPORT int pg_fill_radial_xform(void* p, int idx, const float* pts, int n,
+                                  const float* stops, int ns, float cx, float cy, float r,
+                                  float fx, float fy, float ma, float mb, float mc, float md,
+                                  float me, float mf, float a, int spread) {
+    Gpu* g = (Gpu*)p;
+    if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillPts || !g->fillStops || !g->fillMeta) return 0;
+    UINT npix = (UINT)g->W * (UINT)g->H;
+    if ((UINT)n > npix || ns > 64) return 0;
+    g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
+    g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
+    float meta[21] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 2.0f,
+                      cx, cy, r, fx, fy, ma, mb, mc, md, me, mf};
     g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
     Params cp{}; cp.W = g->W; cp.H = g->H;
     cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;

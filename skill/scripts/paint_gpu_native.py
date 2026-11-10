@@ -3,7 +3,7 @@ import ctypes
 import os
 import time
 import numpy as np
-from gradient_xform import apply_linear as _grad_xform
+from gradient_xform import apply_linear as _grad_xform, radial_matrix as _radial_matrix
 
 import paint_native
 
@@ -38,8 +38,10 @@ def load():
     lib.pg_fill_gradient_polygon.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5
     lib.pg_fill_gradient_polygon_spread.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5 + [ctypes.c_int]
     lib.pg_fill_radial_polygon_spread.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 6 + [ctypes.c_int]
+    lib.pg_fill_radial_xform.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 11 + [ctypes.c_float, ctypes.c_int]
     lib.pg_set_stroke_gradient_spread.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_int]
     lib.pg_set_stroke_gradient_radial.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5 + [ctypes.c_int]
+    lib.pg_set_stroke_gradient_radial_xform.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 11 + [ctypes.c_int]
     lib.pg_set_stroke_gradient.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4
     lib.pg_apply_layer_mask.restype = ctypes.c_int
     lib.pg_apply_layer_mask.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int]
@@ -183,13 +185,19 @@ class GpuPainter:
             x1, y1, x2, y2 = tr
         sp = paint_native._spread(paint)
         if paint.get("type") == "radial":
-            cx, cy = coord("cx", 0.5), coord("cy", 0.5)
-            rv = paint.get("r", 0.5)
-            rq = (float(rv[:-1]) / 100.0) if isinstance(rv, str) and rv.endswith("%") else float(rv)
-            rr = (maxx - minx) * rq if units == "objectBoundingBox" else rq
-            fx, fy = coord("fx", "50%"), coord("fy", "50%")
-            self._lib.pg_set_stroke_gradient_radial(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
-                                                    cx, cy, max(1e-6, rr), fx, fy, sp)
+            mat = _radial_matrix(paint, (minx, miny, maxx, maxy))
+            if mat:
+                cx, cy, rr, fx, fy = paint_native._radial_raw(paint)
+                self._lib.pg_set_stroke_gradient_radial_xform(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                              cx, cy, rr, fx, fy, *mat, sp)
+            else:
+                cx, cy = coord("cx", 0.5), coord("cy", 0.5)
+                rv = paint.get("r", 0.5)
+                rq = (float(rv[:-1]) / 100.0) if isinstance(rv, str) and rv.endswith("%") else float(rv)
+                rr = (maxx - minx) * rq if units == "objectBoundingBox" else rq
+                fx, fy = coord("fx", "50%"), coord("fy", "50%")
+                self._lib.pg_set_stroke_gradient_radial(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                        cx, cy, max(1e-6, rr), fx, fy, sp)
         elif sp:
             self._lib.pg_set_stroke_gradient_spread(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2, sp)
         else:
@@ -260,6 +268,12 @@ class GpuPainter:
             x1, y1, x2, y2 = tr
         sp = paint_native._spread(paint)
         if paint.get("type") == "radial":
+            mat = _radial_matrix(paint, (minx, miny, maxx, maxy))
+            if mat:
+                cx, cy, rr, fx, fy = paint_native._radial_raw(paint)
+                return self._lib.pg_fill_radial_xform(self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+                                                       arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                       cx, cy, rr, fx, fy, *mat, float(opacity), sp)
             cx, cy = coord("cx", 0.5), coord("cy", 0.5)
             rv = paint.get("r", 0.5)
             rq = (float(rv[:-1]) / 100.0) if isinstance(rv, str) and rv.endswith("%") else float(rv)
