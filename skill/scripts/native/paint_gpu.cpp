@@ -34,6 +34,7 @@ struct Params {
     uint use_color;
     int cos_off; int pad4;
     uint seed; float cpad1;
+    uint fill_n, fill_ns; int use_fill_grad; float fx1, fy1, fx2, fy2;
 };
 cbuffer P : register(b0) { Params p; };
 StructuredBuffer<float> lutbuf : register(t3);
@@ -60,6 +61,8 @@ StructuredBuffer<float> tips : register(t2);
 RWStructuredBuffer<uint> scratch : register(u0);
 RWStructuredBuffer<float4> layer : register(u1);
 StructuredBuffer<float> maskbuf : register(t7);
+StructuredBuffer<float2> fillpts : register(t8);
+StructuredBuffer<float> fillstops : register(t9);
 
 inline void splat_key(uint idx, float a, uint k) {
     uint a16 = (uint)(saturate(a) * 65535.0f + 0.5f);
@@ -359,6 +362,44 @@ void cs_mask(uint3 dt : SV_DispatchThreadID) {
     if (idx >= npix) return;
     layer[idx] *= maskbuf[idx];
 }
+
+[numthreads(256,1,1)]
+void cs_fill(uint3 dt : SV_DispatchThreadID) {
+    uint idx = dt.x;
+    uint npix = p.W * p.H;
+    if (idx >= npix) return;
+    int x = (int)(idx % p.W);
+    int y = (int)(idx / p.W);
+    float2 q = float2((float)x + 0.5f, (float)y + 0.5f);
+    bool inside = false;
+    for (uint i = 0, j = p.fill_n - 1; i < p.fill_n; j = i++) {
+        float2 a = fillpts[i], b = fillpts[j];
+        if (((a.y > q.y) != (b.y > q.y)) && (q.x < (b.x - a.x) * (q.y - a.y) / max(1e-9f, b.y - a.y) + a.x))
+            inside = !inside;
+    }
+    if (!inside) return;
+    float3 col = p.color.rgb;
+    float ca = 1.0f;
+    if (p.use_fill_grad && p.fill_ns >= 2) {
+        float2 g = float2(p.fx2 - p.fx1, p.fy2 - p.fy1);
+        float gl = dot(g, g);
+        float t = gl > 1e-9f ? dot(q - float2(p.fx1, p.fy1), g) / gl : 0.0f;
+        t = saturate(t);
+        uint k0 = 0;
+        while (k0 + 1 < p.fill_ns && fillstops[(k0 + 1) * 5] < t) ++k0;
+        uint k1 = min(p.fill_ns - 1, k0 + 1);
+        float o0 = fillstops[k0 * 5], o1 = fillstops[k1 * 5];
+        float u = o1 > o0 ? (t - o0) / (o1 - o0) : 0.0f;
+        col = float3(lerp(fillstops[k0*5+1], fillstops[k1*5+1], u),
+                     lerp(fillstops[k0*5+2], fillstops[k1*5+2], u),
+                     lerp(fillstops[k0*5+3], fillstops[k1*5+3], u));
+        ca = lerp(fillstops[k0*5+4], fillstops[k1*5+4], u);
+    }
+    float sa = p.opacity * ca;
+    float4 d = layer[idx];
+    float inv = 1.0f - sa;
+    layer[idx] = float4(col * sa + d.rgb * inv, sa + d.a * inv);
+}
 )HLSL";
 
 enum { P_ROUND_SOFT = 0, P_ROUND_HARD, P_FLAT, P_DRY, P_AIRBRUSH, P_LINER, P_CHALK, P_SPONGE, P_BRISTLE, P_MARKER };
@@ -410,6 +451,7 @@ struct Params {
     unsigned int use_color;
     int cos_off, pad4;
     uint32_t seed; float cpad1;
+    unsigned int fill_n, fill_ns; int use_fill_grad; float fx1, fy1, fx2, fy2;
     unsigned int bs, bo;   // host only
 };
 
@@ -431,6 +473,11 @@ struct Gpu {
     ID3D11UnorderedAccessView* acc8Uav = nullptr;
     ID3D11ComputeShader* cs_final = nullptr;
     ID3D11ComputeShader* cs_mask = nullptr;
+    ID3D11ComputeShader* cs_fill = nullptr;
+    ID3D11Buffer* fillPts = nullptr;
+    ID3D11ShaderResourceView* fillPtsSrv = nullptr;
+    ID3D11Buffer* fillStops = nullptr;
+    ID3D11ShaderResourceView* fillStopsSrv = nullptr;
     ID3D11Buffer* maskBuf = nullptr;
     ID3D11ShaderResourceView* maskSrv = nullptr;
     ID3D11Buffer* snap = nullptr;
@@ -508,7 +555,8 @@ EXPORT void* pg_create(int w, int h) {
     g->cs_comp = compile_cs(g->dev, kHLSL, "cs_composite");
     g->cs_final = compile_cs(g->dev, kHLSL, "cs_final");
     g->cs_mask = compile_cs(g->dev, kHLSL, "cs_mask");
-    if (!g->cs_splat || !g->cs_over || !g->cs_comp || !g->cs_final || !g->cs_mask) { delete g; return nullptr; }
+    g->cs_fill = compile_cs(g->dev, kHLSL, "cs_fill");
+    if (!g->cs_splat || !g->cs_over || !g->cs_comp || !g->cs_final || !g->cs_mask || !g->cs_fill) { delete g; return nullptr; }
     {
         static std::vector<float> az;
         if (az.size() < (size_t)w * h * 4) az.assign((size_t)w * h * 4, 0.0f);
@@ -560,6 +608,18 @@ EXPORT void* pg_create(int w, int h) {
         msd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
         msd.Buffer.NumElements = npix;
         g->dev->CreateShaderResourceView(g->maskBuf, &msd, &g->maskSrv);
+    }
+    g->fillPts = make_buf(g->dev, npix * 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillStops = make_buf(g->dev, 320 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    if (g->fillPts) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC fs{};
+        fs.Format = DXGI_FORMAT_UNKNOWN; fs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; fs.Buffer.NumElements = npix;
+        g->dev->CreateShaderResourceView(g->fillPts, &fs, &g->fillPtsSrv);
+    }
+    if (g->fillStops) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC ss{};
+        ss.Format = DXGI_FORMAT_UNKNOWN; ss.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ss.Buffer.NumElements = 320;
+        g->dev->CreateShaderResourceView(g->fillStops, &ss, &g->fillStopsSrv);
     }
     g->dummy = make_buf(g->dev, 16, 16, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
