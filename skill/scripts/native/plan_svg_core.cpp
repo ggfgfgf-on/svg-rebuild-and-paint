@@ -652,6 +652,20 @@ static std::map<std::string,ClipSet> load_clips(pugi::xml_node root){
 }
 static std::string clip_url(const std::string& v){ if(v.rfind("url(#",0)==0){size_t e=v.find(')',5);return v.substr(5,e-5);} return ""; }
 
+static std::string b64enc(const unsigned char* d, size_t n) {
+    static const char* T = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string o; o.reserve((n + 2) / 3 * 4);
+    for (size_t i = 0; i < n; i += 3) {
+        unsigned v = (unsigned)d[i] << 16;
+        if (i + 1 < n) v |= (unsigned)d[i+1] << 8;
+        if (i + 2 < n) v |= (unsigned)d[i+2];
+        o += T[(v >> 18) & 63]; o += T[(v >> 12) & 63];
+        o += i + 1 < n ? T[(v >> 6) & 63] : '=';
+        o += i + 2 < n ? T[v & 63] : '=';
+    }
+    return o;
+}
+
 static std::string plan_from_svg(const std::string& input) {
     pugi::xml_document doc;
     if (!doc.load_buffer(input.c_str(), input.size())) return "ERR: XML parse failed";
@@ -749,6 +763,37 @@ static std::string plan_from_svg(const std::string& input) {
                     continue;
                 }
                 walk(ch,n,m,my);
+            } else if (tag=="image") {
+                std::string href=at("href"); if(href.empty())href=std::string(ch.attribute("{http://www.w3.org/1999/xlink}href").as_string());
+                if(href.empty())continue;
+                std::string mime="image/png", data;
+                if(href.rfind("data:",0)==0){
+                    size_t comma=href.find(',');
+                    if(comma==std::string::npos)continue;
+                    std::string head=href.substr(5,comma-5);
+                    size_t semi=head.find(';');
+                    mime=head.substr(0,semi==std::string::npos?head.size():semi);
+                    data=href.substr(comma+1);
+                } else {
+                    if(g_base_dir.empty())continue;
+                    std::string path=g_base_dir+"/"+href;
+                    std::ifstream f(path,std::ios::binary); if(!f)continue;
+                    std::string raw((std::istreambuf_iterator<char>(f)),std::istreambuf_iterator<char>());
+                    data=b64enc((const unsigned char*)raw.data(),raw.size());
+                    if(path.size()>4&&(path.substr(path.size()-4)==".jpg"||path.size()>5&&path.substr(path.size()-5)==".jpeg"))mime="image/jpeg";
+                }
+                std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
+                add_layer(names,blends,idx,layer,"");
+                double x=std::atof(at("x").c_str()), y=std::atof(at("y").c_str());
+                double w=std::atof(at("width").c_str()), h=std::atof(at("height").c_str());
+                double op=at("opacity").empty()?1.0:std::atof(at("opacity").c_str());
+                std::string sj="{\"layer\":\""; jesc_to(sj,layer);
+                sj += "\",\"preset\":\"image\",\"x\":"; sj += fmt(x); sj += ",\"y\":"; sj += fmt(y);
+                sj += ",\"width\":"; sj += fmt(w); sj += ",\"height\":"; sj += fmt(h);
+                sj += ",\"opacity\":"; sj += fmt(op);
+                sj += ",\"image\":{\"encoding\":\"png-base64\",\"mime\":\""; jesc_to(sj,mime);
+                sj += "\",\"data\":\""; jesc_to(sj,data); sj += "\"}}";
+                strokes.push_back(sj);
             } else if (tag=="path") {
                 std::string layer=at("data-layer"); if(layer.empty())layer=inherit.empty()?"layer":inherit;
                 add_layer(names,blends,idx,layer,"");
