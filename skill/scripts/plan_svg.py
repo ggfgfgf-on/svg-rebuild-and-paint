@@ -2118,9 +2118,26 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
     return {"canvas": [w, h], "layers": layers, "strokes": strokes}
 
 
+def _streamable_svg(svg_text):
+    s = str(svg_text)
+    if any(k in s for k in ("<style", "<link", "<defs", "<use", "<mask", "<clipPath",
+                            "<pattern", "<filter", "<image", "<text",
+                            "clip-path=", "mask=\"url(", "<linearGradient", "<radialGradient")):
+        return False
+    return any(k in s for k in ("<path", "<rect", "<circle", "<ellipse", "<polygon", "<polyline", "<line"))
+
+
 def svg_to_plan(svg_text, base_dir=None, pseudo_mode="ignore", allow_external=False, max_depth=8):
     if _native is not None and _native.available() and not needs_python_parser(svg_text) and base_dir is None:
         return _native.svg_to_plan(svg_text)
+    if _streamable_svg(svg_text):
+        try:
+            from svg_stream import stream_svg_to_plan
+            doc = stream_svg_to_plan(svg_text)
+            if doc and doc.get("strokes"):
+                return doc
+        except Exception:
+            pass
     return _svg_to_plan_py(svg_text, base_dir=base_dir, pseudo_mode=pseudo_mode,
                            allow_external=allow_external, max_depth=max_depth)
 

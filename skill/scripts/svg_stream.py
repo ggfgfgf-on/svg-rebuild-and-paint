@@ -18,9 +18,46 @@ _ATTR = re.compile(r"""([A-Za-z_][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+
 class SVGTokenizer:
     def __init__(self):
         self.buf = ""
+        self._big = None
+        self._big_quote = None
+
+    def _stash_big(self):
+        self._big = [self.buf]
+        self.buf = ""
+        q = None
+        for c in self._big[0]:
+            if q:
+                if c == q:
+                    q = None
+            elif c in "\"'":
+                q = c
+        self._big_quote = q
+
+    def _scan_gt(self, chunk):
+        q = self._big_quote
+        for i, c in enumerate(chunk):
+            if q:
+                if c == q:
+                    q = None
+            elif c in "\"'":
+                q = c
+            elif c == ">":
+                self._big_quote = q
+                return i
+        self._big_quote = q
+        return -1
 
     def feed(self, chunk):
-        self.buf += chunk
+        if self._big is not None:
+            end = self._scan_gt(chunk)
+            self._big.append(chunk)
+            if end < 0:
+                return
+            self.buf = "".join(self._big)
+            self._big = None
+            self._big_quote = None
+        else:
+            self.buf += chunk
         while self.buf:
             lt = self.buf.find("<")
             if lt < 0:
@@ -37,31 +74,31 @@ class SVGTokenizer:
             if self.buf.startswith("<!--"):
                 end = self.buf.find("-->")
                 if end < 0:
-                    return
+                    self._stash_big(); return
                 self.buf = self.buf[end + 3:]
                 continue
             if self.buf.startswith("<![CDATA["):
                 end = self.buf.find("]]>")
                 if end < 0:
-                    return
+                    self._stash_big(); return
                 yield ("text", self.buf[9:end])
                 self.buf = self.buf[end + 3:]
                 continue
             if self.buf.startswith("<?"):
                 end = self.buf.find("?>")
                 if end < 0:
-                    return
+                    self._stash_big(); return
                 self.buf = self.buf[end + 2:]
                 continue
             if self.buf.startswith("<!"):
                 end = self._tag_end(self.buf, 2)
                 if end < 0:
-                    return
+                    self._stash_big(); return
                 self.buf = self.buf[end + 1:]
                 continue
             end = self._tag_end(self.buf, 1)
             if end < 0:
-                return
+                self._stash_big(); return
             raw = self.buf[1:end]
             self.buf = self.buf[end + 1:]
             if raw.startswith("/"):
@@ -333,19 +370,39 @@ def stream_svg_to_plan(source, chunk_size=65536):
                 subs = [q for q in _ps._parse_d_subpaths(a.get("d", "")) if len(q) >= 3]
             else:
                 subs = [pts] if pts and len(pts) >= 3 else []
+            subs = [tpts(q) for q in subs if q]
+            holes = []
+            if str(a.get("fill-rule", "")) == "evenodd" and len(subs) > 1:
+                def area(q):
+                    return abs(sum(q[i][0]*q[(i+1) % len(q)][1] - q[(i+1) % len(q)][0]*q[i][1] for i in range(len(q))))
+                items = [(area(q), q) for q in subs]
+                items.sort(key=lambda x: x[0], reverse=True)
+                total = sum(x[0] for x in items)
+                outer_a, outer = items[0]
+                if total > 0 and outer_a > total * 0.5:
+                    def bbox(q):
+                        xs = [p[0] for p in q]; ys = [p[1] for p in q]
+                        return (min(xs), min(ys), max(xs), max(ys))
+                    ob = bbox(outer)
+                    for ar, q in items[1:]:
+                        if ar >= outer_a:
+                            continue
+                        b = bbox(q)
+                        if b[0] >= ob[0] and b[1] >= ob[1] and b[2] <= ob[2] and b[3] <= ob[3]:
+                            holes.append(q)
+                    subs = [outer]
+            pt = paint_for(fill)
+            pat = pattern_for(fill)
             for q in subs:
-                if not q:
-                    continue
-                q = tpts(q)
                 st = {"layer": layer, "preset": "fill",
                       "opacity": float(a.get("fill-opacity", a.get("opacity", 1.0)) or 1.0),
                       "color": _ps._color(fill, (0, 0, 0)),
                       "points": [[float(p[0]), float(p[1]), 1.0] for p in q],
                       "fill_rule": a.get("fill-rule", "nonzero")}
-                pt = paint_for(fill)
+                if holes:
+                    st["holes"] = [[[float(p[0]), float(p[1]), 1.0] for p in h] for h in holes]
                 if pt:
                     st["paint"] = pt
-                pat = pattern_for(fill)
                 if pat:
                     st["pattern"] = pat
                 strokes.append(st)

@@ -366,6 +366,24 @@ def test_stream_svg_use():
     assert d["strokes"][0]["points"][0][:2] == [30.0, 10.0]
 
 
+def test_stream_evenodd_holes():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<path fill="#f00" fill-rule="evenodd" '
+           'd="M0 0 L100 0 L100 100 L0 100 Z M25 25 L75 25 L75 75 L25 75 Z"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert len(d["strokes"]) == 1
+    assert len(d["strokes"][0]["holes"]) == 1
+
+
+def test_stream_evenodd_disjoint():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<path fill="#0f0" fill-rule="evenodd" '
+           'd="M0 0 L40 0 L40 40 L0 40 Z M60 60 L100 60 L100 100 L60 100 Z"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert len(d["strokes"]) == 2
+    assert all(not st.get("holes") for st in d["strokes"])
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -386,6 +404,8 @@ if __name__ == "__main__":
     test_pattern_roundtrip()
     test_stream_svg_basic()
     test_stream_svg_use()
+    test_stream_evenodd_holes()
+    test_stream_evenodd_disjoint()
     test_filter_rasterized()
     test_radial_transform_roundtrip()
     test_gradient_paint_roundtrip()
