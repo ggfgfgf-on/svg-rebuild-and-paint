@@ -802,7 +802,7 @@ static std::string plan_from_svg(const std::string& input) {
                     continue;
                 }
                 walk(ch,n,m,my);
-            } else if (tag=="image") {
+            } else if (tag=="image") {            } else if (tag=="image") {
                 std::string href=at("href"); if(href.empty())href=std::string(ch.attribute("{http://www.w3.org/1999/xlink}href").as_string());
                 if(href.empty())continue;
                 std::string mime="image/png", data;
