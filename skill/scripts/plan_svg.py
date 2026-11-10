@@ -114,7 +114,14 @@ def _paint_def(paint, gid):
         attrs = 'x1="%s" y1="%s" x2="%s" y2="%s"' % (paint.get("x1", "0%"), paint.get("y1", "0%"),
                                                        paint.get("x2", "100%"), paint.get("y2", "0%"))
         tag = "linearGradient"
-    return '<%s id="%s" gradientUnits="%s" %s>%s</%s>' % (tag, gid, units, attrs, "".join(stops), tag)
+    src = ((paint.get("source") or {}).get("gradient") or {}).get("attrs") or {}
+    extra = ""
+    for k in ("gradientTransform", "spreadMethod", "fx", "fy"):
+        if k in src and k not in attrs:
+            extra += ' %s="%s"' % (k, src[k])
+    if kind == "radial" and "fx" not in attrs and "fx" in src:
+        extra += ' fx="%s" fy="%s"' % (src.get("fx", "50%"), src.get("fy", "50%"))
+    return '<%s id="%s" gradientUnits="%s" %s%s>%s</%s>' % (tag, gid, units, attrs, extra, "".join(stops), tag)
 
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
@@ -878,20 +885,47 @@ def _clip_geoms(root):
                 out[el.get("id")] = polys
     return out
 
-def _load_css(root):
+def _load_css(root, base_dir=None):
     css = {}
+    texts = []
     for el in root.iter():
         if _local(el.tag) == "style":
-            for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", el.text or ""):
-                d = _style_decls(body)
-                for one in sel.split(","):
-                    one = one.strip()
-                    if one:
-                        css.setdefault(one, {}).update(d)
+            texts.append(el.text or "")
+        elif _local(el.tag) == "link" and "stylesheet" in str(el.get("rel", "")):
+            href = el.get("href") or ""
+            if not href:
+                continue
+            if "://" in href or href.startswith("data:"):
+                raise ValueError("external stylesheet is not allowed: %s" % href)
+            if base_dir is None:
+                raise ValueError("external stylesheet requires base_dir: %s" % href)
+            path = (Path(base_dir) / href).resolve()
+            try:
+                path.relative_to(Path(base_dir).resolve())
+            except Exception:
+                raise ValueError("stylesheet escapes base_dir: %s" % href)
+            texts.append(path.read_text(encoding="utf-8"))
+    for text in texts:
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text or ""):
+            d = _style_decls(body)
+            for one in sel.split(","):
+                one = one.strip()
+                if one:
+                    css.setdefault(one, {}).update(d)
     return css
 
 
-def _selector_match(sel, ch):
+def _selector_match(sel, ch, pseudo_mode="ignore"):
+    import re as _re
+    m = _re.search(r":([a-z-]+)", sel)
+    if m:
+        want = m.group(1)
+        if pseudo_mode == "ignore":
+            pass
+        elif pseudo_mode == want:
+            sel = sel[:m.start()] + sel[m.end():]
+        else:
+            return False
     if sel.endswith("*"):
         return True
     if sel.startswith("."):
@@ -901,10 +935,10 @@ def _selector_match(sel, ch):
     return _local(ch.tag) == sel if hasattr(ch, "tag") else False
 
 
-def _resolved_attrs(ch, css, grads, paints=None, inh=None):
+def _resolved_attrs(ch, css, grads, paints=None, inh=None, pseudo_mode="ignore"):
     a = dict(ch.attrib)
     for sel, d in css.items():
-        if _selector_match(sel, a):
+        if _selector_match(sel, a, pseudo_mode):
             for k, v in d.items():
                 a.setdefault(k, v)
     for k, v in _style_decls(a.get("style", "")).items():
@@ -1052,6 +1086,8 @@ def _gradient_paints(root):
         else:
             for k in ("cx", "cy", "r", "fx", "fy"):
                 p[k] = el.get(k, "50%" if k in ("cx", "cy") else "50%")
+        p["source"] = {"gradient": {"tag": tag, "attrs": dict(el.attrib),
+                                   "stops": [dict(st.attrib) for st in list(el) if _local(st.tag) == "stop"]}}
         out[el.get("id")] = p
     return out
 
@@ -1077,13 +1113,13 @@ def needs_python_parser(svg_text):
         return True
     return False
 
-def _svg_to_plan_py(svg_text):
+def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore"):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
     root = ET.fromstring(svg_text)
     vb = root.attrib.get("viewBox", "0 0 1200 900").replace(",", " ").split()
     w, h = (int(float(vb[2])), int(float(vb[3]))) if len(vb) >= 4 else (1200, 900)
     layers, strokes = [], []
-    css = _load_css(root)
+    css = _load_css(root, base_dir)
     grads = _gradient_colors(root)
     paints = _gradient_paints(root)
     masks = _raster_masks(root, w, h)
@@ -1129,14 +1165,39 @@ def _svg_to_plan_py(svg_text):
         active = active or set()
         inh = inh or {}
         tag = _local(ch.tag)
-        a = _resolved_attrs(ch, css, grads, paints, inh)
+        a = _resolved_attrs(ch, css, grads, paints, inh, pseudo_mode)
         if tag == "use":
             href = a.get("{http://www.w3.org/1999/xlink}href") or a.get("href") or ""
-            if href.startswith("#") and href[1:] not in active and href[1:] in by_id:
-                tgt = by_id[href[1:]]
-                m = _mat_mul(parent, _parse_transform(a.get("transform")))
-                m = _mat_mul(m, _mat(1, 0, 0, 1, float(a.get("x", 0) or 0), float(a.get("y", 0) or 0)))
-                visit(tgt, inherited_layer, m, active | {href[1:]}, inh)
+            if href.startswith("#"):
+                key = href[1:]
+                if key not in active and key in by_id:
+                    tgt = by_id[key]
+                    m = _mat_mul(parent, _parse_transform(a.get("transform")))
+                    m = _mat_mul(m, _mat(1, 0, 0, 1, float(a.get("x", 0) or 0), float(a.get("y", 0) or 0)))
+                    visit(tgt, inherited_layer, m, active | {key}, inh)
+                return
+            if href:
+                if "://" in href:
+                    raise ValueError("external use is not allowed: %s" % href)
+                if base_dir is None:
+                    raise ValueError("external use requires base_dir: %s" % href)
+                if "#" not in href:
+                    raise ValueError("external use needs #id: %s" % href)
+                rel, ident = href.split("#", 1)
+                path = (Path(base_dir) / rel).resolve()
+                try:
+                    path.relative_to(Path(base_dir).resolve())
+                except Exception:
+                    raise ValueError("use escapes base_dir: %s" % href)
+                key = (str(path), ident)
+                if key in active:
+                    return
+                ext = ET.fromstring(path.read_text(encoding="utf-8"))
+                target = next((e for e in ext.iter() if e.get("id") == ident), None)
+                if target is not None:
+                    m = _mat_mul(parent, _parse_transform(a.get("transform")))
+                    m = _mat_mul(m, _mat(1, 0, 0, 1, float(a.get("x", 0) or 0), float(a.get("y", 0) or 0)))
+                    visit(target, inherited_layer, m, active | {key}, inh)
             return
         if tag == "g":
             name = a.get("data-name") or a.get("id") or inherited_layer or "layer"
@@ -1213,14 +1274,15 @@ def _svg_to_plan_py(svg_text):
     return {"canvas": [w, h], "layers": layers, "strokes": strokes}
 
 
-def svg_to_plan(svg_text):
-    if _native is not None and _native.available() and not needs_python_parser(svg_text):
+def svg_to_plan(svg_text, base_dir=None, pseudo_mode="ignore"):
+    if _native is not None and _native.available() and not needs_python_parser(svg_text) and base_dir is None:
         return _native.svg_to_plan(svg_text)
-    return _svg_to_plan_py(svg_text)
+    return _svg_to_plan_py(svg_text, base_dir=base_dir, pseudo_mode=pseudo_mode)
 
 
 def load_plan_svg(path):
-    return svg_to_plan(Path(path).read_text(encoding="utf-8"))
+    p = Path(path)
+    return svg_to_plan(p.read_text(encoding="utf-8"), base_dir=p.parent)
 
 
 def dump_plan_svg(plan_path, svg_path, *, filters=True):
