@@ -213,6 +213,25 @@ static std::string svg_from_plan(const std::string& input) {
         auto it = by.find(name);
         if (it != by.end()) for (const Value* sp : it->second) {
             const Value& s = *sp;
+            if (get_str(s, "preset", "") == "text") {
+                out += "<text x=\"" + fmt(get_num(s, "x", 0.0)) + "\" y=\"" + fmt(get_num(s, "y", 0.0)) + "\"";
+                out += " font-family=\""; esc_to(out, get_str(s, "font_family", "Arial"));
+                out += "\" font-size=\"" + fmt(get_num(s, "font_size", 16.0)) + "\"";
+                auto ci = s.FindMember("color");
+                if (ci != s.MemberEnd() && ci->value.IsArray()) out += " fill=\"" + color_hex(ci->value) + "\"";
+                out += " fill-opacity=\"" + fmt(get_num(s, "opacity", 1.0)) + "\"";
+                out += " text-anchor=\""; esc_to(out, get_str(s, "text_anchor", "start")); out += "\"";
+                auto tr = s.FindMember("transform");
+                if (tr != s.MemberEnd() && tr->value.IsArray() && tr->value.Size() == 6) {
+                    out += " transform=\"matrix(";
+                    for (int k = 0; k < 6; ++k) { if (k) out += " "; out += fmt(tr->value[k].GetDouble()); }
+                    out += ")\"";
+                }
+                out += ">";
+                esc_to(out, get_str(s, "text", ""));
+                out += "</text>\n";
+                continue;
+            }
             if (get_str(s, "preset", "") == "image") {
                 auto ii = s.FindMember("image");
                 if (ii != s.MemberEnd() && ii->value.IsObject()) {
