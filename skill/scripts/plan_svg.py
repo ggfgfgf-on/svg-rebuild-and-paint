@@ -600,6 +600,17 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
             pts = st.get("points") or []
             if not pts:
                 continue
+            preset = str(st.get("preset", "round_soft"))
+            pgid = paint_gid.get(id(st))
+            paint_ref = ("url(#%s)" % pgid) if pgid else _rgb(st.get("color"))
+            sm = stroke_mask.get(id(st))
+            pre = ('<g mask="url(#%s)">' % sm) if sm else ""
+            post = "</g>" if sm else ""
+            if preset == "fill":
+                d0 = "M " + " L ".join("%s %s" % (_f(float(q[0])), _f(float(q[1]))) for q in pts) + " Z"
+                out.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer=%s data-preset="fill" data-color="%s"/>' % (
+                    d0, paint_ref, _f(st.get("opacity", 1.0)), st.get("fill_rule", "nonzero"), quoteattr(name), _rgb(st.get("color"))) + post)
+                continue
             size = float(st.get("size", 8.0)); base = size * 0.5
             ps = [(float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)) for p in pts]
             radii = [max(0.3, base * (0.30 + 0.70 * p[2])) for p in ps]
@@ -612,10 +623,10 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
                     seg = _capsule((ps[i-1][0], ps[i-1][1]), (ps[i][0], ps[i][1]), radii[i-1], radii[i])
                     parts.append("M " + " L ".join("%s %s" % (_f(x), _f(y)) for x, y in seg) + " Z")
                 d = " ".join(parts)
-            out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-d-hash="%s"%s/>' %
-                       (d, _rgb(st.get("color")), _f(st.get("opacity", 1.0)), quoteattr(name), quoteattr(str(st.get("preset", "round_soft"))),
+            out.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-d-hash="%s"%s/>' %
+                       (d, paint_ref, _f(st.get("opacity", 1.0)), quoteattr(name), quoteattr(preset),
                         _f(size), _f(st.get("opacity", 1.0)), _f(st.get("hardness", 0.7)), _rgb(st.get("color")), _center_attr(ps), _d_hash(d),
-                        (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else ""))
+                        (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else "") + post)
         out.append("</g>")
     out.append("</svg>")
     return "\n".join(out) + "\n"
