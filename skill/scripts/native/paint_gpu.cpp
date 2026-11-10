@@ -814,6 +814,22 @@ EXPORT int pg_add_layer(void* p) {
 
 EXPORT int pg_layer_count(void* p) { Gpu* g = (Gpu*)p; return g ? (int)g->layers.size() : 0; }
 
+EXPORT int pg_set_layer_rgba(void* p, int idx, const unsigned char* src) {
+    Gpu* g = (Gpu*)p;
+    if (!g || !src || idx < 0 || idx >= (int)g->layers.size()) return 0;
+    size_t n = (size_t)g->W * g->H;
+    std::vector<float> px(n * 4);
+    for (size_t i = 0; i < n; ++i) {
+        float a = src[i*4+3] / 255.0f;
+        px[i*4+0] = src[i*4+0] / 255.0f * a;
+        px[i*4+1] = src[i*4+1] / 255.0f * a;
+        px[i*4+2] = src[i*4+2] / 255.0f * a;
+        px[i*4+3] = a;
+    }
+    g->ctx->UpdateSubresource(g->layers[idx].buf, 0, nullptr, px.data(), 0, 0);
+    return 1;
+}
+
 EXPORT void pg_clear_layer(void* p, int idx, float r, float g_, float b, float a) {
     Gpu* g = (Gpu*)p;
     if (!g || idx < 0 || idx >= (int)g->layers.size()) return;

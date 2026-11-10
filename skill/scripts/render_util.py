@@ -37,10 +37,7 @@ def draw_full(p, cat, doc, w, h, gpu=False, nthreads=8):
 
 
 def _gpu_unsupported(doc):
-    # Overlay objects are rasterized by the CPU path only.
-    for s in doc.get("strokes", []):
-        if str(s.get("preset", "")) in ("image", "text", "pattern") or isinstance(s.get("pattern"), dict):
-            return True
+    # CPU/GPU both support overlay layers (GPU uploads RGBA via set_layer_rgba).
     return False
 
 
