@@ -119,7 +119,7 @@ def _paint_def(paint, gid):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") for x in doc.get("strokes", []))
             and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
@@ -157,6 +157,13 @@ def plan_to_svg(doc, *, filters=False, title=None):
             gid = "mask%d" % i
             mask_gid[i] = gid
             mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+    stroke_mask_gid = {}
+    for st in doc.get("strokes", []):
+        m = st.get("mask")
+        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+            gid = "smask%d" % len(stroke_mask_gid)
+            stroke_mask_gid[id(st)] = gid
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
     for st in doc.get("strokes", []):
         if isinstance(st.get("paint"), dict):
             gid = "paint%d" % len(paint_defs)
@@ -187,8 +194,8 @@ def plan_to_svg(doc, *, filters=False, title=None):
             gid = paint_gid.get(id(s))
             paint_ref = ("url(#%s)" % gid) if gid else _rgb(s.get("color"))
             if preset == "fill":
-                out.append('<path d="%s Z" fill="%s" fill-opacity="%s" fill-rule="nonzero" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
-                           (_path_d(pts), paint_ref, _f(op), _esc(name), _rgb_text(s.get("color")),
+                out.append('<path d="%s Z" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
+                           (_path_d(pts), paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
                             (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))
                 continue
             cap = "butt" if preset in ("flat", "bristle") else "round"
@@ -211,7 +218,11 @@ def plan_to_svg(doc, *, filters=False, title=None):
             fid = _filter_id(hard) if filters else None
             if fid:
                 attrs.append('filter="url(#%s)"' % fid)
-            out.append("<path %s/>" % " ".join(attrs))
+            sg = stroke_mask_gid.get(id(s))
+            if sg:
+                out.append('<g mask="url(#%s)"><path %s/></g>' % (sg, " ".join(attrs)))
+            else:
+                out.append("<path %s/>" % " ".join(attrs))
         out.append("</g>")
     out.append("</svg>")
     return "\n".join(out) + "\n"
@@ -555,12 +566,36 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
         if n not in blends:
             order.append(n); blends[n] = "normal"
         by.setdefault(n, []).append(s)
+    paint_defs = []
+    paint_gid = {}
+    mask_defs = []
+    layer_mask = {}
+    stroke_mask = {}
+    for li, l in enumerate(layers):
+        m = l.get("mask")
+        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+            gid = "lmask%d" % li
+            layer_mask[str(l.get("name", "layer"))] = gid
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+    for st in doc.get("strokes") or []:
+        if isinstance(st.get("paint"), dict):
+            gid = "paint%d" % len(paint_defs)
+            paint_gid[id(st)] = gid
+            paint_defs.append(_paint_def(st["paint"], gid))
+        m = st.get("mask")
+        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+            gid = "smask%d" % len(stroke_mask)
+            stroke_mask[id(st)] = gid
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" data-bridge="plan_svg_outline" shape-rendering="geometricPrecision">' % (w, h, w, h)]
     if title:
         out.append("<title>%s</title>" % escape(str(title)))
+    if paint_defs or mask_defs:
+        out.append("<defs>%s</defs>" % "".join(paint_defs + mask_defs))
     for name in order:
-        out.append('<g data-name=%s data-blend=%s%s>' % (quoteattr(name), quoteattr(blends[name]), ' filter="url(#soft)"' if soft else ""))
+        lm = layer_mask.get(name)
+        out.append('<g data-name=%s data-blend=%s%s%s>' % (quoteattr(name), quoteattr(blends[name]), ' filter="url(#soft)"' if soft else "", (' mask="url(#%s)"' % lm) if lm else ""))
         for st in by.get(name, []):
             pts = st.get("points") or []
             if not pts:
@@ -606,6 +641,8 @@ def _shape_points(tag, a):
     if tag == "ellipse":
         cx, cy, rx, ry = fl("cx"), fl("cy"), fl("rx"), fl("ry")
         return [[cx + rx*math.cos(2*math.pi*k/32), cy + ry*math.sin(2*math.pi*k/32)] for k in range(32)] + [[cx+rx, cy]]
+    if tag == "line":
+        return [[fl("x1"), fl("y1")], [fl("x2"), fl("y2")]]
     if tag == "rect":
         x, y, w, h = fl("x"), fl("y"), fl("width"), fl("height")
         return [[x, y], [x+w, y], [x+w, y+h], [x, y+h], [x, y]]
@@ -800,7 +837,7 @@ def _selector_match(sel, ch):
     return _local(ch.tag) == sel if hasattr(ch, "tag") else False
 
 
-def _resolved_attrs(ch, css, grads, paints=None):
+def _resolved_attrs(ch, css, grads, paints=None, inh=None):
     a = dict(ch.attrib)
     for sel, d in css.items():
         if _selector_match(sel, a):
@@ -808,6 +845,9 @@ def _resolved_attrs(ch, css, grads, paints=None):
                 a.setdefault(k, v)
     for k, v in _style_decls(a.get("style", "")).items():
         a[k] = v
+    if inh:
+        for k, v in inh.items():
+            a.setdefault(k, v)
     for key in ("fill", "stroke"):
         m = re.match(r"url\(#([^)]+)\)", str(a.get(key, "")))
         if not m:
@@ -969,6 +1009,8 @@ def needs_python_parser(svg_text):
         return True
     if "<mask" in svg_text or "mask=\"url(" in svg_text:
         return True
+    if "<line" in svg_text or re.search(r"<rect[^>]*\brx\s*=", svg_text):
+        return True
     return False
 
 def _svg_to_plan_py(svg_text):
@@ -1019,17 +1061,18 @@ def _svg_to_plan_py(svg_text):
                         strokes.append(_stroke_from_attrs(a, name, [[seg[0][0], seg[0][1], pts[i-1][2] if len(pts[i-1]) > 2 else 1.0],
                                                                     [seg[1][0], seg[1][1], pts[i][2] if len(pts[i]) > 2 else 1.0]]))
 
-    def visit(ch, inherited_layer=None, parent=(1, 0, 0, 1, 0, 0), active=None):
+    def visit(ch, inherited_layer=None, parent=(1, 0, 0, 1, 0, 0), active=None, inh=None):
         active = active or set()
+        inh = inh or {}
         tag = _local(ch.tag)
-        a = _resolved_attrs(ch, css, grads, paints)
+        a = _resolved_attrs(ch, css, grads, paints, inh)
         if tag == "use":
             href = a.get("{http://www.w3.org/1999/xlink}href") or a.get("href") or ""
             if href.startswith("#") and href[1:] not in active and href[1:] in by_id:
                 tgt = by_id[href[1:]]
                 m = _mat_mul(parent, _parse_transform(a.get("transform")))
                 m = _mat_mul(m, _mat(1, 0, 0, 1, float(a.get("x", 0) or 0), float(a.get("y", 0) or 0)))
-                visit(tgt, inherited_layer, m, active | {href[1:]})
+                visit(tgt, inherited_layer, m, active | {href[1:]}, inh)
             return
         if tag == "g":
             name = a.get("data-name") or a.get("id") or inherited_layer or "layer"
@@ -1039,6 +1082,10 @@ def _svg_to_plan_py(svg_text):
             if mm:
                 set_mask(name, mm.group(1))
             m = _mat_mul(parent, _parse_transform(a.get("transform")))
+            my = dict(inh)
+            for k in ("fill", "stroke", "stroke-width", "opacity", "fill-opacity"):
+                if a.get(k):
+                    my[k] = a[k]
             if a.get("data-stroke") or (a.get("data-center") and not a.get("data-name")):
                 ln = a.get("data-layer") or inherited_layer or "layer"
                 add_layer(ln, "normal")
@@ -1048,7 +1095,7 @@ def _svg_to_plan_py(svg_text):
                     emit(a, ln, pts)
                 return
             for sub in list(ch):
-                visit(sub, name, m, active)
+                visit(sub, name, m, active, my)
             return
         if tag == "path":
             name = a.get("data-layer") or inherited_layer or "layer"
@@ -1078,7 +1125,7 @@ def _svg_to_plan_py(svg_text):
             pts = [[*_mat_apply(m, p[0], p[1]), p[2] if len(p) > 2 else 1.0] for p in pts]
             emit(a, name, pts)
             return
-        if tag in ("circle", "ellipse", "rect", "polygon", "polyline"):
+        if tag in ("circle", "ellipse", "rect", "polygon", "polyline", "line"):
             name = a.get("data-layer") or inherited_layer or "layer"
             mm = re.match(r"url\(#([^)]+)\)", str(a.get("mask", "")))
             if mm and mm.group(1) in masks:
