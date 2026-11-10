@@ -160,43 +160,155 @@ def _canvas(attrs):
     return int(_length(attrs, "width", 1200)), int(_length(attrs, "height", 900))
 
 
-class _SubpathStream:
-    """Incrementally split a path d string into subpaths, keeping only one."""
+_PATH_TOK = re.compile(r"[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")
+_ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7, "Z": 0}
+
+
+class _PathStreamParser:
+    """Command-level incremental SVG path parser (stdout -> plan polylines)."""
 
     def __init__(self):
         self.buf = ""
-        self.cur = ""
+        self.cmd = None
+        self.nums = []
+        self.cur = [0.0, 0.0]
+        self.start = [0.0, 0.0]
+        self.pts = []
+        self.prev_ctrl = None
+        self.prev_cmd = None
         self.out = []
 
     def feed(self, text):
         self.buf += text
-        parts = re.split(r"(?=[Mm])", self.buf)
-        if len(parts) == 1:
+        ms = list(_PATH_TOK.finditer(self.buf))
+        if not ms:
             return
-        self.buf = parts[-1]
-        if self.cur:
-            self.cur += parts[0]
-            self._emit(self.cur)
-            self.cur = ""
-        for p in parts[1:-1]:
-            if p.strip():
-                self._emit(p)
-        self.cur = parts[-1]
+        safe = len(self.buf)
+        last = ms[-1]
+        if last.group() not in "MmLlHhVvCcSsQqTtAaZz" and last.end() == len(self.buf):
+            safe = last.start()
+        for m in ms:
+            if m.start() >= safe:
+                break
+            self._tok(m.group())
+        self.buf = self.buf[safe:]
 
     def finish(self):
-        if self.buf:
-            self.cur += self.buf
-            self.buf = ""
-        if self.cur.strip():
-            self._emit(self.cur)
+        for m in _PATH_TOK.finditer(self.buf):
+            self._tok(m.group())
+        self.buf = ""
+        self._flush()
 
-    def _emit(self, seg):
-        try:
-            q = _ps._parse_d(seg)
-        except Exception:
+    def _flush(self):
+        if len(self.pts) >= 2:
+            self.out.append(self.pts)
+        self.pts = []
+        self.prev_ctrl = None
+        self.prev_cmd = None
+
+    def _add(self, p):
+        if not self.pts or abs(self.pts[-1][0] - p[0]) > 1e-9 or abs(self.pts[-1][1] - p[1]) > 1e-9:
+            self.pts.append([float(p[0]), float(p[1])])
+
+    def _tok(self, tok):
+        if tok in "MmLlHhVvCcSsQqTtAaZz":
+            if tok in "Zz":
+                if self.pts:
+                    self._add(self.start)
+                    self._flush()
+                self.cmd = None
+                self.nums = []
+                return
+            if tok in "Mm":
+                self._flush()
+            self.cmd = tok
+            self.nums = []
             return
-        if len(q) >= 3:
-            self.out.append(q)
+        self.nums.append(float(tok))
+        while self.cmd:
+            n = _ARITY[self.cmd.upper()]
+            if n == 0:
+                break
+            if len(self.nums) < n:
+                break
+            vals = self.nums[:n]
+            del self.nums[:n]
+            self._step(self.cmd, vals)
+            if self.cmd.upper() == "M":
+                self.cmd = "l" if self.cmd.islower() else "L"
+
+    def _step(self, cmd, v):
+        rel = cmd.islower()
+        C = cmd.upper()
+        cur = self.cur
+        if C == "M":
+            x, y = v
+            if rel:
+                x += cur[0]; y += cur[1]
+            self.cur = [x, y]; self.start = [x, y]; self._add(self.cur)
+            self.prev_ctrl = None; self.prev_cmd = C
+        elif C == "L":
+            x, y = v
+            if rel:
+                x += cur[0]; y += cur[1]
+            self.cur = [x, y]; self._add(self.cur)
+            self.prev_ctrl = None; self.prev_cmd = C
+        elif C == "H":
+            x = v[0] + cur[0] if rel else v[0]
+            self.cur = [x, cur[1]]; self._add(self.cur)
+            self.prev_ctrl = None; self.prev_cmd = C
+        elif C == "V":
+            y = v[0] + cur[1] if rel else v[0]
+            self.cur = [cur[0], y]; self._add(self.cur)
+            self.prev_ctrl = None; self.prev_cmd = C
+        elif C == "C":
+            x1, y1, x2, y2, x, y = v
+            if rel:
+                x1 += cur[0]; y1 += cur[1]; x2 += cur[0]; y2 += cur[1]; x += cur[0]; y += cur[1]
+            p0 = list(cur)
+            for k in range(1, 9):
+                t = k / 8.0; u = 1 - t
+                self._add([u*u*u*p0[0] + 3*u*u*t*x1 + 3*u*t*t*x2 + t*t*t*x,
+                           u*u*u*p0[1] + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y])
+            self.cur = [x, y]; self.prev_ctrl = [x2, y2]; self.prev_cmd = C
+        elif C == "S":
+            x2, y2, x, y = v
+            if rel:
+                x2 += cur[0]; y2 += cur[1]; x += cur[0]; y += cur[1]
+            x1, y1 = (2*cur[0]-self.prev_ctrl[0], 2*cur[1]-self.prev_ctrl[1]) if self.prev_cmd in ("C", "S") and self.prev_ctrl else cur
+            p0 = list(cur)
+            for k in range(1, 9):
+                t = k / 8.0; u = 1 - t
+                self._add([u*u*u*p0[0] + 3*u*u*t*x1 + 3*u*t*t*x2 + t*t*t*x,
+                           u*u*u*p0[1] + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y])
+            self.cur = [x, y]; self.prev_ctrl = [x2, y2]; self.prev_cmd = C
+        elif C == "Q":
+            x1, y1, x, y = v
+            if rel:
+                x1 += cur[0]; y1 += cur[1]; x += cur[0]; y += cur[1]
+            p0 = list(cur)
+            for k in range(1, 9):
+                t = k / 8.0; u = 1 - t
+                self._add([u*u*p0[0] + 2*u*t*x1 + t*t*x, u*u*p0[1] + 2*u*t*y1 + t*t*y])
+            self.cur = [x, y]; self.prev_ctrl = [x1, y1]; self.prev_cmd = C
+        elif C == "T":
+            x, y = v
+            if rel:
+                x += cur[0]; y += cur[1]
+            x1, y1 = (2*cur[0]-self.prev_ctrl[0], 2*cur[1]-self.prev_ctrl[1]) if self.prev_cmd in ("Q", "T") and self.prev_ctrl else cur
+            p0 = list(cur)
+            for k in range(1, 9):
+                t = k / 8.0; u = 1 - t
+                self._add([u*u*p0[0] + 2*u*t*x1 + t*t*x, u*u*p0[1] + 2*u*t*y1 + t*t*y])
+            self.cur = [x, y]; self.prev_ctrl = [x1, y1]; self.prev_cmd = C
+        elif C == "A":
+            rx, ry, rot, laf, sf, x, y = v
+            if rel:
+                x += cur[0]; y += cur[1]
+            p0 = list(cur)
+            for q in _ps._arc_pts(p0, [x, y], rx, ry, rot, int(laf), int(sf)):
+                self._add(q)
+            self.cur = [x, y]; self.prev_ctrl = None; self.prev_cmd = C
 
 
 def _stream_simple_file(path, chunk_size=1 << 20):
@@ -269,7 +381,7 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 pre = mm[start:qstart].decode("utf-8", "replace")
                 post = mm[qend + 1:tag_end].decode("utf-8", "replace")
                 attrs = dict(re.findall(r'([\w:-]+)="([^"]*)"', pre + " " + post))
-                ps = _SubpathStream()
+                ps = _PathStreamParser()
                 for i in range(qstart, qend, chunk_size):
                     ps.feed(mm[i:min(i + chunk_size, qend)].decode("ascii", "ignore"))
                 ps.finish()

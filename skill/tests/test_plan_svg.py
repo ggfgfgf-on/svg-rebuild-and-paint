@@ -395,6 +395,22 @@ def test_stream_file_incremental(tmp_path):
     assert len(d["strokes"][0]["points"]) >= 3
 
 
+def test_path_stream_parser_equivalence():
+    import svg_stream
+    d = ('M0 0 C10 0 10 10 20 10 Q30 10 30 20 L40 20 Z '
+         'M50 50 A5 5 0 0 1 60 60 Z')
+    ps = svg_stream._PathStreamParser()
+    for i in range(0, len(d), 3):
+        ps.feed(d[i:i + 3])
+    ps.finish()
+    ref = [q for q in plan_svg._parse_d_subpaths(d) if len(q) >= 3]
+    assert len(ps.out) == len(ref)
+    for a, b in zip(ps.out, ref):
+        assert len(a) == len(b)
+        for p, q in zip(a, b):
+            assert abs(p[0] - q[0]) < 1e-6 and abs(p[1] - q[1]) < 1e-6
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
