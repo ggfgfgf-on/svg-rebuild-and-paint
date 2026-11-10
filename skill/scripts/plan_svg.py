@@ -16,6 +16,7 @@ import base64
 import hashlib
 import io
 import json
+import zlib
 import math
 import re
 import sys
@@ -124,6 +125,19 @@ def _paint_def(paint, gid):
         extra += ' fx="%s" fy="%s"' % (src.get("fx", "50%"), src.get("fy", "50%"))
     return '<%s id="%s" gradientUnits="%s" %s%s>%s</%s>' % (tag, gid, units, attrs, extra, "".join(stops), tag)
 
+def _mask_png_b64(m):
+    import numpy as np
+    if m.get("encoding") in ("png-base64", "zlib-base64"):
+        return m.get("data", "")
+    if m.get("encoding") == "zlib-base64":
+        from PIL import Image
+        w, h = int(m.get("width", 0)), int(m.get("height", 0))
+        raw = zlib.decompress(base64.b64decode(m["data"]))
+        im = Image.frombytes("L", (w, h), raw)
+        buf = io.BytesIO(); im.save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    return ""
+
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
@@ -161,17 +175,17 @@ def plan_to_svg(doc, *, filters=False, title=None):
     mask_gid = {}
     for i, layer in enumerate(layers):
         m = layer.get("mask")
-        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+        if isinstance(m, dict) and m.get("encoding") in ("png-base64", "zlib-base64"):
             gid = "mask%d" % i
             mask_gid[i] = gid
-            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, _mask_png_b64(m), w, h))
     stroke_mask_gid = {}
     for st in doc.get("strokes", []):
         m = st.get("mask")
-        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+        if isinstance(m, dict) and m.get("encoding") in ("png-base64", "zlib-base64"):
             gid = "smask%d" % len(stroke_mask_gid)
             stroke_mask_gid[id(st)] = gid
-            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, _mask_png_b64(m), w, h))
     for st in doc.get("strokes", []):
         if isinstance(st.get("paint"), dict):
             gid = "paint%d" % len(paint_defs)
@@ -473,16 +487,16 @@ def plan_to_svg_stamps(doc, title=None):
     stroke_mask = {}
     for li, l in enumerate(layers):
         m = l.get("mask")
-        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+        if isinstance(m, dict) and m.get("encoding") in ("png-base64", "zlib-base64"):
             gid = "lmask%d" % li
             layer_mask[str(l.get("name", "layer"))] = gid
-            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, _mask_png_b64(m), w, h))
     for st in doc.get("strokes") or []:
         m = st.get("mask")
-        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+        if isinstance(m, dict) and m.get("encoding") in ("png-base64", "zlib-base64"):
             gid = "smask%d" % len(stroke_mask)
             stroke_mask[id(st)] = gid
-            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, _mask_png_b64(m), w, h))
         paint = st.get("paint")
         if isinstance(paint, dict):
             pts = st.get("points") or []
@@ -630,20 +644,20 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
     stroke_mask = {}
     for li, l in enumerate(layers):
         m = l.get("mask")
-        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+        if isinstance(m, dict) and m.get("encoding") in ("png-base64", "zlib-base64"):
             gid = "lmask%d" % li
             layer_mask[str(l.get("name", "layer"))] = gid
-            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, _mask_png_b64(m), w, h))
     for st in doc.get("strokes") or []:
         if isinstance(st.get("paint"), dict):
             gid = "paint%d" % len(paint_defs)
             paint_gid[id(st)] = gid
             paint_defs.append(_paint_def(st["paint"], gid))
         m = st.get("mask")
-        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+        if isinstance(m, dict) and m.get("encoding") in ("png-base64", "zlib-base64"):
             gid = "smask%d" % len(stroke_mask)
             stroke_mask[id(st)] = gid
-            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, _mask_png_b64(m), w, h))
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" data-bridge="plan_svg_outline" shape-rendering="geometricPrecision">' % (w, h, w, h)]
     if title:
@@ -1019,9 +1033,11 @@ def _resolved_attrs(ch, css, grads, paints=None, inh=None, pseudo_mode="ignore")
 
 def _mask_png(im):
     from PIL import Image
-    buf = io.BytesIO()
-    im.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("ascii")
+    import numpy as np
+    w, h = im.size
+    data = np.asarray(im, dtype=np.uint8).tobytes()
+    return {"encoding": "zlib-base64", "data": base64.b64encode(zlib.compress(data, 6)).decode("ascii"),
+            "width": w, "height": h}
 
 def _load_profiles(root, base_dir=None):
     import re as _re
@@ -1131,7 +1147,7 @@ def _raster_masks(root, w, h):
             im = Image.fromarray(np.clip(np.maximum(cur, arr) * 255, 0, 255).astype(np.uint8))
         for ch in list(el):
             draw_node(ch, _parse_transform(el.get("transform")))
-        out[el.get("id")] = {"encoding": "png-base64", "data": _mask_png(im), "luminance": True}
+        p = _mask_png(im); p["luminance"] = True; out[el.get("id")] = p
     return out
 
 def _gradient_paints(root):

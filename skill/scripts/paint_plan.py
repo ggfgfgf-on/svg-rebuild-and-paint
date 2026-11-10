@@ -14,7 +14,7 @@ plan = {
 用法: python paint_plan.py plan.json out.png [--kra a.kra] [--psd a.psd]
 """
 from __future__ import annotations
-import base64, io, json, sys
+import base64, io, json, sys, zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -89,6 +89,12 @@ def _mask_alpha(spec, w, h):
         return None
     if m.get("encoding") == "png-base64" and m.get("data"):
         im = Image.open(io.BytesIO(base64.b64decode(m["data"]))).convert("L")
+        if im.size != (w, h):
+            im = im.resize((w, h), Image.BILINEAR)
+        return np.asarray(im, dtype=np.uint8)
+    if m.get("encoding") == "zlib-base64" and m.get("data"):
+        raw = zlib.decompress(base64.b64decode(m["data"]))
+        im = Image.frombytes("L", (int(m.get("width", w)), int(m.get("height", h))), raw)
         if im.size != (w, h):
             im = im.resize((w, h), Image.BILINEAR)
         return np.asarray(im, dtype=np.uint8)

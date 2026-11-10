@@ -7,6 +7,7 @@
 import sys
 
 import numpy as np
+import zlib, base64, io
 
 _GPU_WARNED = False
 
@@ -14,9 +15,12 @@ _GPU_WARNED = False
 def _mask_array(m, w, h):
     if not isinstance(m, dict) or m.get("encoding") != "png-base64":
         return None
-    import base64, io
     from PIL import Image
-    im = Image.open(io.BytesIO(base64.b64decode(m["data"]))).convert("L")
+    if m.get("encoding") == "zlib-base64":
+        raw = zlib.decompress(base64.b64decode(m["data"]))
+        im = Image.frombytes("L", (int(m.get("width", w)), int(m.get("height", h))), raw)
+    else:
+        im = Image.open(io.BytesIO(base64.b64decode(m["data"]))).convert("L")
     if im.size != (w, h):
         im = im.resize((w, h), Image.BILINEAR)
     return np.asarray(im, dtype=np.uint8)

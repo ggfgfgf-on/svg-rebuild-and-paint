@@ -181,7 +181,7 @@ def test_mask_layer_alpha():
            '<defs><mask id="m"><rect x="0" y="0" width="50" height="50" fill="white"/></mask></defs>'
            '<rect x="0" y="0" width="100" height="50" fill="#ff0000" mask="url(#m)"/></svg>')
     d = plan_svg.svg_to_plan(svg)
-    assert any(isinstance(x.get("mask"), dict) and x["mask"].get("encoding") == "png-base64"
+    assert any(isinstance(x.get("mask"), dict) and x["mask"].get("encoding") in ("png-base64", "zlib-base64")
                for x in d["layers"])
 
 
