@@ -892,13 +892,41 @@ static double grad_t_at(pugi::xml_node grad, const Mat& inv, double px, double p
     double disc=std::max(0.0,B*B-4*A*C);
     return (-B-std::sqrt(disc))/(2*A);
 }
-static bool gdi_gradient_rect(Gdiplus::Graphics& g, pugi::xml_node n, pugi::xml_node grad, double sx, double sy) {
+static bool gdi_shape_path(pugi::xml_node n, Gdiplus::GraphicsPath& path, Gdiplus::RectF& bb, double sx, double sy) {
+    std::string tag = n.name();
     double x=std::atof(n.attribute("x").as_string("0")), y=std::atof(n.attribute("y").as_string("0"));
     double w=std::atof(n.attribute("width").as_string("0")), h=std::atof(n.attribute("height").as_string("0"));
-    if (w<=0||h<=0) return false;
+    if (tag=="rect") {
+        if (w<=0||h<=0) return false;
+        path.AddRectangle(Gdiplus::RectF((Gdiplus::REAL)(x*sx),(Gdiplus::REAL)(y*sy),(Gdiplus::REAL)(w*sx),(Gdiplus::REAL)(h*sy)));
+    } else if (tag=="circle" || tag=="ellipse") {
+        double cx=std::atof(n.attribute("cx").as_string("0")), cy=std::atof(n.attribute("cy").as_string("0"));
+        double rx=tag=="circle"?std::atof(n.attribute("r").as_string("0")):std::atof(n.attribute("rx").as_string("0"));
+        double ry=tag=="circle"?rx:std::atof(n.attribute("ry").as_string("0"));
+        if (rx<=0||ry<=0) return false;
+        path.AddEllipse(Gdiplus::RectF((Gdiplus::REAL)((cx-rx)*sx),(Gdiplus::REAL)((cy-ry)*sy),(Gdiplus::REAL)(2*rx*sx),(Gdiplus::REAL)(2*ry*sy)));
+    } else if (tag=="polygon" || tag=="path") {
+        std::vector<double> xs, ys;
+        if (tag=="polygon") {
+            auto v=nums(n.attribute("points").as_string());
+            for (size_t i=0;i+1<v.size();i+=2){xs.push_back(v[i]);ys.push_back(v[i+1]);}
+        } else parse_d(n.attribute("d").as_string(), xs, ys);
+        if (xs.size()<3) return false;
+        std::vector<Gdiplus::PointF> pts;
+        for (size_t i=0;i<xs.size();++i) pts.push_back(Gdiplus::PointF((Gdiplus::REAL)(xs[i]*sx),(Gdiplus::REAL)(ys[i]*sy)));
+        path.AddPolygon(pts.data(), (INT)pts.size());
+    } else return false;
+    path.GetBounds(&bb);
+    return bb.Width>0 && bb.Height>0;
+}
+
+static bool gdi_gradient_shape(Gdiplus::Graphics& g, pugi::xml_node n, pugi::xml_node grad, double sx, double sy) {
+    Gdiplus::GraphicsPath path; Gdiplus::RectF bb;
+    if (!gdi_shape_path(n, path, bb, sx, sy)) return false;
+    double x=bb.X/sx, y=bb.Y/sy, w=bb.Width/sx, h=bb.Height/sy;
     Mat M=parse_transform(grad.attribute("gradientTransform").as_string());
     Mat inv=mat_inv(M);
-    int W=std::max(1,(int)std::lround(w*sx)), H=std::max(1,(int)std::lround(h*sy));
+    int W=std::max(1,(int)std::lround(bb.Width)), H=std::max(1,(int)std::lround(bb.Height));
     Gdiplus::Bitmap bmp(W,H,PixelFormat32bppARGB);
     Gdiplus::Rect rc(0,0,W,H); Gdiplus::BitmapData bd{};
     if (bmp.LockBits(&rc,Gdiplus::ImageLockModeWrite,PixelFormat32bppARGB,&bd)!=Gdiplus::Ok) return false;
@@ -913,8 +941,8 @@ static bool gdi_gradient_rect(Gdiplus::Graphics& g, pugi::xml_node n, pugi::xml_
     }
     bmp.UnlockBits(&bd);
     Gdiplus::TextureBrush brush(&bmp);
-    brush.TranslateTransform((Gdiplus::REAL)(x*sx),(Gdiplus::REAL)(y*sy));
-    g.FillRectangle(&brush,(Gdiplus::REAL)(x*sx),(Gdiplus::REAL)(y*sy),(Gdiplus::REAL)(w*sx),(Gdiplus::REAL)(h*sy));
+    brush.TranslateTransform(bb.X, bb.Y);
+    g.FillPath(&brush, &path);
     return true;
 }
 
@@ -931,12 +959,12 @@ static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, dou
     auto num = [&](const char* k, double d){ auto a=n.attribute(k); return a ? std::atof(a.as_string()) : d; };
     std::string fill = n.attribute("fill").as_string();
     if (fill.empty() || fill == "none") fill = "#000";
-    if (tag == "rect" && fill.rfind("url(#",0)==0) {
+    if ((tag == "rect" || tag == "circle" || tag == "ellipse" || tag == "polygon" || tag == "path") && fill.rfind("url(#",0)==0) {
         size_t e=fill.find(')',5); std::string gid=fill.substr(5,e-5);
         for (pugi::xpath_node xn : g_gdi_root.select_nodes("//linearGradient | //radialGradient")) {
             pugi::xml_node gg=xn.node();
             if (std::string(gg.attribute("id").as_string())==gid && gg.attribute("gradientTransform")) {
-                if (gdi_gradient_rect(g,n,gg,sx,sy)) return;
+                if (gdi_gradient_shape(g,n,gg,sx,sy)) return;
             }
         }
     }
