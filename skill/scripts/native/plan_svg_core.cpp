@@ -785,7 +785,30 @@ static std::string plan_from_svg(const std::string& input) {
             if(filled){ Clipper2Lib::PathD q; for(size_t i=0;i<xs.size();++i)q.push_back(Clipper2Lib::PointD(xs[i],ys[i])); if(q.size()>=3)subj.push_back(q);
                 for(const auto& poly:it->second.polys){Clipper2Lib::PathD z; for(auto&v:poly)z.push_back(Clipper2Lib::PointD(v.first,v.second)); if(z.size()>=3)cp.push_back(z);}
                 auto res=Clipper2Lib::Intersect(subj,cp,Clipper2Lib::FillRule::EvenOdd);
-                for(auto& r:res){std::vector<double> a,b,p(r.size(),1.0); for(auto&v:r){a.push_back(v.x);b.push_back(v.y);} if(a.size()>=3)emit(ch,layer,a,b,p,inh);} return;
+                auto area2=[&](const Clipper2Lib::PathD& q){ return std::fabs(Clipper2Lib::Area(q)); };
+                std::vector<int> par(res.size(), -1);
+                for (size_t i=0;i<res.size();++i) for (size_t j=0;j<res.size();++j) {
+                    if (i==j || area2(res[j])<=area2(res[i])+1e-9) continue;
+                    if (Clipper2Lib::PointInPolygon(res[i][0], res[j]) != Clipper2Lib::PointInPolygonResult::IsOutside) { par[i]=(int)j; break; }
+                }
+                for (size_t i=0;i<res.size();++i) {
+                    if (par[i] != -1 || res[i].size()<3) continue;
+                    std::vector<double> a,b,p(res[i].size(),1.0);
+                    for(auto&v:res[i]){a.push_back(v.x);b.push_back(v.y);}
+                    emit(ch,layer,a,b,p,inh);
+                    std::string extra="";
+                    for (size_t j=0;j<res.size();++j) if (par[j]==(int)i && res[j].size()>=3) {
+                        if (!extra.empty()) extra += ",";
+                        extra += "[";
+                        for (size_t k=0;k<res[j].size();++k) { if(k)extra+=","; extra += "["+fmt(res[j][k].x)+","+fmt(res[j][k].y)+"]"; }
+                        extra += "]";
+                    }
+                    if (!extra.empty() && !strokes.empty()) {
+                        std::string &sj=strokes.back();
+                        if (!sj.empty() && sj.back()=='}') sj.insert(sj.size()-1, ",\"holes\":["+extra+"],\"fill_rule\":\"evenodd\"");
+                    }
+                }
+                return;
             }
             auto inside=[&](double x,double y){bool c=false; for(const auto& poly:it->second.polys){for(size_t i=0;i<poly.size();++i){auto A=poly[i],B=poly[(i+1)%poly.size()]; if(((A.second>y)!=(B.second>y)) && x < (B.first-A.first)*(y-A.second)/(B.second-A.second)+A.first) c=!c;}} return c;};
             for(size_t i=1;i<xs.size();++i){
