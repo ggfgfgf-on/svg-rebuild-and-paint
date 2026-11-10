@@ -831,6 +831,14 @@ static inline float radial_t(float x, float y, float cx, float cy, float r, floa
     return t;
 }
 
+static inline float radial_t_xform(float x, float y, float cx, float cy, float r,
+                                    float fx, float fy, float ma, float mb, float mc,
+                                    float md, float me, float mf) {
+    float qx = ma * x + mc * y + me;
+    float qy = mb * x + md * y + mf;
+    return radial_t(qx, qy, cx, cy, r, fx, fy);
+}
+
 static int stroke_radial_impl(void* p, int layer, const float* pts, int n,
                                float size, float opacity, const float* stops, int ns,
                                float cx, float cy, float r, float fx, float fy,
@@ -991,6 +999,98 @@ EXPORT int paint_fill_radial_polygon_spread(void* p, int layer, const float* pts
                 d[2] = cb * sa + d[2] * inv; d[3] = sa + d[3] * inv;
             }
         }
+    }
+    return 1;
+}
+
+EXPORT int paint_fill_radial_xform(void* p, int layer, const float* pts, int n,
+                                    const float* stops, int ns,
+                                    float cx, float cy, float r, float fx, float fy,
+                                    float ma, float mb, float mc, float md, float me, float mf,
+                                    float a, int spread) {
+    Ctx* c = (Ctx*)p;
+    if (!c || !pts || n < 3 || !stops || ns < 2) return 0;
+    if (layer < 0 || layer >= (int)c->layers.size()) return 0;
+    float al = a < 0 ? 0 : (a > 1 ? 1 : a);
+    if (al <= 0) return 0;
+    Layer& L = c->layers[layer];
+    float ymin = 1e30f, ymax = -1e30f;
+    for (int i = 0; i < n; ++i) { float y = pts[i*2+1]; ymin = std::min(ymin, y); ymax = std::max(ymax, y); }
+    int y0 = std::max(0, (int)std::floor(ymin));
+    int y1 = std::min(c->h - 1, (int)std::ceil(ymax));
+    std::vector<float> xs;
+    for (int y = y0; y <= y1; ++y) {
+        float yy = y + 0.5f; xs.clear();
+        for (int i = 0; i < n; ++i) {
+            int j = (i + 1) % n;
+            float ax = pts[i*2], ay = pts[i*2+1], bx = pts[j*2], by = pts[j*2+1];
+            if ((ay <= yy && by > yy) || (by <= yy && ay > yy)) xs.push_back(ax + (yy-ay)*(bx-ax)/(by-ay));
+        }
+        std::sort(xs.begin(), xs.end());
+        for (size_t k = 0; k + 1 < xs.size(); k += 2) {
+            int xa = std::max(0, (int)std::ceil(xs[k] - 0.5f));
+            int xb = std::min(c->w - 1, (int)std::floor(xs[k+1] - 0.5f));
+            for (int x = xa; x <= xb; ++x) {
+                float t = radial_t_xform(x+0.5f, y+0.5f, cx, cy, r, fx, fy, ma, mb, mc, md, me, mf);
+                t = grad_spread(t, spread);
+                int k0 = 0; while (k0 + 1 < ns && stops[(k0+1)*5] < t) ++k0;
+                int k1 = std::min(ns - 1, k0 + 1);
+                float o0 = stops[k0*5], o1 = stops[k1*5];
+                float u = o1 > o0 ? (t - o0) / (o1 - o0) : 0.0f;
+                float cr = stops[k0*5+1] + (stops[k1*5+1]-stops[k0*5+1])*u;
+                float cg = stops[k0*5+2] + (stops[k1*5+2]-stops[k0*5+2])*u;
+                float cb = stops[k0*5+3] + (stops[k1*5+3]-stops[k0*5+3])*u;
+                float ca = stops[k0*5+4] + (stops[k1*5+4]-stops[k0*5+4])*u;
+                float sa = al * ca; if (sa <= 0) continue;
+                float* d = L.px.data() + ((size_t)y*c->w + x)*4;
+                float inv = 1.0f - sa;
+                d[0] = cr*sa + d[0]*inv; d[1] = cg*sa + d[1]*inv;
+                d[2] = cb*sa + d[2]*inv; d[3] = sa + d[3]*inv;
+            }
+        }
+    }
+    return 1;
+}
+
+EXPORT int paint_stroke_radial_xform(void* p, int layer, const float* pts, int n,
+                                     float size, float opacity, const float* stops, int ns,
+                                     float cx, float cy, float r, float fx, float fy,
+                                     float ma, float mb, float mc, float md, float me, float mf,
+                                     int preset, float hardness, int spread) {
+    Ctx* c = (Ctx*)p;
+    if (!c || !pts || n < 1 || !stops || ns < 2) return 0;
+    if (layer < 0 || layer >= (int)c->layers.size()) return 0;
+    float tbl[256]; build_tip_table(tbl, hardness, preset);
+    std::vector<Stamp> st; st.reserve(512);
+    make_stamps(st, pts, n, size, nullptr, nullptr, 0, 0u);
+    std::vector<float>& scratch = c->scratch1;
+    if (scratch.size() < (size_t)c->w*c->h) scratch.assign((size_t)c->w*c->h, 0.0f);
+    else std::fill(scratch.begin(), scratch.end(), 0.0f);
+    const Tip2D* tip2 = resolve_tip2(c, preset);
+    for (auto& s : st) {
+        int t0 = 0, t1 = c->h - 1;
+        stamp_band(scratch.data(), c->w, 0, c->h, s.x, s.y, s.R, s.a, preset, s.dx, s.dy,
+                   0, tbl, 1.0f/(s.R*s.R), nullptr, 0, t0, t1, tip2, nullptr, nullptr);
+    }
+    Layer& L = c->layers[layer];
+    for (int y = 0; y < c->h; ++y) for (int x = 0; x < c->w; ++x) {
+        float sa = scratch[(size_t)y*c->w + x] * opacity;
+        if (sa <= 0) continue;
+        float t = radial_t_xform(x+0.5f, y+0.5f, cx, cy, r, fx, fy, ma, mb, mc, md, me, mf);
+        t = grad_spread(t, spread);
+        int k0 = 0; while (k0 + 1 < ns && stops[(k0+1)*5] < t) ++k0;
+        int k1 = std::min(ns - 1, k0 + 1);
+        float o0 = stops[k0*5], o1 = stops[k1*5];
+        float u = o1 > o0 ? (t-o0)/(o1-o0) : 0.0f;
+        float cr = stops[k0*5+1] + (stops[k1*5+1]-stops[k0*5+1])*u;
+        float cg = stops[k0*5+2] + (stops[k1*5+2]-stops[k0*5+2])*u;
+        float cb = stops[k0*5+3] + (stops[k1*5+3]-stops[k0*5+3])*u;
+        float ca = stops[k0*5+4] + (stops[k1*5+4]-stops[k0*5+4])*u;
+        sa *= ca; if (sa <= 0) continue;
+        float* d = L.px.data() + ((size_t)y*c->w + x)*4;
+        float inv = 1.0f - sa;
+        d[0] = cr*sa + d[0]*inv; d[1] = cg*sa + d[1]*inv;
+        d[2] = cb*sa + d[2]*inv; d[3] = sa + d[3]*inv;
     }
     return 1;
 }

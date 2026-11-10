@@ -67,6 +67,26 @@ def _norm(v, default):
     return float(v)
 
 
+
+def radial_matrix(paint, bbox):
+    """Return affine (a,b,c,d,e,f) mapping user coords -> gradient coords."""
+    if paint.get("type") != "radial":
+        return None
+    src = ((paint.get("source") or {}).get("gradient") or {}).get("attrs") or {}
+    text = src.get("gradientTransform") or paint.get("gradientTransform")
+    if not text:
+        return None
+    M = parse_matrix(text)
+    A = _inv(M) if M else None
+    if A is None:
+        return None
+    units = paint.get("units", "objectBoundingBox")
+    if units == "objectBoundingBox":
+        bx, by, bw, bh = bbox
+        B = (1.0 / max(1e-9, bw), 0.0, 0.0, 1.0 / max(1e-9, bh), -bx / max(1e-9, bw), -by / max(1e-9, bh))
+        return _mat_mul(A, B)
+    return A
+
 def apply_linear(paint, bbox):
     """Return new (x1,y1,x2,y2) for a transformed linear gradient, or None."""
     if paint.get("type", "linear") != "linear":

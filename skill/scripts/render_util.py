@@ -37,7 +37,13 @@ def draw_full(p, cat, doc, w, h, gpu=False, nthreads=8):
 
 
 def _gpu_unsupported(doc):
-    # tile_inc now dispatches fill/paint/mask to both backends.
+    # radial gradientTransform is CPU-only for now (ellipse sampling).
+    for st in doc.get("strokes", []):
+        p = st.get("paint")
+        if isinstance(p, dict) and p.get("type") == "radial":
+            src = ((p.get("source") or {}).get("gradient") or {}).get("attrs") or {}
+            if src.get("gradientTransform") or p.get("gradientTransform"):
+                return True
     return False
 
 

@@ -321,6 +321,22 @@ def test_filter_rasterized():
     assert "<image" in out
 
 
+
+
+def test_radial_transform_roundtrip():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<defs><radialGradient id="g" cx="0.5" cy="0.5" r="0.25"'
+           ' gradientTransform="rotate(45 0.5 0.5)">'
+           '<stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/>'
+           '</radialGradient></defs>'
+           '<rect width="100" height="100" fill="url(#g)"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    src = d["strokes"][0]["paint"]["source"]["gradient"]["attrs"]
+    assert "rotate(45" in src["gradientTransform"]
+    out = plan_svg.plan_to_svg(d)
+    assert "gradientTransform" in out
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -340,6 +356,7 @@ if __name__ == "__main__":
     test_text_roundtrip()
     test_pattern_roundtrip()
     test_filter_rasterized()
+    test_radial_transform_roundtrip()
     test_gradient_paint_roundtrip()
     test_mask_layer_alpha()
     print("all plan_svg tests passed")

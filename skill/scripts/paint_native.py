@@ -7,7 +7,7 @@ import ctypes
 import time, json, os
 from pathlib import Path
 import numpy as np
-from gradient_xform import apply_linear as _grad_xform
+from gradient_xform import apply_linear as _grad_xform, radial_matrix as _radial_matrix
 
 _NATIVE_DIR = Path(__file__).resolve().parent / "native"
 PRESETS = {"round_soft": 0, "round_hard": 1, "flat": 2, "dry": 3, "airbrush": 4,
@@ -53,6 +53,10 @@ def load():
     lib.paint_apply_layer_mask.restype = ctypes.c_int
     lib.paint_apply_layer_mask.argtypes = [vp, ctypes.c_int, u8, ctypes.c_int, ctypes.c_int]
     lib.paint_apply_layer_mask_rect.argtypes = [vp, ctypes.c_int, u8, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    lib.paint_fill_radial_xform.restype = ctypes.c_int
+    lib.paint_fill_radial_xform.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 11 + [ctypes.c_float, ctypes.c_int]
+    lib.paint_stroke_radial_xform.restype = ctypes.c_int
+    lib.paint_stroke_radial_xform.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, ctypes.c_float, ctypes.c_float, f32, ctypes.c_int] + [ctypes.c_float] * 11 + [ctypes.c_int, ctypes.c_float, ctypes.c_int]
     lib.paint_fill_radial_polygon_spread.restype = ctypes.c_int
     lib.paint_fill_radial_polygon_spread.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 6 + [ctypes.c_int]
     lib.paint_fill_gradient_polygon_spread.restype = ctypes.c_int
@@ -188,6 +192,13 @@ def load_catalog(painter, tips_dir=None, limit=None):
     return out
 
 
+def _radial_raw(paint):
+    def q(k, d):
+        v = paint.get(k, d)
+        return float(v[:-1]) / 100.0 if isinstance(v, str) and v.endswith("%") else float(v)
+    return q("cx", 0.5), q("cy", 0.5), max(1e-9, q("r", 0.5)), q("fx", 0.5), q("fy", 0.5)
+
+
 def _spread(paint):
     v = paint.get("spreadMethod")
     if v is None:
@@ -302,6 +313,12 @@ class Painter:
             x1, y1, x2, y2 = tr
         sp = _spread(paint)
         if paint.get("type") == "radial":
+            mat = _radial_matrix(paint, (minx, miny, maxx, maxy))
+            if mat:
+                cx, cy, rr, fx, fy = _radial_raw(paint)
+                return self._lib.paint_fill_radial_xform(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                                         len(pts), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                         cx, cy, rr, fx, fy, *mat, float(opacity), sp)
             cx, cy = coord("cx", 0.5), coord("cy", 0.5)
             rv = paint.get("r", 0.5)
             rq = (float(rv[:-1]) / 100.0) if isinstance(rv, str) and rv.endswith("%") else float(rv)
@@ -355,6 +372,12 @@ class Painter:
         pid = PRESETS.get(preset, 0) if isinstance(preset, str) else int(preset)
         sp = _spread(paint)
         if paint.get("type") == "radial":
+            mat = _radial_matrix(paint, (minx, miny, maxx, maxy))
+            if mat:
+                cx, cy, rr, fx, fy = _radial_raw(paint)
+                return self._lib.paint_stroke_radial_xform(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+                                                          float(size), float(opacity), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                          cx, cy, rr, fx, fy, *mat, pid, float(hardness), sp)
             cx, cy = coord("cx", 0.5), coord("cy", 0.5)
             rv = paint.get("r", 0.5)
             rq = (float(rv[:-1]) / 100.0) if isinstance(rv, str) and rv.endswith("%") else float(rv)
