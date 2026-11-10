@@ -1451,6 +1451,31 @@ def _rasterize_filtered(root, ch, w, h, base_dir=None):
                             im = Image.fromarray(_np.clip(out*255.0,0,255).astype(_np.uint8), "RGBA")
                         except Exception:
                             pass
+                    elif t == "feTurbulence":
+                        try:
+                            import numpy as _np
+                            from PIL import Image as _Im
+                            bf = [float(v) for v in re.split(r"[\s,]+", str(e.get("baseFrequency", "0.05")).strip()) if v]
+                            fx = bf[0] if bf else 0.05
+                            fy = bf[1] if len(bf) > 1 else fx
+                            octaves = max(1, int(float(e.get("numOctaves", 1))))
+                            seed = int(float(e.get("seed", 0)))
+                            rng = _np.random.default_rng(seed)
+                            W, H = im.size
+                            acc = _np.zeros((H, W), _np.float32)
+                            amp = 1.0; tot = 0.0
+                            for o in range(octaves):
+                                gw = max(2, int(W * fx * (2 ** o))); gh = max(2, int(H * fy * (2 ** o)))
+                                grid = rng.random((gh, gw)).astype(_np.float32)
+                                up = _np.asarray(_Im.fromarray((grid*255).astype(_np.uint8), "L").resize((W,H), _Im.BICUBIC), _np.float32)/255.0
+                                acc += up * amp; tot += amp; amp *= 0.5
+                            acc /= max(1e-6, tot)
+                            if str(e.get("type", "turbulence")) == "fractalNoise":
+                                acc = acc*2-1
+                            rgb = _np.clip(_np.stack([acc, acc, acc, _np.ones_like(acc)], axis=-1), 0, 1)
+                            im = _Im.fromarray((rgb*255).astype(_np.uint8), "RGBA")
+                        except Exception:
+                            pass
                     elif t == "feMorphology":
                         try:
                             import math as _m
