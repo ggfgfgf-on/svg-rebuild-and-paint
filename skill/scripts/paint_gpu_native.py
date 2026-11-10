@@ -38,6 +38,7 @@ def load():
     lib.pg_fill_gradient_polygon_spread.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5 + [ctypes.c_int]
     lib.pg_fill_radial_polygon_spread.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 6 + [ctypes.c_int]
     lib.pg_set_stroke_gradient_spread.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_int]
+    lib.pg_set_stroke_gradient_radial.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5 + [ctypes.c_int]
     lib.pg_set_stroke_gradient.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4
     lib.pg_apply_layer_mask.restype = ctypes.c_int
     lib.pg_apply_layer_mask.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int]
@@ -50,6 +51,10 @@ def load():
     _DLL = lib
     return lib
 
+
+def _stop_rgb(c):
+    v = [float(x) for x in c[:3]]
+    return [x / 255.0 for x in v] if max(v) > 1.0 else v
 
 class GpuPainter:
     def __init__(self, w, h):
@@ -155,21 +160,30 @@ class GpuPainter:
     def stroke_gradient(self, layer, pts, size, opacity, paint, preset="round_soft", hardness=0.55):
         pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 3))
         stops = paint.get("stops") or []
-        arr = np.ascontiguousarray([[float(st[0]), st[1][0] / 255.0, st[1][1] / 255.0, st[1][2] / 255.0,
-                                     float(st[2]) if len(st) > 2 else 1.0] for st in stops], np.float32)
+        arr = np.ascontiguousarray([[float(st[0])] + _stop_rgb(st[1]) + [float(st[2]) if len(st) > 2 else 1.0] for st in stops], np.float32)
         if len(arr) < 2:
             raise ValueError("gradient needs two stops")
         xs, ys = pts[:, 0], pts[:, 1]
         minx, maxx, miny, maxy = float(xs.min()), float(xs.max()), float(ys.min()), float(ys.max())
+        units = paint.get("units", "objectBoundingBox")
         def coord(k, d):
             v = paint.get(k, d)
-            if isinstance(v, str) and v.endswith("%"):
-                q = float(v[:-1]) / 100.0
-                return (minx + (maxx-minx)*q) if k in ("x1", "x2", "cx") else (miny + (maxy-miny)*q)
-            return float(v)
+            pct = isinstance(v, str) and v.endswith("%")
+            q = float(v[:-1]) / 100.0 if pct else float(v)
+            if units == "objectBoundingBox" or pct:
+                return (minx + (maxx-minx)*q) if k in ("x1", "x2", "cx", "fx") else (miny + (maxy-miny)*q)
+            return q
         x1, y1, x2, y2 = coord("x1", 0.0), coord("y1", 0.0), coord("x2", 1.0), coord("y2", 0.0)
         sp = paint_native._spread(paint)
-        if sp:
+        if paint.get("type") == "radial":
+            cx, cy = coord("cx", 0.5), coord("cy", 0.5)
+            rv = paint.get("r", 0.5)
+            rq = (float(rv[:-1]) / 100.0) if isinstance(rv, str) and rv.endswith("%") else float(rv)
+            rr = (maxx - minx) * rq if units == "objectBoundingBox" else rq
+            fx, fy = coord("fx", "50%"), coord("fy", "50%")
+            self._lib.pg_set_stroke_gradient_radial(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                    cx, cy, max(1e-6, rr), fx, fy, sp)
+        elif sp:
             self._lib.pg_set_stroke_gradient_spread(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2, sp)
         else:
             self._lib.pg_set_stroke_gradient(arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr), x1, y1, x2, y2)
@@ -217,8 +231,7 @@ class GpuPainter:
     def fill_gradient(self, idx, pts, paint, opacity=1.0):
         pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 2))
         stops = paint.get("stops") or []
-        arr = np.ascontiguousarray([[float(st[0]), st[1][0] / 255.0, st[1][1] / 255.0, st[1][2] / 255.0,
-                                     float(st[2]) if len(st) > 2 else 1.0] for st in stops], np.float32)
+        arr = np.ascontiguousarray([[float(st[0])] + _stop_rgb(st[1]) + [float(st[2]) if len(st) > 2 else 1.0] for st in stops], np.float32)
         if len(arr) < 2:
             raise ValueError("gradient needs two stops")
         xs, ys = pts[:, 0], pts[:, 1]

@@ -342,9 +342,23 @@ void cs_over(uint3 dt : SV_DispatchThreadID) {
                 if (gradmeta[0] > 0.5f) {
                     uint ns = (uint)gradmeta[1];
                     float2 q = float2((float)x + 0.5f, (float)y + 0.5f);
-                    float2 gv = float2(gradmeta[4] - gradmeta[2], gradmeta[5] - gradmeta[3]);
-                    float gl = dot(gv, gv);
-                    float t = gl > 1e-9f ? dot(q - float2(gradmeta[2], gradmeta[3]), gv) / gl : 0.0f;
+                    int gmode = (int)gradmeta[7];
+                    float t;
+                    if (gmode == 1) {
+                        float cx = gradmeta[8], cy = gradmeta[9], rr = max(1e-6f, gradmeta[10]);
+                        float fx = gradmeta[11], fy = gradmeta[12];
+                        float2 d = q - float2(fx, fy);
+                        float2 D = float2(cx - fx, cy - fy);
+                        float A = dot(D, D) - rr * rr;
+                        float B = -2.0f * dot(d, D);
+                        float C = dot(d, d);
+                        if (abs(A) < 1e-9f) t = abs(B) < 1e-12f ? 0.0f : -C / B;
+                        else { float disc = max(0.0f, B * B - 4.0f * A * C); t = (-B - sqrt(disc)) / (2.0f * A); }
+                    } else {
+                        float2 gv = float2(gradmeta[4] - gradmeta[2], gradmeta[5] - gradmeta[3]);
+                        float gl = dot(gv, gv);
+                        t = gl > 1e-9f ? dot(q - float2(gradmeta[2], gradmeta[3]), gv) / gl : 0.0f;
+                    }
                     int spread = (int)gradmeta[6];
                     if (spread == 1) { t = abs(t); t = t - floor(t * 0.5f) * 2.0f; if (t > 1.0f) t = 2.0f - t; }
                     else if (spread == 2) { t = t - floor(t); }
@@ -991,6 +1005,8 @@ static std::vector<float> g_grad_stops;
 static int g_grad_n = 0;
 static float g_grad_x1 = 0, g_grad_y1 = 0, g_grad_x2 = 1, g_grad_y2 = 0;
 static int g_grad_spread = 0;
+static int g_grad_mode = 0;
+static float g_grad_cx = 0, g_grad_cy = 0, g_grad_r = 1, g_grad_fx = 0, g_grad_fy = 0;
 
 EXPORT void pg_set_stroke_gradient(const float* stops, int ns, float x1, float y1, float x2, float y2) {
     g_grad_n = 0;
@@ -1005,6 +1021,12 @@ EXPORT void pg_set_stroke_gradient(const float* stops, int ns, float x1, float y
 EXPORT void pg_set_stroke_gradient_spread(const float* stops, int ns, float x1, float y1, float x2, float y2, int spread) {
     pg_set_stroke_gradient(stops, ns, x1, y1, x2, y2);
     g_grad_spread = spread;
+    g_grad_mode = 0;
+}
+
+EXPORT void pg_set_stroke_gradient_radial(const float* stops, int ns, float cx, float cy, float r, float fx, float fy, int spread) {
+    pg_set_stroke_gradient(stops, ns, 0, 0, 1, 0);
+    g_grad_mode = 1; g_grad_cx = cx; g_grad_cy = cy; g_grad_r = r; g_grad_fx = fx; g_grad_fy = fy; g_grad_spread = spread;
 }
 
 EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs,
@@ -1016,7 +1038,7 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
     if (layer < 0 || layer >= (int)g->layers.size()) return 0;
     Layer& L = g->layers[layer];
     if (g->gradStops && g->gradMeta) {
-        float gm[7] = { g_grad_n >= 2 ? 1.0f : 0.0f, (float)g_grad_n, g_grad_x1, g_grad_y1, g_grad_x2, g_grad_y2, (float)g_grad_spread };
+        float gm[13] = { g_grad_n >= 2 ? 1.0f : 0.0f, (float)g_grad_n, g_grad_x1, g_grad_y1, g_grad_x2, g_grad_y2, (float)g_grad_spread, (float)g_grad_mode, g_grad_cx, g_grad_cy, g_grad_r, g_grad_fx, g_grad_fy };
         g->ctx->UpdateSubresource(g->gradMeta, 0, nullptr, gm, 0, 0);
         if (g_grad_n >= 2) g->ctx->UpdateSubresource(g->gradStops, 0, nullptr, g_grad_stops.data(), 0, 0);
     }

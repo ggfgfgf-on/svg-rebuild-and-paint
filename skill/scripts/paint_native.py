@@ -56,6 +56,8 @@ def load():
     lib.paint_fill_radial_polygon_spread.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 6 + [ctypes.c_int]
     lib.paint_fill_gradient_polygon_spread.restype = ctypes.c_int
     lib.paint_fill_gradient_polygon_spread.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_float, ctypes.c_int]
+    lib.paint_stroke_radial_spread.restype = ctypes.c_int
+    lib.paint_stroke_radial_spread.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, ctypes.c_float, ctypes.c_float, f32, ctypes.c_int] + [ctypes.c_float] * 5 + [ctypes.c_int, ctypes.c_float, ctypes.c_int]
     lib.paint_stroke_gradient_spread.restype = ctypes.c_int
     lib.paint_stroke_gradient_spread.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, ctypes.c_float, ctypes.c_float, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_int, ctypes.c_float, ctypes.c_int]
     lib.paint_fill_gradient_polygon.restype = ctypes.c_int
@@ -192,6 +194,10 @@ def _spread(paint):
     return {"reflect": 1, "repeat": 2}.get(str(v), 0)
 
 
+def _stop_rgb(c):
+    v = [float(x) for x in c[:3]]
+    return [x / 255.0 for x in v] if max(v) > 1.0 else v
+
 class Painter:
     def __init__(self, w, h):
         lib = load()
@@ -275,8 +281,7 @@ class Painter:
         if pts.ndim != 2 or pts.shape[1] != 2:
             raise ValueError("fill points must be Nx2")
         stops = paint.get("stops") or []
-        arr = np.ascontiguousarray([[float(st[0]), st[1][0] / 255.0, st[1][1] / 255.0, st[1][2] / 255.0,
-                                     float(st[2]) if len(st) > 2 else 1.0] for st in stops], dtype=np.float32)
+        arr = np.ascontiguousarray([[float(st[0])] + _stop_rgb(st[1]) + [float(st[2]) if len(st) > 2 else 1.0] for st in stops], dtype=np.float32)
         if len(arr) < 2:
             raise ValueError("gradient needs two stops")
         xs, ys = pts[:, 0], pts[:, 1]
@@ -325,8 +330,7 @@ class Painter:
         if pts.ndim != 2 or pts.shape[1] != 3:
             raise ValueError("pts must be Nx3")
         stops = paint.get("stops") or []
-        arr = np.ascontiguousarray([[float(st[0]), st[1][0] / 255.0, st[1][1] / 255.0, st[1][2] / 255.0,
-                                     float(st[2]) if len(st) > 2 else 1.0] for st in stops], dtype=np.float32)
+        arr = np.ascontiguousarray([[float(st[0])] + _stop_rgb(st[1]) + [float(st[2]) if len(st) > 2 else 1.0] for st in stops], dtype=np.float32)
         if len(arr) < 2:
             raise ValueError("gradient needs two stops")
         xs, ys = pts[:, 0], pts[:, 1]
@@ -343,6 +347,15 @@ class Painter:
         x2, y2 = coord("x2", 1.0), coord("y2", 0.0)
         pid = PRESETS.get(preset, 0) if isinstance(preset, str) else int(preset)
         sp = _spread(paint)
+        if paint.get("type") == "radial":
+            cx, cy = coord("cx", 0.5), coord("cy", 0.5)
+            rv = paint.get("r", 0.5)
+            rq = (float(rv[:-1]) / 100.0) if isinstance(rv, str) and rv.endswith("%") else float(rv)
+            rr = (maxx - minx) * rq if units == "objectBoundingBox" else rq
+            fx, fy = coord("fx", "50%"), coord("fy", "50%")
+            return self._lib.paint_stroke_radial_spread(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+                                                       float(size), float(opacity), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                       cx, cy, max(1e-6, rr), fx, fy, pid, float(hardness), sp)
         if sp:
             return self._lib.paint_stroke_gradient_spread(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
                                                          float(size), float(opacity), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
