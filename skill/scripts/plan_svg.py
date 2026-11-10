@@ -1685,6 +1685,9 @@ def needs_python_parser(svg_text):
         return True
 
     approx = os.environ.get("PLAN_SVG_CPP_APPROX", "0") == "1"
+    if (not approx and "gradientTransform" in svg_text and "<pattern" in svg_text
+            and any(t in svg_text for t in ("<path", "<circle", "<ellipse", "<polygon", "<text", "<use", "<image"))):
+        return True
     if not approx and "<pattern" in svg_text and any(k in svg_text for k in ()):
         return True
     if not approx and "<filter" in svg_text:
