@@ -26,6 +26,7 @@ from xml.sax.saxutils import escape, quoteattr
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import plan_io
+import color_convert
 
 try:
     import plan_svg_native as _native
@@ -443,14 +444,10 @@ def _floats(s, default):
 
 
 def _color(s, default=(217, 180, 90)):
-    if not s:
+    try:
+        return color_convert.to_srgb(s)
+    except Exception:
         return list(default)
-    if s.startswith("#"):
-        h = s[1:]
-        if len(h) == 3:
-            h = "".join(c * 2 for c in h)
-        return [int(h[i:i+2], 16) for i in (0, 2, 4)]
-    return [float(x) for x in s.replace(";", ",").split(",")[:3]]
 
 
 
@@ -986,6 +983,32 @@ def _mask_png(im):
     im.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
+def _load_profiles(root, base_dir=None):
+    import re as _re
+    color_convert.clear_profiles()
+    for el in root.iter():
+        if _local(el.tag) == "color-profile" and el.get("name"):
+            href = el.get("href") or el.get("{http://www.w3.org/1999/xlink}href") or ""
+            if not href or base_dir is None:
+                continue
+            path = (Path(base_dir) / href).resolve()
+            try:
+                path.relative_to(Path(base_dir).resolve())
+            except Exception:
+                raise ValueError("ICC profile escapes base_dir: %s" % href)
+            color_convert.register_profile(el.get("name"), path.read_bytes())
+        if _local(el.tag) == "style":
+            for name, body in _re.findall(r"@color-profile\s+([\w-]+)\s*\{([^}]*)\}", el.text or ""):
+                m = _re.search(r"url\((?:'|\")?([^)'\"]+)", body)
+                if not m or base_dir is None:
+                    continue
+                path = (Path(base_dir) / m.group(1)).resolve()
+                try:
+                    path.relative_to(Path(base_dir).resolve())
+                except Exception:
+                    raise ValueError("ICC profile escapes base_dir: %s" % m.group(1))
+                color_convert.register_profile(name, path.read_bytes())
+
 def _raster_masks(root, w, h):
     from PIL import Image, ImageDraw
     out = {}
@@ -1119,6 +1142,8 @@ def _gradient_colors(root):
 def needs_python_parser(svg_text):
     if "linearGradient" in svg_text or "radialGradient" in svg_text:
         return True
+    if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
+        return True
     if "<style" in svg_text or "<link" in svg_text or re.search(r'href="[^"]+\.svg#', svg_text):
         return True
     if 'fill-rule="evenodd"' in svg_text:
@@ -1132,6 +1157,7 @@ def needs_python_parser(svg_text):
 def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_external=False, max_depth=8):
     """Parse bridge SVG (and simple authored SVG) back into a plan dict."""
     root = ET.fromstring(svg_text)
+    _load_profiles(root, base_dir)
     vb = root.attrib.get("viewBox", "0 0 1200 900").replace(",", " ").split()
     w, h = (int(float(vb[2])), int(float(vb[3]))) if len(vb) >= 4 else (1200, 900)
     layers, strokes = [], []
