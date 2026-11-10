@@ -87,7 +87,13 @@ def _path_d_compact(points, holes=None):
             return ""
         d = "M %s %s" % (_fc(clean[0][0]), _fc(clean[0][1]))
         for x, y in clean[1:]:
-            d += " l %s %s" % (_fc(x - clean[0][0]), _fc(y - clean[0][1]))
+            dx, dy = x - clean[0][0], y - clean[0][1]
+            if abs(dy) < 1e-9:
+                d += " h %s" % _fc(dx)
+            elif abs(dx) < 1e-9:
+                d += " v %s" % _fc(dy)
+            else:
+                d += " l %s %s" % (_fc(dx), _fc(dy))
             clean[0] = (x, y)
         return d + " Z"
     out = one(points)
@@ -650,14 +656,17 @@ def plan_to_svg_stamps(doc, title=None):
                 body.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer=%s data-preset="fill" data-color="%s"/>' % (
                     d0, ("url(#%s)" % pg) if pg else col, _f(op0), st.get("fill_rule", "nonzero"), quoteattr(name), col) + post)
                 continue
+            const_op = len({round(float(p[2] if len(p) > 2 else 1.0), 6) for p in pts}) == 1
+            op_const = max(0.0, min(1.0, op0 * (0.15 + 0.85 * float(pts[0][2] if len(pts[0]) > 2 else 1.0)))) if const_op else None
             spg = paint_gid.get(id(st))
             if spg:
                 fill0 = "url(#%s)" % spg
             else:
                 sgid = grad_id(col, hard)
                 fill0 = ("url(#%s)" % sgid) if sgid else col
-            body.append(pre + '<g data-stroke="1" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" fill="%s" data-center="%s" data-center-hash="%s"%s>' % (
-                quoteattr(name), quoteattr(preset), _f(size), _f(op0), _f(hard), col, fill0, _center_attr(ps), _center_hash(ps),
+            body.append(pre + '<g data-stroke="1" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" fill="%s"%s data-center="%s" data-center-hash="%s"%s>' % (
+                quoteattr(name), quoteattr(preset), _f(size), _f(op0), _f(hard), col, fill0,
+                (' fill-opacity="%s"' % _fc(op_const)) if op_const is not None else "", _center_attr(ps), _center_hash(ps),
                 (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else ""))
             for i in range(1, len(pts)):
                 x0, y0, p0 = float(pts[i-1][0]), float(pts[i-1][1]), float(pts[i-1][2] if len(pts[i-1]) > 2 else 1.0)
@@ -676,10 +685,11 @@ def plan_to_svg_stamps(doc, title=None):
                     else:
                         gid = grad_id(col, hard)
                         fill = ("url(#%s)" % gid) if gid else col
+                    op_attr = "" if const_op else (' fill-opacity="%s"' % _fc(op))
                     if preset in ("flat", "bristle"):
-                        body.append('<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill-opacity="%s" transform="rotate(%s %s %s)"/>' % (_fc(x), _fc(y), _fc(r), _fc(max(0.8, r * 0.35)), _fc(op), _fc(ang), _fc(x), _fc(y)))
+                        body.append('<ellipse cx="%s" cy="%s" rx="%s" ry="%s"%s transform="rotate(%s %s %s)"/>' % (_fc(x), _fc(y), _fc(r), _fc(max(0.8, r * 0.35)), op_attr, _fc(ang), _fc(x), _fc(y)))
                     else:
-                        body.append('<circle cx="%s" cy="%s" r="%s" fill-opacity="%s"/>' % (_fc(x), _fc(y), _fc(r), _fc(op)))
+                        body.append('<circle cx="%s" cy="%s" r="%s"%s/>' % (_fc(x), _fc(y), _fc(r), op_attr))
             body.append(post + "</g>")
         body.append("</g>")
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
