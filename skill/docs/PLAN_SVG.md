@@ -272,3 +272,7 @@ layer 可带 `mask`：`{"encoding":"png-base64","data":"...","luminance":true}`�
 ## GPU
 
 `paint_gpu` 新增 `pg_apply_layer_mask`、`pg_set_stroke_gradient`、`pg_fill_polygon`、`pg_fill_gradient_polygon`。stroke 渐变按 sprite 位置插值；fill/mask 走 GPU layer 读回/写回（正确但非纯 shader）。`render_util` 仍对 paint/mask/fill 回退 CPU，避免旧调用误用。
+
+## GPU 自动入口
+
+`doc_to_plan` 保留原始 stroke 与 layer.mask；`tile_inc.full/rebuild` 对 fill/paint/mask 调用 `fill_gradient`/`stroke_gradient`/`apply_mask`；`render_util._gpu_unsupported` 已不再因 paint/mask/fill 回退。`--gpu` 现在走 GPU 新接口。

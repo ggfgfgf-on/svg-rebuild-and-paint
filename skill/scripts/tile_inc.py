@@ -80,10 +80,52 @@ def draw(p, plan, spec, name, li, sel, region, gpu, nthreads=8):
     return len(sel)
 
 
+def _is_advanced(items):
+    for s in items or []:
+        if str(s.get("preset")) == "fill" or isinstance(s.get("paint"), dict) or isinstance(s.get("mask"), dict):
+            return True
+    return False
+
+
+def _apply_layer_mask(p, li, m):
+    if not isinstance(m, dict) or m.get("encoding") != "png-base64":
+        return
+    import base64, io
+    from PIL import Image
+    im = Image.open(io.BytesIO(base64.b64decode(m["data"]))).convert("L")
+    if im.size != (p.w, p.h):
+        im = im.resize((p.w, p.h), Image.BILINEAR)
+    p.apply_mask(li, np.asarray(im, dtype=np.uint8))
+
+
+def _draw_items(p, li, items, gpu, nthreads=8, region=None):
+    for s in items:
+        pts = np.asarray(s.get("points") or [], np.float32)
+        if len(pts) < 1:
+            continue
+        if str(s.get("preset")) == "fill":
+            q = pts[:, :2]
+            if isinstance(s.get("paint"), dict):
+                p.fill_gradient(li, q, s["paint"], s.get("opacity", 1.0))
+            else:
+                p.fill_polygon(li, q, s.get("color", (255, 255, 255)), s.get("opacity", 1.0))
+        elif isinstance(s.get("paint"), dict):
+            p.stroke_gradient(li, pts, s.get("size", 8.0), s.get("opacity", 1.0),
+                              s["paint"], s.get("preset", "round_soft"), s.get("hardness", 0.55))
+        else:
+            p.stroke(li, pts, s.get("size", 8.0), s.get("opacity", 1.0), s.get("color", (255, 255, 255)),
+                     s.get("preset", "round_soft"), s.get("hardness", 0.55), region_id=s.get("region_id", 0))
+
+
 def full(p, plan, spec, base_of, gpu, nthreads=8):
     gpu = bool(getattr(p, "gpu_used", gpu))
     for li, (nm, _) in enumerate(spec):
         d = plan[nm]
+        items = d.get("items")
+        if items and _is_advanced(items):
+            _draw_items(p, li + 1, items, gpu, nthreads)
+            _apply_layer_mask(p, li + 1, d.get("mask"))
+            continue
         n = int(d["offs"].size - 1)
         if n == 0:
             continue
@@ -100,6 +142,8 @@ def mask_for(rects, base, H, W):
 def rebuild(p, plan, spec, dirty, base_of, gpu, nthreads=8):
     gpu = bool(getattr(p, "gpu_used", gpu))
     """dirty: {layer_name: [(x0,y0,x1,y1), ...]}；一次区域图、一次合成。"""
+    if any(_is_advanced(plan[nm].get("items")) for nm, _ in spec):
+        return full(p, plan, spec, base_of, gpu, nthreads)
     H, W = p.h, p.w
     total = 0
     for li, (nm, _) in enumerate(spec):

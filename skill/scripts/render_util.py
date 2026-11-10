@@ -37,12 +37,7 @@ def draw_full(p, cat, doc, w, h, gpu=False, nthreads=8):
 
 
 def _gpu_unsupported(doc):
-    for st in doc.get("strokes") or []:
-        if isinstance(st.get("paint"), dict) or isinstance(st.get("mask"), dict) or str(st.get("preset")) == "fill":
-            return True
-    for ly in doc.get("layers") or []:
-        if isinstance(ly.get("mask"), dict):
-            return True
+    # tile_inc now dispatches fill/paint/mask to both backends.
     return False
 
 

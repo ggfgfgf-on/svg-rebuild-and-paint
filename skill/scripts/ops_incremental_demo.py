@@ -56,7 +56,8 @@ def doc_to_plan(doc, cat, base=None, only=None):
 
     base 给出已打包的上一层结果时，只有 only 里的层会重新打包（改画只动一层，
     没必要把 5.7 万笔全部重排一遍）。"""
-    spec = [(l["name"], l.get("blend", "normal")) for l in (doc.get("layers") or [])]
+    layer_specs = doc.get("layers") or []
+    spec = [(l["name"], l.get("blend", "normal")) for l in layer_specs]
     by_layer = {}
     for s in doc["strokes"]:
         by_layer.setdefault(s["layer"], []).append(s)
@@ -66,14 +67,22 @@ def doc_to_plan(doc, cat, base=None, only=None):
             continue
         items = []
         for s in by_layer.get(name, []):
-            pid = paint_native.PRESETS.get(s["preset"], cat.get(s["preset"]))
-            if pid is None:
-                raise KeyError("unknown preset %r" % (s["preset"],))
-            items.append({"points": s["points"], "size": s["size"], "opacity": s["opacity"],
-                          "color": s["color"], "hardness": s.get("hardness", 0.7),
+            if str(s.get("preset")) == "fill":
+                pid = 0
+            else:
+                pid = paint_native.PRESETS.get(s["preset"], cat.get(s["preset"]))
+                if pid is None:
+                    raise KeyError("unknown preset %r" % (s["preset"],))
+            ip = s["points"]
+            if str(s.get("preset")) == "fill":
+                ip = [[float(q[0]), float(q[1]), 1.0] for q in ip]
+            items.append({"points": ip, "size": s.get("size", 1.0), "opacity": s.get("opacity", 1.0),
+                          "color": s.get("color") or [128, 128, 128], "hardness": s.get("hardness", 0.7),
                           "preset_id": pid, "region_id": 0})
         pts, offs, params, rids, sid = plan_store.pack(items)
-        plan[name] = {"pts": pts, "offs": offs, "params": params, "rids": rids, "sid": sid}
+        plan[name] = {"pts": pts, "offs": offs, "params": params, "rids": rids, "sid": sid,
+                      "items": list(by_layer.get(name, [])),
+                      "mask": next((l.get("mask") for l in layer_specs if l.get("name") == name), None)}
     return plan, spec
 
 

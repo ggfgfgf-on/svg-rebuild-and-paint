@@ -1246,6 +1246,8 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
     float meta[8] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a};
     g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
     Params cp{}; cp.W = g->W; cp.H = g->H;
+    cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
+    cp.opacity = a;
     g->ctx->UpdateSubresource(g->cb, 0, nullptr, &cp, 0, 0);
     ID3D11UnorderedAccessView* uav = g->layers[idx].uav;
     ID3D11ShaderResourceView* srvs[3] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv };
