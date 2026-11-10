@@ -63,6 +63,7 @@ RWStructuredBuffer<float4> layer : register(u1);
 StructuredBuffer<float> maskbuf : register(t7);
 StructuredBuffer<float2> fillpts : register(t8);
 StructuredBuffer<float> fillstops : register(t9);
+StructuredBuffer<float> fillmeta : register(t10);
 
 inline void splat_key(uint idx, float a, uint k) {
     uint a16 = (uint)(saturate(a) * 65535.0f + 0.5f);
@@ -371,8 +372,12 @@ void cs_fill(uint3 dt : SV_DispatchThreadID) {
     int x = (int)(idx % p.W);
     int y = (int)(idx / p.W);
     float2 q = float2((float)x + 0.5f, (float)y + 0.5f);
+    uint fill_n = (uint)fillmeta[0];
+    uint fill_ns = (uint)fillmeta[1];
+    int use_fill_grad = (int)fillmeta[2];
+    float fx1 = fillmeta[3], fy1 = fillmeta[4], fx2 = fillmeta[5], fy2 = fillmeta[6];
     bool inside = false;
-    for (uint i = 0, j = p.fill_n - 1; i < p.fill_n; j = i++) {
+    for (uint i = 0, j = fill_n - 1; i < fill_n; j = i++) {
         float2 a = fillpts[i], b = fillpts[j];
         if (((a.y > q.y) != (b.y > q.y)) && (q.x < (b.x - a.x) * (q.y - a.y) / max(1e-9f, b.y - a.y) + a.x))
             inside = !inside;
@@ -380,14 +385,14 @@ void cs_fill(uint3 dt : SV_DispatchThreadID) {
     if (!inside) return;
     float3 col = p.color.rgb;
     float ca = 1.0f;
-    if (p.use_fill_grad && p.fill_ns >= 2) {
-        float2 g = float2(p.fx2 - p.fx1, p.fy2 - p.fy1);
+    if (use_fill_grad && fill_ns >= 2) {
+        float2 g = float2(fx2 - fx1, fy2 - fy1);
         float gl = dot(g, g);
-        float t = gl > 1e-9f ? dot(q - float2(p.fx1, p.fy1), g) / gl : 0.0f;
+        float t = gl > 1e-9f ? dot(q - float2(fx1, fy1), g) / gl : 0.0f;
         t = saturate(t);
         uint k0 = 0;
-        while (k0 + 1 < p.fill_ns && fillstops[(k0 + 1) * 5] < t) ++k0;
-        uint k1 = min(p.fill_ns - 1, k0 + 1);
+        while (k0 + 1 < fill_ns && fillstops[(k0 + 1) * 5] < t) ++k0;
+        uint k1 = min(fill_ns - 1, k0 + 1);
         float o0 = fillstops[k0 * 5], o1 = fillstops[k1 * 5];
         float u = o1 > o0 ? (t - o0) / (o1 - o0) : 0.0f;
         col = float3(lerp(fillstops[k0*5+1], fillstops[k1*5+1], u),
@@ -395,7 +400,7 @@ void cs_fill(uint3 dt : SV_DispatchThreadID) {
                      lerp(fillstops[k0*5+3], fillstops[k1*5+3], u));
         ca = lerp(fillstops[k0*5+4], fillstops[k1*5+4], u);
     }
-    float sa = p.opacity * ca;
+    float sa = fillmeta[7] * ca;
     float4 d = layer[idx];
     float inv = 1.0f - sa;
     layer[idx] = float4(col * sa + d.rgb * inv, sa + d.a * inv);
@@ -478,6 +483,8 @@ struct Gpu {
     ID3D11ShaderResourceView* fillPtsSrv = nullptr;
     ID3D11Buffer* fillStops = nullptr;
     ID3D11ShaderResourceView* fillStopsSrv = nullptr;
+    ID3D11Buffer* fillMeta = nullptr;
+    ID3D11ShaderResourceView* fillMetaSrv = nullptr;
     ID3D11Buffer* maskBuf = nullptr;
     ID3D11ShaderResourceView* maskSrv = nullptr;
     ID3D11Buffer* snap = nullptr;
@@ -611,6 +618,7 @@ EXPORT void* pg_create(int w, int h) {
     }
     g->fillPts = make_buf(g->dev, npix * 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->fillStops = make_buf(g->dev, 320 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillMeta = make_buf(g->dev, 16 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     if (g->fillPts) {
         D3D11_SHADER_RESOURCE_VIEW_DESC fs{};
         fs.Format = DXGI_FORMAT_UNKNOWN; fs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; fs.Buffer.NumElements = npix;
@@ -620,6 +628,11 @@ EXPORT void* pg_create(int w, int h) {
         D3D11_SHADER_RESOURCE_VIEW_DESC ss{};
         ss.Format = DXGI_FORMAT_UNKNOWN; ss.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ss.Buffer.NumElements = 320;
         g->dev->CreateShaderResourceView(g->fillStops, &ss, &g->fillStopsSrv);
+    }
+    if (g->fillMeta) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC ms{};
+        ms.Format = DXGI_FORMAT_UNKNOWN; ms.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ms.Buffer.NumElements = 16;
+        g->dev->CreateShaderResourceView(g->fillMeta, &ms, &g->fillMetaSrv);
     }
     g->dummy = make_buf(g->dev, 16, 16, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
@@ -1220,6 +1233,35 @@ EXPORT int pg_read_acc(void* p, float* out) {
 
 
 
+
+static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float* stops, int ns,
+                           float x1, float y1, float x2, float y2, float a, int use_grad) {
+    if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillPts || !g->fillStops || !g->fillMeta) return 0;
+    UINT npix = (UINT)g->W * (UINT)g->H;
+    if ((UINT)n > npix || ns > 64) return 0;
+    g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
+    float one[5] = {0, 0, 0, 0, 1};
+    if (!stops || ns < 1) { stops = one; ns = 1; }
+    g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
+    float meta[8] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a};
+    g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
+    Params cp{}; cp.W = g->W; cp.H = g->H;
+    g->ctx->UpdateSubresource(g->cb, 0, nullptr, &cp, 0, 0);
+    ID3D11UnorderedAccessView* uav = g->layers[idx].uav;
+    ID3D11ShaderResourceView* srvs[3] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv };
+    g->ctx->CSSetShader(g->cs_fill, nullptr, 0);
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
+    g->ctx->CSSetShaderResources(8, 3, srvs);
+    g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
+    g->ctx->Dispatch((npix + 255) / 256, 1, 1);
+    ID3D11UnorderedAccessView* none = nullptr;
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
+    ID3D11ShaderResourceView* no[3] = { nullptr, nullptr, nullptr };
+    g->ctx->CSSetShaderResources(8, 3, no);
+    g->ctx->CSSetShader(nullptr, nullptr, 0);
+    return 1;
+}
+
 static int gpu_fill_common(Gpu* g, int idx, const float* pts, int n, const float* stops, int ns,
                            float x1, float y1, float x2, float y2, float a, int use_grad) {
     if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size()) return 0;
@@ -1277,12 +1319,12 @@ static int gpu_fill_common(Gpu* g, int idx, const float* pts, int n, const float
 
 EXPORT int pg_fill_polygon(void* p, int idx, const float* pts, int n, float r, float g_, float b, float a) {
     float one[5] = {0, r, g_, b, 1};
-    return gpu_fill_common((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0);
+    return gpu_fill_shader((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0);
 }
 
 EXPORT int pg_fill_gradient_polygon(void* p, int idx, const float* pts, int n,
                                     const float* stops, int ns, float x1, float y1, float x2, float y2, float a) {
-    return gpu_fill_common((Gpu*)p, idx, pts, n, stops, ns, x1, y1, x2, y2, a, 1);
+    return gpu_fill_shader((Gpu*)p, idx, pts, n, stops, ns, x1, y1, x2, y2, a, 1);
 }
 
 EXPORT int pg_apply_layer_mask(void* p, int idx, const unsigned char* mask, int mw, int mh) {
