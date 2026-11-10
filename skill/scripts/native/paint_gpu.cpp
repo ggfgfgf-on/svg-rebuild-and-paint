@@ -59,6 +59,7 @@ StructuredBuffer<int> region : register(t1);
 StructuredBuffer<float> tips : register(t2);
 RWStructuredBuffer<uint> scratch : register(u0);
 RWStructuredBuffer<float4> layer : register(u1);
+StructuredBuffer<float> maskbuf : register(t7);
 
 inline void splat_key(uint idx, float a, uint k) {
     uint a16 = (uint)(saturate(a) * 65535.0f + 0.5f);
@@ -350,6 +351,14 @@ void cs_over(uint3 dt : SV_DispatchThreadID) {
         scratch[idx] = 0u;
     }
 }
+
+[numthreads(256,1,1)]
+void cs_mask(uint3 dt : SV_DispatchThreadID) {
+    uint idx = dt.x;
+    uint npix = p.W * p.H;
+    if (idx >= npix) return;
+    layer[idx] *= maskbuf[idx];
+}
 )HLSL";
 
 enum { P_ROUND_SOFT = 0, P_ROUND_HARD, P_FLAT, P_DRY, P_AIRBRUSH, P_LINER, P_CHALK, P_SPONGE, P_BRISTLE, P_MARKER };
@@ -421,6 +430,9 @@ struct Gpu {
     ID3D11Buffer* acc8 = nullptr;
     ID3D11UnorderedAccessView* acc8Uav = nullptr;
     ID3D11ComputeShader* cs_final = nullptr;
+    ID3D11ComputeShader* cs_mask = nullptr;
+    ID3D11Buffer* maskBuf = nullptr;
+    ID3D11ShaderResourceView* maskSrv = nullptr;
     ID3D11Buffer* snap = nullptr;
     ID3D11ShaderResourceView* snapSrv = nullptr;
     float wet = 0.0f;
@@ -495,7 +507,8 @@ EXPORT void* pg_create(int w, int h) {
     g->cs_over = compile_cs(g->dev, kHLSL, "cs_over");
     g->cs_comp = compile_cs(g->dev, kHLSL, "cs_composite");
     g->cs_final = compile_cs(g->dev, kHLSL, "cs_final");
-    if (!g->cs_splat || !g->cs_over || !g->cs_comp || !g->cs_final) { delete g; return nullptr; }
+    g->cs_mask = compile_cs(g->dev, kHLSL, "cs_mask");
+    if (!g->cs_splat || !g->cs_over || !g->cs_comp || !g->cs_final || !g->cs_mask) { delete g; return nullptr; }
     {
         static std::vector<float> az;
         if (az.size() < (size_t)w * h * 4) az.assign((size_t)w * h * 4, 0.0f);
@@ -540,6 +553,14 @@ EXPORT void* pg_create(int w, int h) {
     ud.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
     ud.Buffer.NumElements = npix;
     g->dev->CreateUnorderedAccessView(g->scratch, &ud, &g->scratchUav);
+    g->maskBuf = make_buf(g->dev, npix * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    if (g->maskBuf) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC msd{};
+        msd.Format = DXGI_FORMAT_UNKNOWN;
+        msd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+        msd.Buffer.NumElements = npix;
+        g->dev->CreateShaderResourceView(g->maskBuf, &msd, &g->maskSrv);
+    }
     g->dummy = make_buf(g->dev, 16, 16, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
     sd.Format = DXGI_FORMAT_UNKNOWN;
@@ -1208,26 +1229,32 @@ EXPORT int pg_apply_layer_mask(void* p, int idx, const unsigned char* mask, int 
     Gpu* g = (Gpu*)p;
     if (!g || !mask || idx < 0 || idx >= (int)g->layers.size() || mw <= 0 || mh <= 0) return 0;
     UINT npix = (UINT)g->W * (UINT)g->H;
-    std::vector<float> px((size_t)npix * 4);
-    ID3D11Buffer* rb = make_buf(g->dev, npix * 16, 16, 0, 0, D3D11_CPU_ACCESS_READ);
-    g->ctx->CopyResource(rb, g->layers[idx].buf);
-    D3D11_MAPPED_SUBRESOURCE ms{};
-    if (FAILED(g->ctx->Map(rb, 0, D3D11_MAP_READ, 0, &ms))) { rb->Release(); return 0; }
-    memcpy(px.data(), ms.pData, (size_t)npix * 16);
-    g->ctx->Unmap(rb, 0);
-    rb->Release();
+    std::vector<float> alpha((size_t)npix);
     for (int y = 0; y < g->H; ++y) {
         int my = (int)((long long)y * mh / g->H);
         if (my >= mh) my = mh - 1;
         for (int x = 0; x < g->W; ++x) {
             int mx = (int)((long long)x * mw / g->W);
             if (mx >= mw) mx = mw - 1;
-            float a = mask[(size_t)my * mw + mx] / 255.0f;
-            float* d = px.data() + ((size_t)y * g->W + x) * 4;
-            d[0] *= a; d[1] *= a; d[2] *= a; d[3] *= a;
+            alpha[(size_t)y * g->W + x] = mask[(size_t)my * mw + mx] / 255.0f;
         }
     }
-    g->ctx->UpdateSubresource(g->layers[idx].buf, 0, nullptr, px.data(), 0, 0);
+    g->ctx->UpdateSubresource(g->maskBuf, 0, nullptr, alpha.data(), 0, 0);
+    Params cp{};
+    cp.W = g->W; cp.H = g->H;
+    g->ctx->UpdateSubresource(g->cb, 0, nullptr, &cp, 0, 0);
+    ID3D11UnorderedAccessView* uav = g->layers[idx].uav;
+    ID3D11ShaderResourceView* srv = g->maskSrv;
+    g->ctx->CSSetShader(g->cs_mask, nullptr, 0);
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
+    g->ctx->CSSetShaderResources(7, 1, &srv);
+    g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
+    g->ctx->Dispatch((npix + 255) / 256, 1, 1);
+    ID3D11UnorderedAccessView* none = nullptr;
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
+    ID3D11ShaderResourceView* no = nullptr;
+    g->ctx->CSSetShaderResources(7, 1, &no);
+    g->ctx->CSSetShader(nullptr, nullptr, 0);
     return 1;
 }
 
