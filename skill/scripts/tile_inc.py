@@ -101,9 +101,14 @@ def draw(p, plan, spec, name, li, sel, region, gpu, nthreads=8):
     return len(sel)
 
 
+def _is_overlay(s):
+    return (str(s.get("preset", "")) in ("image", "text", "pattern")
+            or isinstance(s.get("pattern"), dict))
+
+
 def _is_advanced(items):
     for s in items or []:
-        if str(s.get("preset")) == "fill" or isinstance(s.get("paint"), dict) or isinstance(s.get("mask"), dict):
+        if str(s.get("preset")) == "fill" or isinstance(s.get("paint"), dict) or isinstance(s.get("mask"), dict) or _is_overlay(s):
             return True
     return False
 
@@ -120,7 +125,13 @@ def _apply_layer_mask(p, li, m):
 
 
 def _draw_items(p, li, items, gpu, nthreads=8, region=None):
+    import overlay_render
     for s in items:
+        if _is_overlay(s):
+            rgba = overlay_render.render_overlay(s, p.w, p.h)
+            if rgba is not None and hasattr(p, "set_layer_rgba"):
+                p.set_layer_rgba(li, rgba)
+            continue
         pts = np.asarray(s.get("points") or [], np.float32)
         if len(pts) < 1:
             continue
@@ -200,6 +211,8 @@ def rebuild(p, plan, spec, dirty, base_of, gpu, nthreads=8):
     gpu = bool(getattr(p, "gpu_used", gpu))
     """dirty: {layer_name: [(x0,y0,x1,y1), ...]}；一次区域图、一次合成。"""
     advanced = [plan[nm].get("items") for nm, _ in spec if _is_advanced(plan[nm].get("items"))]
+    if advanced and any(any(_is_overlay(x) for x in (items or [])) for items in advanced):
+        return full(p, plan, spec, base_of, gpu, nthreads)
     if advanced:
         if any(_has_paint(items) for items in advanced):
             return full(p, plan, spec, base_of, gpu, nthreads)

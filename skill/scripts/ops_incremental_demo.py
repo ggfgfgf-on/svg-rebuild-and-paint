@@ -67,6 +67,8 @@ def doc_to_plan(doc, cat, base=None, only=None):
             continue
         items = []
         for s in by_layer.get(name, []):
+            if str(s.get("preset", "")) in ("image", "text", "pattern") or isinstance(s.get("pattern"), dict):
+                continue
             if str(s.get("preset")) == "fill":
                 pid = 0
             else:

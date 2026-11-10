@@ -37,7 +37,10 @@ def draw_full(p, cat, doc, w, h, gpu=False, nthreads=8):
 
 
 def _gpu_unsupported(doc):
-    # GPU supports radial gradientTransform now (fill + stroke shaders).
+    # Overlay objects are rasterized by the CPU path only.
+    for s in doc.get("strokes", []):
+        if str(s.get("preset", "")) in ("image", "text", "pattern") or isinstance(s.get("pattern"), dict):
+            return True
     return False
 
 
