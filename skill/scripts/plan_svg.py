@@ -892,6 +892,23 @@ def _clip_geoms(root):
             out[el.get("id")] = polys
     return out
 
+def _css_media_text(text):
+    out=[]; i=0
+    while True:
+        m=re.search(r"@media[^{]*\{", text[i:])
+        if not m: out.append(text[i:]); break
+        start=i+m.start(); brace=i+m.end()-1
+        depth=0; j=brace
+        while j < len(text):
+            if text[j]=='{': depth+=1
+            elif text[j]=='}':
+                depth-=1
+                if depth==0: break
+            j+=1
+        out.append(text[i:start]); out.append(text[brace+1:j]); i=j+1
+    return "".join(out)
+
+
 def _load_css(root, base_dir=None):
     rules = []
     texts = []
@@ -912,16 +929,39 @@ def _load_css(root, base_dir=None):
             except Exception:
                 raise ValueError("stylesheet escapes base_dir: %s" % href)
             texts.append(path.read_text(encoding="utf-8"))
+    texts = [_css_media_text(t) for t in texts]
+    variables = {}
+    for text in texts:
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text or ""):
+            if sel.strip() not in (":root", "html", "*"):
+                continue
+            for part in body.split(";"):
+                if ":" in part:
+                    k, v = part.split(":", 1)
+                    k = k.strip()
+                    if k.startswith("--"):
+                        variables[k] = v.strip()
+    def expand(v):
+        for _ in range(8):
+            m = re.search(r"var\((--[\w-]+)(?:\s*,\s*([^)]*))?\)", v)
+            if not m:
+                break
+            name, fallback = m.group(1), m.group(2)
+            rep = variables.get(name, fallback if fallback is not None else "")
+            v = v[:m.start()] + rep + v[m.end():]
+        return v
     order = 0
     for text in texts:
         for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text or ""):
+            if sel.strip().startswith("@"):
+                continue
             decls = {}
             important = set()
             for part in body.split(";"):
                 if ":" not in part:
                     continue
                 k, v = part.split(":", 1)
-                k = k.strip(); v = v.strip()
+                k = k.strip(); v = expand(v.strip())
                 if v.endswith("!important"):
                     important.add(k); v = v[:-10].strip()
                 decls[k] = v
