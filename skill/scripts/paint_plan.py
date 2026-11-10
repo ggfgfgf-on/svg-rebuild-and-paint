@@ -144,6 +144,8 @@ def render_plan(plan, threads=8, brush=None, region=None):
     for layer in sorted(grouped):
         buf = []
         for it in grouped[layer]:
+            if str(it.get("preset", "")) == "image":
+                continue
             if str(it.get("preset", "")) == "fill":
                 if buf:
                     p.stroke_batch(layer, buf, nthreads=threads)
@@ -173,6 +175,24 @@ def render_plan(plan, threads=8, brush=None, region=None):
             p.apply_mask(i, alpha)
 
     comp = p.composite()
+    for s in strokes_in:
+        if s.get("preset") != "image" or not isinstance(s.get("image"), dict):
+            continue
+        im = s["image"]
+        try:
+            raw = base64.b64decode(im.get("data", ""))
+            src = Image.open(io.BytesIO(raw)).convert("RGBA")
+        except Exception:
+            continue
+        tw = max(1, int(round(float(s.get("width", src.width)))))
+        th = max(1, int(round(float(s.get("height", src.height)))))
+        src = src.resize((tw, th), Image.LANCZOS)
+        a = src.getchannel("A").point(lambda v: int(v * max(0.0, min(1.0, float(s.get("opacity", 1.0))))))
+        src.putalpha(a)
+        base = Image.fromarray(comp, "RGBA")
+        layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        layer.paste(src, (int(round(float(s.get("x", 0)))), int(round(float(s.get("y", 0))))), src)
+        comp = np.asarray(Image.alpha_composite(base, layer))
     names = [spec.get("name", "layer%d" % i) for i, spec in enumerate(layers_spec)]
     out_layers = [(names[i], p.layer_rgba(i)) for i in range(p.layer_count())]
     p.close()

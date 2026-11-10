@@ -149,7 +149,7 @@ def _mask_png_b64(m):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") or x.get("preset") == "image" for x in doc.get("strokes", []))
             and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
@@ -214,6 +214,12 @@ def plan_to_svg(doc, *, filters=False, title=None):
         out.append('<g id=%s data-name=%s data-blend=%s style=%s%s>'
                    % (quoteattr("L%d" % li), quoteattr(name), quoteattr(blend), quoteattr(style), mref))
         for s in by_layer.get(name, []):
+            if str(s.get("preset", "")) == "image" and isinstance(s.get("image"), dict):
+                im = s["image"]
+                out.append('<image href="data:%s;base64,%s" x="%s" y="%s" width="%s" height="%s" opacity="%s"/>' % (
+                    _esc(im.get("mime", "image/png")), im.get("data", ""), _f(s.get("x", 0)), _f(s.get("y", 0)),
+                    _f(s.get("width", 1)), _f(s.get("height", 1)), _f(s.get("opacity", 1.0))))
+                continue
             pts = s.get("points") or []
             if not pts:
                 continue
@@ -223,6 +229,12 @@ def plan_to_svg(doc, *, filters=False, title=None):
             preset = str(s.get("preset", "round_soft"))
             gid = paint_gid.get(id(s))
             paint_ref = ("url(#%s)" % gid) if gid else _rgb(s.get("color"))
+            if preset == "image" and isinstance(s.get("image"), dict):
+                im = s["image"]
+                out.append('<image href="data:%s;base64,%s" x="%s" y="%s" width="%s" height="%s" opacity="%s"/>' % (
+                    _esc(im.get("mime", "image/png")), im.get("data", ""), _f(s.get("x", 0)), _f(s.get("y", 0)),
+                    _f(s.get("width", 1)), _f(s.get("height", 1)), _f(s.get("opacity", 1.0))))
+                continue
             if preset == "fill":
                 out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
                            (_path_d_holes(pts, s.get("holes") or []), paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
@@ -1267,6 +1279,8 @@ def needs_python_parser(svg_text):
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
         return True
+    if "<image" in svg_text:
+        return True
     if "<style" in svg_text or "<link" in svg_text or re.search(r'href="[^"]+\.svg#', svg_text):
         return True
     if 'fill-rule="evenodd"' in svg_text:
@@ -1451,6 +1465,51 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
                 return
             for sub in list(ch):
                 visit(sub, name, m, active, my)
+            return
+        if tag == "image":
+            href = a.get("href") or a.get("{http://www.w3.org/1999/xlink}href") or ""
+            if not href:
+                return
+            mime = "image/png"
+            if href.startswith("data:"):
+                head, _, payload = href.partition(",")
+                if ";base64" not in head:
+                    return
+                data = base64.b64decode(payload)
+                mime = head[5:].split(";")[0] or "image/png"
+            else:
+                if base_dir is None:
+                    raise ValueError("image href requires base_dir: %s" % href)
+                path = (Path(base_dir) / href).resolve()
+                try:
+                    path.relative_to(Path(base_dir).resolve())
+                except Exception:
+                    raise ValueError("image escapes base_dir: %s" % href)
+                data = path.read_bytes()
+                mime = "image/jpeg" if path.suffix.lower() in (".jpg", ".jpeg") else "image/png"
+            from PIL import Image
+            try:
+                im = Image.open(io.BytesIO(data))
+                iw, ih = im.size
+            except Exception:
+                iw = ih = 0
+            x = float(a.get("x", 0) or 0); y = float(a.get("y", 0) or 0)
+            w = float(a.get("width", iw) or iw); h = float(a.get("height", ih) or ih)
+            m = _mat_mul(parent, _parse_transform(a.get("transform")))
+            corners = [_mat_apply(m, x, y), _mat_apply(m, x + w, y),
+                       _mat_apply(m, x, y + h), _mat_apply(m, x + w, y + h)]
+            xs = [q[0] for q in corners]; ys = [q[1] for q in corners]
+            name = a.get("data-layer") or inherited_layer or "layer"
+            add_layer(name, "normal")
+            op = max(0.0, min(1.0, float(a.get("opacity", 1.0) or 1.0)))
+            strokes.append({"layer": name, "preset": "image",
+                            "image": {"encoding": "png-base64", "mime": mime,
+                                      "data": base64.b64encode(data).decode("ascii"),
+                                      "width": iw, "height": ih},
+                            "x": min(xs), "y": min(ys),
+                            "width": max(1e-6, max(xs) - min(xs)),
+                            "height": max(1e-6, max(ys) - min(ys)),
+                            "opacity": op})
             return
         if tag == "path":
             name = a.get("data-layer") or inherited_layer or "layer"
