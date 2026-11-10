@@ -814,6 +814,23 @@ static int stroke_gradient_impl(void* p, int layer, const float* pts, int n,
     return 1;
 }
 
+static inline float radial_t(float x, float y, float cx, float cy, float r, float fx, float fy) {
+    r = std::fabs(r) < 1e-6f ? 1e-6f : r;
+    float dx = x - fx, dy = y - fy;
+    float Dx = cx - fx, Dy = cy - fy;
+    float A = Dx*Dx + Dy*Dy - r*r;
+    float B = -2.0f * (dx*Dx + dy*Dy);
+    float C = dx*dx + dy*dy;
+    float t;
+    if (std::fabs(A) < 1e-9f) t = std::fabs(B) < 1e-12f ? 0.0f : -C / B;
+    else {
+        float disc = B*B - 4.0f*A*C;
+        if (disc < 0.0f) disc = 0.0f;
+        t = (-B - std::sqrt(disc)) / (2.0f * A);
+    }
+    return t;
+}
+
 static int fill_gradient_impl(void* p, int layer, const float* pts, int n,
                                        const float* stops, int ns,
                                        float gx1, float gy1, float gx2, float gy2, float a, int spread) {
@@ -877,6 +894,55 @@ EXPORT int paint_stroke_gradient_spread(void* p, int layer, const float* pts, in
                                         float gx1, float gy1, float gx2, float gy2, int preset, float hardness, int spread) {
     return stroke_gradient_impl(p, layer, pts, n, size, opacity, stops, ns, gx1, gy1, gx2, gy2, preset, hardness, spread);
 }
+EXPORT int paint_fill_radial_polygon_spread(void* p, int layer, const float* pts, int n,
+                                             const float* stops, int ns,
+                                             float cx, float cy, float r, float fx, float fy, float a, int spread) {
+    Ctx* c = (Ctx*)p;
+    if (!c || !pts || n < 3 || !stops || ns < 2) return 0;
+    if (layer < 0 || layer >= (int)c->layers.size()) return 0;
+    float al = a < 0 ? 0 : (a > 1 ? 1 : a);
+    if (al <= 0) return 0;
+    Layer& L = c->layers[layer];
+    float ymin = 1e30f, ymax = -1e30f;
+    for (int i = 0; i < n; ++i) { float y = pts[i*2+1]; ymin = std::min(ymin, y); ymax = std::max(ymax, y); }
+    int y0 = std::max(0, (int)std::floor(ymin));
+    int y1 = std::min(c->h - 1, (int)std::ceil(ymax));
+    std::vector<float> xs;
+    for (int y = y0; y <= y1; ++y) {
+        float yy = y + 0.5f; xs.clear();
+        for (int i = 0; i < n; ++i) {
+            int j = (i + 1) % n;
+            float ax = pts[i*2], ay = pts[i*2+1], bx = pts[j*2], by = pts[j*2+1];
+            if ((ay <= yy && by > yy) || (by <= yy && ay > yy))
+                xs.push_back(ax + (yy - ay) * (bx - ax) / (by - ay));
+        }
+        std::sort(xs.begin(), xs.end());
+        for (size_t k = 0; k + 1 < xs.size(); k += 2) {
+            int xa = std::max(0, (int)std::ceil(xs[k] - 0.5f));
+            int xb = std::min(c->w - 1, (int)std::floor(xs[k+1] - 0.5f));
+            for (int x = xa; x <= xb; ++x) {
+                float t = radial_t(x + 0.5f, y + 0.5f, cx, cy, r, fx, fy);
+                t = grad_spread(t, spread);
+                int k0 = 0; while (k0 + 1 < ns && stops[(k0+1)*5] < t) ++k0;
+                int k1 = std::min(ns - 1, k0 + 1);
+                float o0 = stops[k0*5], o1 = stops[k1*5];
+                float u = o1 > o0 ? (t - o0) / (o1 - o0) : 0.0f;
+                float cr = stops[k0*5+1] + (stops[k1*5+1] - stops[k0*5+1]) * u;
+                float cg = stops[k0*5+2] + (stops[k1*5+2] - stops[k0*5+2]) * u;
+                float cb = stops[k0*5+3] + (stops[k1*5+3] - stops[k0*5+3]) * u;
+                float ca = stops[k0*5+4] + (stops[k1*5+4] - stops[k0*5+4]) * u;
+                float sa = al * ca;
+                if (sa <= 0) continue;
+                float* d = L.px.data() + ((size_t)y * c->w + x) * 4;
+                float inv = 1.0f - sa;
+                d[0] = cr * sa + d[0] * inv; d[1] = cg * sa + d[1] * inv;
+                d[2] = cb * sa + d[2] * inv; d[3] = sa + d[3] * inv;
+            }
+        }
+    }
+    return 1;
+}
+
 EXPORT int paint_fill_gradient_polygon(void* p, int layer, const float* pts, int n,
                                        const float* stops, int ns,
                                        float gx1, float gy1, float gx2, float gy2, float a) {

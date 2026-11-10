@@ -411,9 +411,23 @@ void cs_fill(uint3 dt : SV_DispatchThreadID) {
     float3 col = p.color.rgb;
     float ca = 1.0f;
     if (use_fill_grad && fill_ns >= 2) {
-        float2 g = float2(fx2 - fx1, fy2 - fy1);
-        float gl = dot(g, g);
-        float t = gl > 1e-9f ? dot(q - float2(fx1, fy1), g) / gl : 0.0f;
+        float t;
+        int fmode = (int)fillmeta[9];
+        if (fmode == 1) {
+            float cx = fillmeta[10], cy = fillmeta[11], rr = max(1e-6f, fillmeta[12]);
+            float fx = fillmeta[13], fy = fillmeta[14];
+            float2 d = q - float2(fx, fy);
+            float2 D = float2(cx - fx, cy - fy);
+            float A = dot(D, D) - rr * rr;
+            float B = -2.0f * dot(d, D);
+            float C = dot(d, d);
+            if (abs(A) < 1e-9f) t = abs(B) < 1e-12f ? 0.0f : -C / B;
+            else { float disc = max(0.0f, B * B - 4.0f * A * C); t = (-B - sqrt(disc)) / (2.0f * A); }
+        } else {
+            float2 g = float2(fx2 - fx1, fy2 - fy1);
+            float gl = dot(g, g);
+            t = gl > 1e-9f ? dot(q - float2(fx1, fy1), g) / gl : 0.0f;
+        }
         int spread = (int)fillmeta[8];
         if (spread == 1) {
             t = abs(t); t = t - floor(t * 0.5f) * 2.0f; if (t > 1.0f) t = 2.0f - t;
@@ -1307,7 +1321,7 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
     float one[5] = {0, 0, 0, 0, 1};
     if (!stops || ns < 1) { stops = one; ns = 1; }
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
-    float meta[9] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread};
+    float meta[15] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread, 0, 0, 0, 0, 0, 0};
     g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
     Params cp{}; cp.W = g->W; cp.H = g->H;
     cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
@@ -1386,6 +1400,36 @@ static int gpu_fill_common(Gpu* g, int idx, const float* pts, int n, const float
 EXPORT int pg_fill_polygon(void* p, int idx, const float* pts, int n, float r, float g_, float b, float a) {
     float one[5] = {0, r, g_, b, 1};
     return gpu_fill_shader((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0, 0);
+}
+
+EXPORT int pg_fill_radial_polygon_spread(void* p, int idx, const float* pts, int n,
+                                            const float* stops, int ns, float cx, float cy, float r,
+                                            float fx, float fy, float a, int spread) {
+    Gpu* g = (Gpu*)p;
+    if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillPts || !g->fillStops || !g->fillMeta) return 0;
+    UINT npix = (UINT)g->W * (UINT)g->H;
+    if ((UINT)n > npix || ns > 64) return 0;
+    g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
+    g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
+    float meta[15] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 1.0f, cx, cy, r, fx, fy};
+    g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
+    Params cp{}; cp.W = g->W; cp.H = g->H;
+    cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
+    cp.opacity = a;
+    g->ctx->UpdateSubresource(g->cb, 0, nullptr, &cp, 0, 0);
+    ID3D11UnorderedAccessView* uav = g->layers[idx].uav;
+    ID3D11ShaderResourceView* srvs[3] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv };
+    g->ctx->CSSetShader(g->cs_fill, nullptr, 0);
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
+    g->ctx->CSSetShaderResources(8, 3, srvs);
+    g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
+    g->ctx->Dispatch((npix + 255) / 256, 1, 1);
+    ID3D11UnorderedAccessView* none = nullptr;
+    g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
+    ID3D11ShaderResourceView* no[3] = { nullptr, nullptr, nullptr };
+    g->ctx->CSSetShaderResources(8, 3, no);
+    g->ctx->CSSetShader(nullptr, nullptr, 0);
+    return 1;
 }
 
 EXPORT int pg_fill_gradient_polygon(void* p, int idx, const float* pts, int n,

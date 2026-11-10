@@ -52,6 +52,8 @@ def load():
     lib.paint_apply_layer_mask.restype = ctypes.c_int
     lib.paint_apply_layer_mask.argtypes = [vp, ctypes.c_int, u8, ctypes.c_int, ctypes.c_int]
     lib.paint_apply_layer_mask_rect.argtypes = [vp, ctypes.c_int, u8, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    lib.paint_fill_radial_polygon_spread.restype = ctypes.c_int
+    lib.paint_fill_radial_polygon_spread.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 6 + [ctypes.c_int]
     lib.paint_fill_gradient_polygon_spread.restype = ctypes.c_int
     lib.paint_fill_gradient_polygon_spread.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_float, ctypes.c_int]
     lib.paint_stroke_gradient_spread.restype = ctypes.c_int
@@ -279,19 +281,41 @@ class Painter:
             raise ValueError("gradient needs two stops")
         xs, ys = pts[:, 0], pts[:, 1]
         minx, maxx, miny, maxy = float(xs.min()), float(xs.max()), float(ys.min()), float(ys.max())
+        units = paint.get("units", "objectBoundingBox")
         def coord(key, default):
             v = paint.get(key, default)
-            if isinstance(v, str) and v.endswith("%"):
-                q = float(v[:-1]) / 100.0
-                return (minx + (maxx - minx) * q) if key in ("x1", "x2", "cx") else (miny + (maxy - miny) * q)
-            return float(v)
+            pct = isinstance(v, str) and v.endswith("%")
+            q = float(v[:-1]) / 100.0 if pct else float(v)
+            if units == "objectBoundingBox" or pct:
+                return (minx + (maxx - minx) * q) if key in ("x1", "x2", "cx", "fx") else (miny + (maxy - miny) * q)
+            return q
         x1, y1 = coord("x1", 0.0), coord("y1", 0.0)
         x2, y2 = coord("x2", 1.0), coord("y2", 0.0)
         sp = _spread(paint)
+        if paint.get("type") == "radial":
+            cx, cy = coord("cx", 0.5), coord("cy", 0.5)
+            rv = paint.get("r", 0.5)
+            rq = (float(rv[:-1]) / 100.0) if isinstance(rv, str) and rv.endswith("%") else float(rv)
+            rr = (maxx - minx) * rq if paint.get("units", "objectBoundingBox") == "objectBoundingBox" else rq
+            rr = max(1e-6, rr)
+            fx, fy = coord("fx", "50%"), coord("fy", "50%")
+            return self._lib.paint_fill_radial_polygon_spread(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                                              len(pts), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                              cx, cy, rr, fx, fy, float(opacity), sp)
         if sp:
             return self._lib.paint_fill_gradient_polygon_spread(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
                                                                len(pts), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
                                                                x1, y1, x2, y2, float(opacity), sp)
+        if paint.get("type") == "radial":
+            cx, cy = coord("cx", 0.5), coord("cy", 0.5)
+            rv = paint.get("r", 0.5)
+            rq = (float(rv[:-1]) / 100.0) if isinstance(rv, str) and rv.endswith("%") else float(rv)
+            rr = (maxx - minx) * rq if paint.get("units", "objectBoundingBox") == "objectBoundingBox" else rq
+            rr = max(1e-6, rr)
+            fx, fy = coord("fx", "50%"), coord("fy", "50%")
+            return self._lib.paint_fill_radial_polygon_spread(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                                                              len(pts), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
+                                                              cx, cy, rr, fx, fy, float(opacity), 0)
         return self._lib.paint_fill_gradient_polygon(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
                                                      len(pts), arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(arr),
                                                      x1, y1, x2, y2, float(opacity))
@@ -307,12 +331,14 @@ class Painter:
             raise ValueError("gradient needs two stops")
         xs, ys = pts[:, 0], pts[:, 1]
         minx, maxx, miny, maxy = float(xs.min()), float(xs.max()), float(ys.min()), float(ys.max())
+        units = paint.get("units", "objectBoundingBox")
         def coord(key, default):
             v = paint.get(key, default)
-            if isinstance(v, str) and v.endswith("%"):
-                q = float(v[:-1]) / 100.0
-                return (minx + (maxx - minx) * q) if key in ("x1", "x2", "cx") else (miny + (maxy - miny) * q)
-            return float(v)
+            pct = isinstance(v, str) and v.endswith("%")
+            q = float(v[:-1]) / 100.0 if pct else float(v)
+            if units == "objectBoundingBox" or pct:
+                return (minx + (maxx - minx) * q) if key in ("x1", "x2", "cx", "fx") else (miny + (maxy - miny) * q)
+            return q
         x1, y1 = coord("x1", 0.0), coord("y1", 0.0)
         x2, y2 = coord("x2", 1.0), coord("y2", 0.0)
         pid = PRESETS.get(preset, 0) if isinstance(preset, str) else int(preset)
