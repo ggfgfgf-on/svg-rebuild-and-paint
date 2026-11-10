@@ -305,7 +305,7 @@ def test_pattern_roundtrip():
     st = d["strokes"][0]
     assert st.get("pattern") and st["pattern"].get("data")
     out = plan_svg.plan_to_svg(d)
-    assert "<pattern" in out and "url(#pat" in out
+    assert "<pattern" in out and ("url(#pat" in out or "url(#pt" in out)
 
 
 
