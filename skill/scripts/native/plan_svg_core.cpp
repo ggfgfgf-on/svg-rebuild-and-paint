@@ -10,6 +10,7 @@
 #include "clipper2/clipper.h"
 #include <windows.h>
 #include <gdiplus.h>
+#include <wincrypt.h>
 #include <objidl.h>
 #include <algorithm>
 #include <cctype>
@@ -856,6 +857,66 @@ static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, dou
         std::wstring wfam = u2w(fam);
         Gdiplus::Font font(wfam.c_str(), (Gdiplus::REAL)(fs * sy), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
         g.DrawString(u2w(txt).c_str(), -1, &font, Gdiplus::PointF((Gdiplus::REAL)(num("x",0)*sx), (Gdiplus::REAL)(num("y",0)*sy)), br.get());
+        return;
+    }
+    if (tag == "use") {
+        std::string href = n.attribute("href").as_string();
+        if (href.empty()) href = std::string(n.attribute("{http://www.w3.org/1999/xlink}href").as_string());
+        if (href.size() > 1 && href[0] == '#') {
+            pugi::xml_node target;
+            for (pugi::xml_node q : g_gdi_root.children()) {
+                if (std::string(q.attribute("id").as_string()) == href.substr(1)) { target = q; break; }
+            }
+            if (!target) for (pugi::xpath_node xn : g_gdi_root.select_nodes("//*")) {
+                if (std::string(xn.node().attribute("id").as_string()) == href.substr(1)) { target = xn.node(); break; }
+            }
+            if (target) {
+                GdiSave u(g);
+                double ux = num("x",0)*sx, uy = num("y",0)*sy;
+                Gdiplus::Matrix tm(1,0,0,1,(Gdiplus::REAL)ux,(Gdiplus::REAL)uy);
+                g.MultiplyTransform(&tm, Gdiplus::MatrixOrderAppend);
+                if (std::string(target.name()) == "symbol" || std::string(target.name()) == "g") {
+                    for (auto ch : target.children()) gdi_draw_node(g, ch, sx, sy);
+                } else {
+                    gdi_draw_node(g, target, sx, sy);
+                }
+            }
+        }
+        return;
+    }
+    if (tag == "image") {
+        std::string href = n.attribute("href").as_string();
+        if (href.empty()) href = std::string(n.attribute("{http://www.w3.org/1999/xlink}href").as_string());
+        if (href.empty()) return;
+        Gdiplus::Bitmap* bmp = nullptr;
+        if (href.rfind("data:", 0) == 0) {
+            size_t comma = href.find(',');
+            if (comma == std::string::npos) return;
+            std::string b64 = href.substr(comma + 1);
+            DWORD n = 0;
+            CryptStringToBinaryA(b64.c_str(), 0, CRYPT_STRING_BASE64, nullptr, &n, nullptr, nullptr);
+            std::vector<BYTE> buf(n);
+            if (n && CryptStringToBinaryA(b64.c_str(), 0, CRYPT_STRING_BASE64, buf.data(), &n, nullptr, nullptr)) {
+                IStream* st = nullptr;
+                if (SUCCEEDED(CreateStreamOnHGlobal(nullptr, TRUE, &st))) {
+                    st->Write(buf.data(), (ULONG)n, nullptr);
+                    LARGE_INTEGER z{}; st->Seek(z, STREAM_SEEK_SET, nullptr);
+                    bmp = new Gdiplus::Bitmap(st);
+                    st->Release();
+                }
+            }
+        } else {
+            std::wstring wp = u2w((g_base_dir.empty() ? "" : g_base_dir + "/") + href);
+            bmp = new Gdiplus::Bitmap(wp.c_str());
+        }
+        if (bmp && bmp->GetLastStatus() == Gdiplus::Ok) {
+            double x = num("x",0)*sx, y = num("y",0)*sy;
+            double w = num("width",0)*sx, h = num("height",0)*sy;
+            if (w <= 0) w = bmp->GetWidth() * sx;
+            if (h <= 0) h = bmp->GetHeight() * sy;
+            g.DrawImage(bmp, Gdiplus::RectF((Gdiplus::REAL)x,(Gdiplus::REAL)y,(Gdiplus::REAL)w,(Gdiplus::REAL)h));
+        }
+        delete bmp;
         return;
     }
     if (tag == "rect") {
