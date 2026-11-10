@@ -7,6 +7,7 @@
 #endif
 #include "pugixml.hpp"
 #include "lcms2.h"
+#include "clipper2/clipper.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -784,6 +785,20 @@ static std::string plan_from_svg(const std::string& input) {
 static char* dupstr(const std::string& s) {
     char* p=(char*)std::malloc(s.size()+1); if(p)std::memcpy(p,s.c_str(),s.size()+1); return p;
 }
+EXPORT char* psvg_clip_polygons(const double* subject,int sn,const int* soff,
+                                const double* clip,int cn,const int* coff,int evenodd,int* out_len){
+    try{
+        Clipper2Lib::PathsD subj, clips;
+        for(int i=0;i<sn;++i){ Clipper2Lib::PathD p; for(int j=soff[i];j<soff[i+1];++j)p.push_back(Clipper2Lib::PointD(subject[2*j],subject[2*j+1])); if(p.size()>=3)subj.push_back(p); }
+        for(int i=0;i<cn;++i){ Clipper2Lib::PathD p; for(int j=coff[i];j<coff[i+1];++j)p.push_back(Clipper2Lib::PointD(clip[2*j],clip[2*j+1])); if(p.size()>=3)clips.push_back(p); }
+        auto res=Clipper2Lib::Intersect(subj,clips,evenodd?Clipper2Lib::FillRule::EvenOdd:Clipper2Lib::FillRule::NonZero);
+        std::string out="[";
+        for(size_t i=0;i<res.size();++i){ if(i)out+=","; out+="["; for(size_t j=0;j<res[i].size();++j){ if(j)out+=","; out+="["+fmt(res[i][j].x)+","+fmt(res[i][j].y)+"]"; } out+="]"; }
+        out+="]";
+        *out_len=(int)out.size(); char* p=(char*)std::malloc(out.size()); if(p)std::memcpy(p,out.data(),out.size()); return p;
+    }catch(const std::exception&e){ std::string s=std::string("ERR:")+e.what(); *out_len=(int)s.size(); return dupstr(s); }
+}
+
 EXPORT char* psvg_plan_to_svg(const char* in,int n){ try{return dupstr(svg_from_plan(std::string(in,n)));}catch(const std::exception&e){return dupstr(std::string("ERR:")+e.what());} }
 EXPORT char* psvg_svg_to_plan(const char* in,int n){ try{return dupstr(plan_from_svg(std::string(in,n)));}catch(const std::exception&e){return dupstr(std::string("ERR:")+e.what());} }
 static std::string svg_to_bin(const std::string&);

@@ -879,6 +879,37 @@ def _triangulate(poly):
         tris.append([pts[i] for i in idx])
     return tris
 
+def _clip_line_evenodd(p0, p1, polys):
+    ts = [0.0, 1.0]
+    dx, dy = p1[0]-p0[0], p1[1]-p0[1]
+    for poly in polys:
+        for i in range(len(poly)):
+            a, b = poly[i], poly[(i+1) % len(poly)]
+            ex, ey = b[0]-a[0], b[1]-a[1]
+            den = ex*dy - ey*dx
+            if abs(den) < 1e-12:
+                continue
+            t = (ex*(a[1]-p0[1]) - ey*(a[0]-p0[0])) / den
+            if 1e-9 < t < 1-1e-9:
+                ts.append(t)
+    ts = sorted(set(round(t, 9) for t in ts))
+    out = []
+    def inside(x, y):
+        c = False
+        for poly in polys:
+            for i in range(len(poly)):
+                a, b = poly[i], poly[(i+1) % len(poly)]
+                if ((a[1] > y) != (b[1] > y)) and (x < (b[0]-a[0])*(y-a[1])/(b[1]-a[1]) + a[0]):
+                    c = not c
+        return c
+    for i in range(1, len(ts)):
+        t0, t1 = ts[i-1], ts[i]
+        tm = (t0+t1)/2
+        if inside(p0[0]+dx*tm, p0[1]+dy*tm):
+            out.append([[p0[0]+dx*t0, p0[1]+dy*t0], [p0[0]+dx*t1, p0[1]+dy*t1]])
+    return out
+
+
 def _clip_geoms(root):
     out = {}
     for el in root.iter():
@@ -903,7 +934,8 @@ def _clip_geoms(root):
                         polys.append([[*_mat_apply(m, qq[0], qq[1])] for qq in q])
         walk(el, _parse_transform(el.get("transform")))
         if polys:
-            out[el.get("id")] = polys
+            rule = el.get("clip-rule") or (list(el)[0].get("clip-rule") if list(el) else "") or "nonzero"
+            out[el.get("id")] = {"polys": polys, "evenodd": str(rule) == "evenodd"}
     return out
 
 def _css_media_text(text):
@@ -1266,10 +1298,23 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
             m = re.match(r"url\(#([^)]+)\)", str(a.get(attr, "")))
             if m:
                 key = m.group(1); break
-        polys = clips.get(key) if key else None
+        entry = clips.get(key) if key else None
+        polys = entry["polys"] if entry else None
+        evenodd = bool(entry and entry.get("evenodd"))
         if not polys:
             strokes.append(_stroke_from_attrs(a, name, pts)); return
         if a.get("data-preset") == "fill" or (a.get("fill") and a.get("fill") != "none" and not a.get("stroke")):
+            if evenodd and _native is not None and _native.available():
+                try:
+                    out = _native.clip_polygons([[(p[0], p[1]) for p in pts]], [[(q[0], q[1]) for q in poly] for poly in polys], True)
+                    for q in out:
+                        if len(q) >= 3:
+                            st = _stroke_from_attrs(a, name, [[x, y, 1.0] for x, y in q])
+                            st["preset"] = "fill"; st.pop("size", None); st.pop("hardness", None)
+                            strokes.append(st)
+                    return
+                except Exception:
+                    pass
             for poly in polys:
                 for tri in ([poly] if _is_convex(poly) else (_triangulate(poly) or [poly])):
                     q = _clip_poly([(p[0], p[1]) for p in pts], [(p[0], p[1]) for p in tri])
@@ -1277,6 +1322,12 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
                         st = _stroke_from_attrs(a, name, [[x, y, 1.0] for x, y in q])
                         st["preset"] = "fill"; st.pop("size", None); st.pop("hardness", None)
                         strokes.append(st)
+            return
+        if evenodd:
+            for i in range(1, len(pts)):
+                for seg in _clip_line_evenodd((pts[i-1][0], pts[i-1][1]), (pts[i][0], pts[i][1]), polys):
+                    strokes.append(_stroke_from_attrs(a, name, [[seg[0][0], seg[0][1], pts[i-1][2] if len(pts[i-1]) > 2 else 1.0],
+                                                                [seg[1][0], seg[1][1], pts[i][2] if len(pts[i]) > 2 else 1.0]]))
             return
         for poly in polys:
             for tri in (_triangulate(poly) or [poly]):

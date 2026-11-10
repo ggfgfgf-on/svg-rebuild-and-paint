@@ -34,6 +34,10 @@ def _load():
         f.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
     lib.psvg_free.argtypes = [ctypes.c_void_p]
     lib.psvg_free.restype = None
+    lib.psvg_clip_polygons.restype = ctypes.c_void_p
+    lib.psvg_clip_polygons.argtypes = [ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.POINTER(ctypes.c_int),
+                                        ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.POINTER(ctypes.c_int),
+                                        ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
     return lib
 
 
@@ -240,6 +244,31 @@ def plan_to_svg(doc) -> str:
     if raw.startswith(b"ERR:"):
         raise ValueError(raw[4:].decode("utf-8", "replace"))
     return raw.decode("utf-8")
+
+
+def clip_polygons(subject, clip, evenodd=False):
+    import json as _json
+    import numpy as _np
+    def pack(polys):
+        flat=[]; offs=[0]
+        for p in polys:
+            for q in p:
+                flat.extend([float(q[0]), float(q[1])])
+            offs.append(len(flat)//2)
+        return _np.asarray(flat, _np.float64), _np.asarray(offs, _np.int32)
+    sf, so = pack(subject); cf, co = pack(clip)
+    n=ctypes.c_int(0)
+    p=_LIB.psvg_clip_polygons(sf.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), len(so)-1,
+                              so.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
+                              cf.ctypes.data_as(ctypes.POINTER(ctypes.c_double)), len(co)-1,
+                              co.ctypes.data_as(ctypes.POINTER(ctypes.c_int)), 1 if evenodd else 0, ctypes.byref(n))
+    if not p: return []
+    try:
+        raw=ctypes.string_at(p,n.value).decode("utf-8")
+    finally:
+        _free(p)
+    if raw.startswith("ERR:"): raise ValueError(raw[4:])
+    return _json.loads(raw)
 
 
 def _needs_py(svg_text: str) -> bool:

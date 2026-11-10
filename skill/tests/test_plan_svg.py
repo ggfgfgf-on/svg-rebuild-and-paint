@@ -185,6 +185,21 @@ def test_mask_layer_alpha():
                for x in d["layers"])
 
 
+
+
+def test_clip_evenodd_line():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20">'
+           '<defs><clipPath id="c" clip-rule="evenodd">'
+           '<rect x="0" y="0" width="60" height="20"/>'
+           '<rect x="20" y="0" width="60" height="20"/>'
+           '</clipPath></defs>'
+           '<path d="M0 10 L100 10" stroke="#f00" stroke-width="2" clip-path="url(#c)"/>'
+           '</svg>')
+    d = plan_svg.svg_to_plan(svg)
+    segs = [(x["points"][0][0], x["points"][-1][0]) for x in d["strokes"]]
+    assert segs == [(0.0, 20.0), (60.0, 80.0)]
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -195,6 +210,7 @@ if __name__ == "__main__":
     test_shapes_css_use_gradient()
     test_native_fallback_metadata()
     test_clip_fill_multi_subpath()
+    test_clip_evenodd_line()
     test_gradient_paint_roundtrip()
     test_mask_layer_alpha()
     print("all plan_svg tests passed")
