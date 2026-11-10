@@ -1,6 +1,8 @@
 """plan <-> SVG bridge contract tests."""
+import base64
 import json
 import sys
+import zlib
 import tempfile
 from pathlib import Path
 
@@ -221,6 +223,43 @@ def test_clip_evenodd_fill_hole():
     assert out.count("Z") == 2
 
 
+
+
+def test_radial_focal_roundtrip():
+    d = {"canvas": [100, 100], "layers": [{"name": "layer", "blend": "normal"}],
+         "strokes": [{"layer": "layer", "preset": "fill", "opacity": 1.0,
+                      "paint": {"type": "radial", "units": "objectBoundingBox",
+                                "cx": 0.5, "cy": 0.5, "r": 0.5, "fx": 0.25, "fy": 0.5,
+                                "stops": [[0, [0, 0, 0], 1], [1, [255, 255, 255], 1]]},
+                      "points": [[0, 0, 1], [100, 0, 1], [100, 100, 1], [0, 100, 1]]}]}
+    svg = plan_svg.plan_to_svg(d)
+    assert 'fx="0.25"' in svg
+    back = plan_svg.svg_to_plan(svg)
+    assert abs(float(back["strokes"][0]["paint"]["fx"]) - 0.25) < 1e-6
+
+
+def test_clip_path_units_bbox():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">'
+           '<defs><clipPath id="c" clipPathUnits="objectBoundingBox">'
+           '<rect x="0" y="0" width="0.5" height="1"/></clipPath></defs>'
+           '<rect x="30" y="10" width="40" height="20" fill="#f00" clip-path="url(#c)"/>'
+           '</svg>')
+    d = plan_svg.svg_to_plan(svg)
+    xs = [p[0] for p in d["strokes"][0]["points"]]
+    assert min(xs) >= 30 - 1e-6 and max(xs) <= 50 + 1e-6
+
+
+def test_mask_type_alpha():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">'
+           '<defs><mask id="m" mask-type="alpha">'
+           '<rect width="50" height="50" fill="#ff0000"/></mask></defs>'
+           '<rect width="100" height="50" fill="#0000ff" mask="url(#m)"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    m = d["layers"][0]["mask"]
+    raw = zlib.decompress(base64.b64decode(m["data"]))
+    assert raw[20 * m["width"] + 20] == 255
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -233,6 +272,9 @@ if __name__ == "__main__":
     test_clip_fill_multi_subpath()
     test_clip_evenodd_line()
     test_clip_evenodd_fill_hole()
+    test_radial_focal_roundtrip()
+    test_clip_path_units_bbox()
+    test_mask_type_alpha()
     test_gradient_paint_roundtrip()
     test_mask_layer_alpha()
     print("all plan_svg tests passed")

@@ -119,6 +119,8 @@ def _paint_def(paint, gid):
                      (_f(max(0.0, min(1.0, float(off)))), _rgb(col), _f(float(op))))
     if kind == "radial":
         attrs = 'cx="%s" cy="%s" r="%s"' % (paint.get("cx", "50%"), paint.get("cy", "50%"), paint.get("r", "50%"))
+        if "fx" in paint or "fy" in paint:
+            attrs += ' fx="%s" fy="%s"' % (paint.get("fx", "50%"), paint.get("fy", "50%"))
         tag = "radialGradient"
     else:
         attrs = 'x1="%s" y1="%s" x2="%s" y2="%s"' % (paint.get("x1", "0%"), paint.get("y1", "0%"),
@@ -127,8 +129,9 @@ def _paint_def(paint, gid):
     src = ((paint.get("source") or {}).get("gradient") or {}).get("attrs") or {}
     extra = ""
     for k in ("gradientTransform", "spreadMethod", "fx", "fy"):
-        if k in src and k not in attrs:
-            extra += ' %s="%s"' % (k, src[k])
+        v = src.get(k, paint.get(k))
+        if v is not None and k not in attrs:
+            extra += ' %s="%s"' % (k, v)
     if kind == "radial" and "fx" not in attrs and "fx" in src:
         extra += ' fx="%s" fy="%s"' % (src.get("fx", "50%"), src.get("fy", "50%"))
     return '<%s id="%s" gradientUnits="%s" %s%s>%s</%s>' % (tag, gid, units, attrs, extra, "".join(stops), tag)
@@ -523,16 +526,18 @@ def plan_to_svg_stamps(doc, title=None):
             if pts:
                 xs = [float(q[0]) for q in pts]; ys = [float(q[1]) for q in pts]
                 minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+                units0 = paint.get("units", "objectBoundingBox")
                 def cv(k, d):
                     v = paint.get(k, d)
-                    if isinstance(v, str) and v.endswith("%"):
-                        q = float(v[:-1]) / 100.0
+                    pct = isinstance(v, str) and v.endswith("%")
+                    q = float(v[:-1]) / 100.0 if pct else float(v)
+                    if units0 == "objectBoundingBox" or pct:
                         return minx + (maxx-minx)*q if k in ("x1","x2","cx","fx") else miny + (maxy-miny)*q
-                    return float(v)
+                    return q
                 pp = dict(paint); pp["units"] = "userSpaceOnUse"
                 if paint.get("type") == "radial":
-                    pp["cx"] = cv("cx", 0.5); pp["cy"] = cv("cy", 0.5); pp["r"] = max(1.0, cv("r", 0.5))
-                    pp["fx"] = pp["cx"]; pp["fy"] = pp["cy"]
+                    pp["cx"] = cv("cx", 0.5); pp["cy"] = cv("cy", 0.5); pp["r"] = max(1e-6, cv("r", 0.5))
+                    pp["fx"] = cv("fx", "50%"); pp["fy"] = cv("fy", "50%")
                 else:
                     pp["x1"] = cv("x1", 0.0); pp["y1"] = cv("y1", 0.0)
                     pp["x2"] = cv("x2", 1.0); pp["y2"] = cv("y2", 0.0)
@@ -955,7 +960,8 @@ def _clip_geoms(root):
         walk(el, _parse_transform(el.get("transform")))
         if polys:
             rule = el.get("clip-rule") or (list(el)[0].get("clip-rule") if list(el) else "") or "nonzero"
-            out[el.get("id")] = {"polys": polys, "evenodd": str(rule) == "evenodd"}
+            out[el.get("id")] = {"polys": polys, "evenodd": str(rule) == "evenodd",
+                                 "units": el.get("clipPathUnits", "userSpaceOnUse")}
     return out
 
 def _css_media_text(text):
@@ -1125,7 +1131,11 @@ def _mask_elements(root):
 def _raster_mask_element(el, w, h, bbox=None, content_units="userSpaceOnUse", root=None):
     from PIL import Image, ImageDraw
     im = Image.new("L", (w, h), 0)
+    alpha_mode = str(el.get("mask-type", "")).lower() == "alpha"
     def lum(ch):
+        if alpha_mode:
+            a = max(0.0, min(1.0, float(ch.get("fill-opacity", ch.get("opacity", 1.0)))))
+            return int(round(a * 255))
         fill = str(ch.get("fill", "#fff")).lower()
         if fill.startswith("url("):
             return 255
@@ -1150,7 +1160,8 @@ def _raster_mask_element(el, w, h, bbox=None, content_units="userSpaceOnUse", ro
             href = ch.get("href") or ch.get("{http://www.w3.org/1999/xlink}href") or ""
             if str(href).startswith("data:image/png;base64,"):
                 from PIL import ImageChops
-                q = Image.open(io.BytesIO(base64.b64decode(str(href).split(",", 1)[1]))).convert("L")
+                img0 = Image.open(io.BytesIO(base64.b64decode(str(href).split(",", 1)[1])))
+                q = img0.convert("RGBA").getchannel("A") if alpha_mode else img0.convert("L")
                 if q.size != (w, h):
                     q = q.resize((w, h), Image.BILINEAR)
                 im = ImageChops.lighter(im, q)
@@ -1323,6 +1334,10 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
         entry = clips.get(key) if key else None
         polys = entry["polys"] if entry else None
         evenodd = bool(entry and entry.get("evenodd"))
+        if entry and entry.get("units") == "objectBoundingBox" and polys and pts:
+            xs0 = [float(p[0]) for p in pts]; ys0 = [float(p[1]) for p in pts]
+            bx, by = min(xs0), min(ys0); bw = max(1e-9, max(xs0) - bx); bh = max(1e-9, max(ys0) - by)
+            polys = [[[bx + q[0] * bw, by + q[1] * bh] for q in poly] for poly in polys]
         if (not polys and str(a.get("fill-rule", "")) == "evenodd" and a.get("d")
                 and (a.get("data-preset") == "fill" or (a.get("fill") and a.get("fill") != "none" and not a.get("stroke")))):
             subs = [q for q in _parse_d_subpaths(a.get("d")) if len(q) >= 3]
@@ -1525,6 +1540,13 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
                 center = ""
             pts = _center_pts(center)
             m = _mat_mul(parent, _parse_transform(a.get("transform")))
+            if not pts and str(a.get("fill-rule", "")) == "evenodd" and (
+                    a.get("data-preset") == "fill" or (a.get("fill") and a.get("fill") != "none" and not a.get("stroke"))):
+                groups = [g for g in _parse_d_subpaths(dval) if len(g) >= 3]
+                if len(groups) > 1:
+                    first = [[*_mat_apply(m, p[0], p[1]), 1.0] for p in groups[0]]
+                    emit(a, name, first)
+                    return
             if not pts:
                 for group in _parse_d_subpaths(dval):
                     if not group:
