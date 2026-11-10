@@ -64,6 +64,8 @@ StructuredBuffer<float> maskbuf : register(t7);
 StructuredBuffer<float2> fillpts : register(t8);
 StructuredBuffer<float> fillstops : register(t9);
 StructuredBuffer<float> fillmeta : register(t10);
+StructuredBuffer<float> gradstops : register(t11);
+StructuredBuffer<float> gradmeta : register(t12);
 
 inline void splat_key(uint idx, float a, uint k) {
     uint a16 = (uint)(saturate(a) * 65535.0f + 0.5f);
@@ -335,6 +337,22 @@ void cs_over(uint3 dt : SV_DispatchThreadID) {
             if (p.use_region) { int rv = region[idx]; ok = (rv == (int)e.w || rv == -2); }
             if (ok) {
                 float3 col = c.rgb;
+                if (gradmeta[0] > 0.5f) {
+                    uint ns = (uint)gradmeta[1];
+                    float2 q = float2((float)x + 0.5f, (float)y + 0.5f);
+                    float2 gv = float2(gradmeta[4] - gradmeta[2], gradmeta[5] - gradmeta[3]);
+                    float gl = dot(gv, gv);
+                    float t = gl > 1e-9f ? dot(q - float2(gradmeta[2], gradmeta[3]), gv) / gl : 0.0f;
+                    t = saturate(t);
+                    uint k0 = 0;
+                    while (k0 + 1 < ns && gradstops[(k0 + 1) * 5] < t) ++k0;
+                    uint k1 = min(ns - 1, k0 + 1);
+                    float o0 = gradstops[k0 * 5], o1 = gradstops[k1 * 5];
+                    float u = o1 > o0 ? (t - o0) / (o1 - o0) : 0.0f;
+                    col = float3(lerp(gradstops[k0*5+1], gradstops[k1*5+1], u),
+                                 lerp(gradstops[k0*5+2], gradstops[k1*5+2], u),
+                                 lerp(gradstops[k0*5+3], gradstops[k1*5+3], u));
+                }
                 if (p.use_color) {
                     uint k = (uint)b.z;
                     float h16 = hash_c(p.seed, k, 16u);
@@ -485,6 +503,10 @@ struct Gpu {
     ID3D11ShaderResourceView* fillStopsSrv = nullptr;
     ID3D11Buffer* fillMeta = nullptr;
     ID3D11ShaderResourceView* fillMetaSrv = nullptr;
+    ID3D11Buffer* gradStops = nullptr;
+    ID3D11ShaderResourceView* gradStopsSrv = nullptr;
+    ID3D11Buffer* gradMeta = nullptr;
+    ID3D11ShaderResourceView* gradMetaSrv = nullptr;
     ID3D11Buffer* maskBuf = nullptr;
     ID3D11ShaderResourceView* maskSrv = nullptr;
     ID3D11Buffer* snap = nullptr;
@@ -619,6 +641,8 @@ EXPORT void* pg_create(int w, int h) {
     g->fillPts = make_buf(g->dev, npix * 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->fillStops = make_buf(g->dev, 320 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->fillMeta = make_buf(g->dev, 16 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->gradStops = make_buf(g->dev, 64 * 5 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->gradMeta = make_buf(g->dev, 16 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     if (g->fillPts) {
         D3D11_SHADER_RESOURCE_VIEW_DESC fs{};
         fs.Format = DXGI_FORMAT_UNKNOWN; fs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; fs.Buffer.NumElements = npix;
@@ -633,6 +657,16 @@ EXPORT void* pg_create(int w, int h) {
         D3D11_SHADER_RESOURCE_VIEW_DESC ms{};
         ms.Format = DXGI_FORMAT_UNKNOWN; ms.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ms.Buffer.NumElements = 16;
         g->dev->CreateShaderResourceView(g->fillMeta, &ms, &g->fillMetaSrv);
+    }
+    if (g->gradStops) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC gs{};
+        gs.Format = DXGI_FORMAT_UNKNOWN; gs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; gs.Buffer.NumElements = 320;
+        g->dev->CreateShaderResourceView(g->gradStops, &gs, &g->gradStopsSrv);
+    }
+    if (g->gradMeta) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC gm{};
+        gm.Format = DXGI_FORMAT_UNKNOWN; gm.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; gm.Buffer.NumElements = 16;
+        g->dev->CreateShaderResourceView(g->gradMeta, &gm, &g->gradMetaSrv);
     }
     g->dummy = make_buf(g->dev, 16, 16, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
@@ -946,6 +980,11 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
     g_dyn_angle = g->dyn_angle; g_dyn_taper = g->dyn_taper; g_color_dyn = g->color_dyn;
     if (layer < 0 || layer >= (int)g->layers.size()) return 0;
     Layer& L = g->layers[layer];
+    if (g->gradStops && g->gradMeta) {
+        float gm[6] = { g_grad_n >= 2 ? 1.0f : 0.0f, (float)g_grad_n, g_grad_x1, g_grad_y1, g_grad_x2, g_grad_y2 };
+        g->ctx->UpdateSubresource(g->gradMeta, 0, nullptr, gm, 0, 0);
+        if (g_grad_n >= 2) g->ctx->UpdateSubresource(g->gradStops, 0, nullptr, g_grad_stops.data(), 0, 0);
+    }
     if (g->wet > 0.0f && g->snap) g->ctx->CopyResource(g->snap, L.buf);
 
     const int CHUNK = 512;
@@ -1080,8 +1119,12 @@ EXPORT int pg_stroke_batch(void* p, int layer, const float* pts, const int* offs
             g->ctx->CSSetShader(g->cs_splat, nullptr, 0);
             g->ctx->Dispatch(bs, 1, 1);
             ++g_n_disp;
+            ID3D11ShaderResourceView* gr[2] = { g->gradStopsSrv, g->gradMetaSrv };
+            g->ctx->CSSetShaderResources(11, 2, gr);
             g->ctx->CSSetShader(g->cs_over, nullptr, 0);
             g->ctx->Dispatch(bo, 1, 1);
+            ID3D11ShaderResourceView* no[2] = { nullptr, nullptr };
+            g->ctx->CSSetShaderResources(11, 2, no);
             ++g_n_disp;
         }
     }
