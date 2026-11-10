@@ -196,12 +196,59 @@ def stream_svg_to_plan(source, chunk_size=65536):
                 st["tag"] = a["data-tag"]
             strokes.append(st)
 
+    defs_stack = []
+    defs_map = {}
+    use_node = None
+
+    def emit_node(node):
+        tag = node["tag"]
+        a = node["attrs"]
+        mat_stack.append(_ps._mat_mul(mat_stack[-1], _ps._parse_transform(a.get("transform"))))
+        try:
+            if tag == "g":
+                for child in node.get("children", []):
+                    emit_node(child)
+            elif tag in ("rect", "circle", "ellipse", "polygon", "polyline", "line", "path"):
+                emit_shape(tag, a)
+        finally:
+            if len(mat_stack) > 1:
+                mat_stack.pop()
+
+    def capture_node(tag, a):
+        node = {"tag": tag, "attrs": a, "children": []}
+        if defs_stack:
+            defs_stack[-1]["children"].append(node)
+        defs_stack.append(node)
+        if a.get("id"):
+            defs_map[a["id"]] = node
+
+    in_defs = False
+
     for chunk in chunks:
         for ev in tok.feed(chunk):
             kind = ev[0]
             if kind == "start":
                 _, tag, a = ev
                 if skip_tag is not None:
+                    continue
+                if in_defs:
+                    capture_node(tag, a)
+                    continue
+                if tag == "defs":
+                    in_defs = True
+                    defs_stack = []
+                    continue
+                if tag == "use":
+                    href = a.get("href") or a.get("{http://www.w3.org/1999/xlink}href") or ""
+                    if href.startswith("#") and href[1:] in defs_map:
+                        mat_stack.append(_ps._mat_mul(mat_stack[-1], _ps._parse_transform(a.get("transform"))))
+                        mat_stack.append(_ps._mat_mul(mat_stack[-1], (1,0,0,1,_length(a,"x",0),_length(a,"y",0))))
+                        try:
+                            emit_node(defs_map[href[1:]])
+                        finally:
+                            if len(mat_stack) > 2:
+                                mat_stack.pop()
+                                mat_stack.pop()
                     continue
                 if tag == "svg":
                     canvas = list(_canvas(a))
@@ -219,6 +266,13 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     emit_shape(tag, a)
             elif kind == "end":
                 tag = ev[1]
+                if in_defs:
+                    if tag == "defs":
+                        in_defs = False
+                        defs_stack = []
+                    elif defs_stack:
+                        defs_stack.pop()
+                    continue
                 if tag == skip_tag:
                     skip_tag = None
                     continue
