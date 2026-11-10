@@ -21,6 +21,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np
 from PIL import Image
 import paint_native
+from gradient_xform import _mat_mul as _mat_mul, _inv as _mat_inv
+
+def _mat_apply(m, x, y):
+    return (m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5])
 from export_layers import write_kra, write_psd
 
 
@@ -189,10 +193,28 @@ def render_plan(plan, threads=8, brush=None, region=None):
         src = src.resize((tw, th), Image.LANCZOS)
         a = src.getchannel("A").point(lambda v: int(v * max(0.0, min(1.0, float(s.get("opacity", 1.0))))))
         src.putalpha(a)
+        tr = s.get("transform")
         base = Image.fromarray(comp, "RGBA")
-        layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-        layer.paste(src, (int(round(float(s.get("x", 0)))), int(round(float(s.get("y", 0))))), src)
-        comp = np.asarray(Image.alpha_composite(base, layer))
+        if isinstance(tr, (list, tuple)) and len(tr) == 6:
+            x0, y0 = float(s.get("x", 0)), float(s.get("y", 0))
+            L = _mat_mul(tuple(float(v) for v in tr), (1, 0, 0, 1, x0, y0))
+            pts = [_mat_apply(L, 0, 0), _mat_apply(L, tw, 0), _mat_apply(L, 0, th), _mat_apply(L, tw, th)]
+            xs = [q[0] for q in pts]; ys = [q[1] for q in pts]
+            mx, my = int(np.floor(min(xs))), int(np.floor(min(ys)))
+            mw, mh = max(1, int(np.ceil(max(xs))) - mx), max(1, int(np.ceil(max(ys))) - my)
+            inv = _mat_inv(L)
+            if inv is None:
+                continue
+            coeff = (inv[0], inv[2], inv[0]*mx + inv[2]*my + inv[4],
+                     inv[1], inv[3], inv[1]*mx + inv[3]*my + inv[5])
+            piece = src.transform((mw, mh), Image.AFFINE, coeff, resample=Image.BICUBIC)
+            layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+            layer.paste(piece, (mx, my), piece)
+            comp = np.asarray(Image.alpha_composite(base, layer))
+        else:
+            layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+            layer.paste(src, (int(round(float(s.get("x", 0)))), int(round(float(s.get("y", 0))))), src)
+            comp = np.asarray(Image.alpha_composite(base, layer))
     names = [spec.get("name", "layer%d" % i) for i, spec in enumerate(layers_spec)]
     out_layers = [(names[i], p.layer_rgba(i)) for i in range(p.layer_count())]
     p.close()

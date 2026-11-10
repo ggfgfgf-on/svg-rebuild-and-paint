@@ -219,9 +219,11 @@ def plan_to_svg(doc, *, filters=False, title=None):
         for s in by_layer.get(name, []):
             if str(s.get("preset", "")) == "image" and isinstance(s.get("image"), dict):
                 im = s["image"]
-                out.append('<image href="data:%s;base64,%s" x="%s" y="%s" width="%s" height="%s" opacity="%s"/>' % (
+                tr = s.get("transform")
+                trs = (' transform="matrix(%s)"' % " ".join(_f(float(v)) for v in tr)) if isinstance(tr, (list, tuple)) and len(tr) == 6 else ""
+                out.append('<image href="data:%s;base64,%s" x="%s" y="%s" width="%s" height="%s" opacity="%s"%s/>' % (
                     _esc(im.get("mime", "image/png")), im.get("data", ""), _f(s.get("x", 0)), _f(s.get("y", 0)),
-                    _f(s.get("width", 1)), _f(s.get("height", 1)), _f(s.get("opacity", 1.0))))
+                    _f(s.get("width", 1)), _f(s.get("height", 1)), _f(s.get("opacity", 1.0)), trs))
                 continue
             pts = s.get("points") or []
             if not pts:
@@ -1511,20 +1513,22 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
             x = float(a.get("x", 0) or 0); y = float(a.get("y", 0) or 0)
             w = float(a.get("width", iw) or iw); h = float(a.get("height", ih) or ih)
             m = _mat_mul(parent, _parse_transform(a.get("transform")))
+            ident = (abs(m[0]-1) < 1e-9 and abs(m[1]) < 1e-9 and abs(m[2]) < 1e-9
+                     and abs(m[3]-1) < 1e-9 and abs(m[4]) < 1e-9 and abs(m[5]) < 1e-9)
             corners = [_mat_apply(m, x, y), _mat_apply(m, x + w, y),
                        _mat_apply(m, x, y + h), _mat_apply(m, x + w, y + h)]
             xs = [q[0] for q in corners]; ys = [q[1] for q in corners]
             name = a.get("data-layer") or inherited_layer or "layer"
             add_layer(name, "normal")
             op = max(0.0, min(1.0, float(a.get("opacity", 1.0) or 1.0)))
-            strokes.append({"layer": name, "preset": "image",
-                            "image": {"encoding": "png-base64", "mime": mime,
-                                      "data": base64.b64encode(data).decode("ascii"),
-                                      "width": iw, "height": ih},
-                            "x": min(xs), "y": min(ys),
-                            "width": max(1e-6, max(xs) - min(xs)),
-                            "height": max(1e-6, max(ys) - min(ys)),
-                            "opacity": op})
+            st = {"layer": name, "preset": "image",
+                  "image": {"encoding": "png-base64", "mime": mime,
+                            "data": base64.b64encode(data).decode("ascii"),
+                            "width": iw, "height": ih},
+                  "x": x, "y": y, "width": w, "height": h, "opacity": op}
+            if not ident:
+                st["transform"] = [float(v) for v in m]
+            strokes.append(st)
             return
         if tag == "path":
             name = a.get("data-layer") or inherited_layer or "layer"

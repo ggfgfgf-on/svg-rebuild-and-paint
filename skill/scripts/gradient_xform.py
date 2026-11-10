@@ -26,7 +26,7 @@ def _inv(m):
     det = m[0] * m[3] - m[1] * m[2]
     if abs(det) < 1e-12:
         return None
-    return (m[3] / det, -m[2] / det, -m[1] / det, m[0] / det,
+    return (m[3] / det, -m[1] / det, -m[2] / det, m[0] / det,
             (m[2] * m[5] - m[3] * m[4]) / det,
             (m[1] * m[4] - m[0] * m[5]) / det)
 
@@ -92,8 +92,8 @@ def apply_linear(paint, bbox):
         S = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
         ox, oy = q1[0], q1[1]
     C = _mat_mul(A, S)
-    hx = C[0] * gx + C[2] * gy
-    hy = C[1] * gx + C[3] * gy
+    hx = C[0] * gx + C[1] * gy
+    hy = C[2] * gx + C[3] * gy
     h2 = hx * hx + hy * hy
     g2 = gx * gx + gy * gy
     if h2 < 1e-18 or g2 < 1e-18:
