@@ -1685,7 +1685,7 @@ def needs_python_parser(svg_text):
         return True
 
     approx = os.environ.get("PLAN_SVG_CPP_APPROX", "0") == "1"
-    if not approx and "<pattern" in svg_text and any(k in svg_text for k in ("gradientTransform",)):
+    if not approx and "<pattern" in svg_text and any(k in svg_text for k in ()):
         return True
     if not approx and "<filter" in svg_text:
         prims = re.findall(r"<fe([A-Za-z]+)", svg_text)

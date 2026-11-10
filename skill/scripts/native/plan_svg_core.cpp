@@ -834,6 +834,90 @@ static std::unique_ptr<Gdiplus::Brush> gdi_brush_for(pugi::xml_node n, const std
     return std::unique_ptr<Gdiplus::Brush>(new Gdiplus::SolidBrush(Gdiplus::Color(255,(BYTE)c[0],(BYTE)c[1],(BYTE)c[2])));
 }
 
+static Mat mat_inv(const Mat& m) {
+    double det = m.a*m.d - m.b*m.c;
+    if (std::fabs(det) < 1e-12) return Mat();
+    return Mat{m.d/det, -m.b/det, -m.c/det, m.a/det,
+               (m.c*m.f - m.d*m.e)/det, (m.b*m.e - m.a*m.f)/det};
+}
+static double grad_len(const std::string& v, double d) {
+    std::string t = v;
+    if (t.empty()) return d;
+    if (!t.empty() && t.back() == '%') return std::atof(t.substr(0, t.size()-1).c_str()) / 100.0;
+    return std::atof(t.c_str());
+}
+static Gdiplus::Color grad_stop_color(pugi::xml_node st) {
+    auto c = color_from(st.attribute("stop-color").as_string("#000"));
+    double a = st.attribute("stop-opacity") ? std::atof(st.attribute("stop-opacity").as_string()) : 1.0;
+    return Gdiplus::Color((BYTE)(a*255), (BYTE)c[0], (BYTE)c[1], (BYTE)c[2]);
+}
+static Gdiplus::Color grad_eval(pugi::xml_node grad, double t) {
+    t = std::max(0.0, std::min(1.0, t));
+    Gdiplus::Color prev(0,0,0,0); double po=0; bool have=false;
+    for (pugi::xml_node st : grad.children()) {
+        if (std::string(st.name())!="stop") continue;
+        std::string off=st.attribute("offset").as_string("0");
+        double o = (!off.empty() && off.back()=='%') ? std::atof(off.substr(0,off.size()-1).c_str())/100.0 : std::atof(off.c_str());
+        Gdiplus::Color c=grad_stop_color(st);
+        if (!have) { if (t<=o) return c; prev=c; po=o; have=true; continue; }
+        if (t<=o) {
+            double u=(t-po)/std::max(1e-9,o-po);
+            return Gdiplus::Color((BYTE)(prev.GetA()+(c.GetA()-prev.GetA())*u),
+                                  (BYTE)(prev.GetR()+(c.GetR()-prev.GetR())*u),
+                                  (BYTE)(prev.GetG()+(c.GetG()-prev.GetG())*u),
+                                  (BYTE)(prev.GetB()+(c.GetB()-prev.GetB())*u));
+        }
+        prev=c; po=o;
+    }
+    return prev;
+}
+static double grad_t_at(pugi::xml_node grad, const Mat& inv, double px, double py, double bx, double by, double bw, double bh) {
+    bool bbox = std::string(grad.attribute("gradientUnits").as_string("objectBoundingBox"))=="objectBoundingBox";
+    double qx=px, qy=py;
+    if (bbox) { qx=(px-bx)/std::max(1e-9,bw); qy=(py-by)/std::max(1e-9,bh); }
+    double tx=inv.a*qx+inv.c*qy+inv.e, ty=inv.b*qx+inv.d*qy+inv.f;
+    if (std::string(grad.name())=="linearGradient") {
+        double x1=grad_len(grad.attribute("x1").as_string(),0), y1=grad_len(grad.attribute("y1").as_string(),0);
+        double x2=grad_len(grad.attribute("x2").as_string(),1), y2=grad_len(grad.attribute("y2").as_string(),0);
+        double gx=x2-x1, gy=y2-y1, gl=gx*gx+gy*gy;
+        return gl>1e-12 ? ((tx-x1)*gx+(ty-y1)*gy)/gl : 0.0;
+    }
+    double cx=grad_len(grad.attribute("cx").as_string(),0.5), cy=grad_len(grad.attribute("cy").as_string(),0.5);
+    double rr=grad_len(grad.attribute("r").as_string(),0.5);
+    double fx=grad.attribute("fx")?grad_len(grad.attribute("fx").as_string(),cx):cx;
+    double fy=grad.attribute("fy")?grad_len(grad.attribute("fy").as_string(),cy):cy;
+    double dx=tx-fx, dy=ty-fy, Dx=cx-fx, Dy=cy-fy;
+    double A=Dx*Dx+Dy*Dy-rr*rr, B=-2*(dx*Dx+dy*Dy), C=dx*dx+dy*dy;
+    if (std::fabs(A)<1e-9) return std::fabs(B)<1e-12?0:-C/B;
+    double disc=std::max(0.0,B*B-4*A*C);
+    return (-B-std::sqrt(disc))/(2*A);
+}
+static bool gdi_gradient_rect(Gdiplus::Graphics& g, pugi::xml_node n, pugi::xml_node grad, double sx, double sy) {
+    double x=std::atof(n.attribute("x").as_string("0")), y=std::atof(n.attribute("y").as_string("0"));
+    double w=std::atof(n.attribute("width").as_string("0")), h=std::atof(n.attribute("height").as_string("0"));
+    if (w<=0||h<=0) return false;
+    Mat M=parse_transform(grad.attribute("gradientTransform").as_string());
+    Mat inv=mat_inv(M);
+    int W=std::max(1,(int)std::lround(w*sx)), H=std::max(1,(int)std::lround(h*sy));
+    Gdiplus::Bitmap bmp(W,H,PixelFormat32bppARGB);
+    Gdiplus::Rect rc(0,0,W,H); Gdiplus::BitmapData bd{};
+    if (bmp.LockBits(&rc,Gdiplus::ImageLockModeWrite,PixelFormat32bppARGB,&bd)!=Gdiplus::Ok) return false;
+    for (int j=0;j<H;++j) {
+        BYTE* row=(BYTE*)bd.Scan0 + (size_t)j*bd.Stride;
+        for (int i=0;i<W;++i) {
+            double px=x+(i+0.5)/sx, py=y+(j+0.5)/sy;
+            double t=grad_t_at(grad,inv,px,py,x,y,w,h);
+            Gdiplus::Color c=grad_eval(grad,t);
+            row[i*4+0]=c.GetB(); row[i*4+1]=c.GetG(); row[i*4+2]=c.GetR(); row[i*4+3]=c.GetA();
+        }
+    }
+    bmp.UnlockBits(&bd);
+    Gdiplus::TextureBrush brush(&bmp);
+    brush.TranslateTransform((Gdiplus::REAL)(x*sx),(Gdiplus::REAL)(y*sy));
+    g.FillRectangle(&brush,(Gdiplus::REAL)(x*sx),(Gdiplus::REAL)(y*sy),(Gdiplus::REAL)(w*sx),(Gdiplus::REAL)(h*sy));
+    return true;
+}
+
 static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, double sy) {
     GdiSave save(g);
     std::string tr = n.attribute("transform").as_string();
@@ -847,6 +931,15 @@ static void gdi_draw_node(Gdiplus::Graphics& g, pugi::xml_node n, double sx, dou
     auto num = [&](const char* k, double d){ auto a=n.attribute(k); return a ? std::atof(a.as_string()) : d; };
     std::string fill = n.attribute("fill").as_string();
     if (fill.empty() || fill == "none") fill = "#000";
+    if (tag == "rect" && fill.rfind("url(#",0)==0) {
+        size_t e=fill.find(')',5); std::string gid=fill.substr(5,e-5);
+        for (pugi::xpath_node xn : g_gdi_root.select_nodes("//linearGradient | //radialGradient")) {
+            pugi::xml_node gg=xn.node();
+            if (std::string(gg.attribute("id").as_string())==gid && gg.attribute("gradientTransform")) {
+                if (gdi_gradient_rect(g,n,gg,sx,sy)) return;
+            }
+        }
+    }
     auto br = gdi_brush_for(n, fill, sx, sy);
     if (tag == "g") { for (auto ch : n.children()) gdi_draw_node(g, ch, sx, sy); return; }
     if (tag == "text") {
