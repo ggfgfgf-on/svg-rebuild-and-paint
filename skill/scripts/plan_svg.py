@@ -40,7 +40,7 @@ def _esc(s):
 
 
 def _f(v):
-    return ("%.3f" % float(v)).rstrip("0").rstrip(".")
+    return ("%.4f" % float(v)).rstrip("0").rstrip(".")
 
 
 def _rgb(color):
