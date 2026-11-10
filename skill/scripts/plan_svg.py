@@ -755,7 +755,7 @@ def _center_hash(ps):
 def _center_attr(ps):
     return ";".join("%s,%s,%s" % (_f(p[0]), _f(p[1]), _f(p[2] if len(p) > 2 else 1.0)) for p in ps)
 
-def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
+def plan_to_svg_outline(doc, title=None, texture=False, soft=False, fast=True):
     """One path per stroke: capsule subpaths unioned by nonzero fill."""
     w, h = [int(v) for v in doc["canvas"]]
     layers = doc.get("layers") or []
@@ -819,7 +819,9 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False):
             ps = [(float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)) for p in pts]
             radii = [max(0.3, base * (0.30 + 0.70 * p[2])) for p in ps]
             vary = len({round(p[2], 6) for p in ps}) > 1
-            if not vary and len(ps) >= 2:
+            op0 = max(0.0, min(1.0, float(st.get("opacity", 1.0))))
+            fast_mode = (not vary and len(ps) >= 2 and (fast or (op0 >= 0.999 and blends.get(name) == "normal")))
+            if fast_mode:
                 d = _path_line_compact([(p[0], p[1]) for p in ps])
                 out.append(pre + '<path d="%s" fill="none" stroke="%s" stroke-width="%s" stroke-opacity="%s" stroke-linecap="round" stroke-linejoin="round" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-d-hash="%s"%s/>' %
                            (d, paint_ref, _fc(2*radii[0]), _f(st.get("opacity", 1.0)), quoteattr(name), quoteattr(preset),
@@ -1521,6 +1523,12 @@ def needs_python_parser(svg_text):
         return True
     if "<image" in svg_text:
         return True
+    if "<pattern" in svg_text and any(k in svg_text for k in ("linearGradient", "radialGradient", "gradientTransform", "<text", "<use", "<image")):
+        return True
+    if "<filter" in svg_text:
+        prims = re.findall(r"<fe([A-Za-z]+)", svg_text)
+        if any(p not in ("GaussianBlur", "Offset") for p in prims):
+            return True
     if "<style" in svg_text or "<link" in svg_text or re.search(r'href="[^"]+\.svg#', svg_text):
         return True
     if 'fill-rule="evenodd"' in svg_text:
