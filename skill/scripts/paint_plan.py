@@ -148,8 +148,16 @@ def render_plan(plan, threads=8, brush=None, region=None):
                         p.fill_gradient(layer, pts, it["paint"], it.get("opacity", 1.0))
                     else:
                         p.fill_polygon(layer, pts, it.get("color"), it.get("opacity", 1.0))
+            elif isinstance(it.get("paint"), dict):
+                if buf:
+                    p.stroke_batch(layer, buf, nthreads=threads)
+                    buf = []
+                pts = np.asarray(it.get("points") or [], dtype=np.float32)
+                if len(pts) >= 2:
+                    p.stroke_gradient(layer, pts, it.get("size", 8.0), it.get("opacity", 1.0),
+                                      it["paint"], it.get("preset", "round_soft"), it.get("hardness", 0.55))
             else:
-                buf.extend(_expand_paint(it))
+                buf.append(it)
         if buf:
             p.stroke_batch(layer, buf, nthreads=threads)
 

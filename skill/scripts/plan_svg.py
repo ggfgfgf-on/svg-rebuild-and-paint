@@ -845,8 +845,9 @@ def _raster_masks(root, w, h):
             c = _color(fill, (255, 255, 255))
             a = max(0.0, min(1.0, float(ch.get("fill-opacity", ch.get("opacity", 1.0)))))
             return int(round((0.299*c[0] + 0.587*c[1] + 0.114*c[2]) * a))
+        gpaints = _gradient_paints(root)
         def draw_node(ch):
-            nonlocal im, draw
+            nonlocal im
             tag = _local(ch.tag)
             if tag == "image":
                 href = ch.get("href") or ch.get("{http://www.w3.org/1999/xlink}href") or ""
@@ -856,32 +857,65 @@ def _raster_masks(root, w, h):
                     if q.size != (w, h):
                         q = q.resize((w, h), Image.BILINEAR)
                     im = ImageChops.lighter(im, q)
-                    draw = ImageDraw.Draw(im)
                 return
             if tag == "g":
                 for q in list(ch):
                     draw_node(q)
                 return
-            val = lum(ch)
+            tmp = Image.new("L", (w, h), 0)
+            td = ImageDraw.Draw(tmp)
             if tag == "rect":
                 x = float(ch.get("x", 0)); y = float(ch.get("y", 0))
-                draw.rectangle([x, y, x+float(ch.get("width", 0)), y+float(ch.get("height", 0))], fill=val)
+                td.rectangle([x, y, x+float(ch.get("width", 0)), y+float(ch.get("height", 0))], fill=255)
             elif tag == "circle":
                 cx = float(ch.get("cx", 0)); cy = float(ch.get("cy", 0)); r = float(ch.get("r", 0))
-                draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=val)
+                td.ellipse([cx-r, cy-r, cx+r, cy+r], fill=255)
             elif tag == "ellipse":
                 cx = float(ch.get("cx", 0)); cy = float(ch.get("cy", 0))
                 rx = float(ch.get("rx", 0)); ry = float(ch.get("ry", 0))
-                draw.ellipse([cx-rx, cy-ry, cx+rx, cy+ry], fill=val)
+                td.ellipse([cx-rx, cy-ry, cx+rx, cy+ry], fill=255)
             elif tag in ("polygon", "polyline"):
                 v = [float(x) for x in _NUM.findall(ch.get("points", ""))]
                 pts = [(v[i], v[i+1]) for i in range(0, len(v)-1, 2)]
                 if len(pts) >= 3:
-                    draw.polygon(pts, fill=val)
+                    td.polygon(pts, fill=255)
             elif tag == "path":
                 for pts in _parse_d_subpaths(ch.get("d", "")):
                     if len(pts) >= 3:
-                        draw.polygon([(q[0], q[1]) for q in pts], fill=val)
+                        td.polygon([(q[0], q[1]) for q in pts], fill=255)
+            else:
+                return
+            import numpy as np
+            arr = np.asarray(tmp, dtype=np.float32) / 255.0
+            fill = str(ch.get("fill", "#fff")).lower()
+            m = re.match(r"url\(#([^)]+)\)", fill)
+            if m and m.group(1) in gpaints:
+                paint = gpaints[m.group(1)]
+                ys, xs = np.nonzero(arr > 0)
+                if len(xs):
+                    x0, x1 = xs.min(), xs.max(); y0, y1 = ys.min(), ys.max()
+                    def cv(k, d):
+                        v = paint.get(k, d)
+                        if isinstance(v, str) and v.endswith("%"):
+                            q = float(v[:-1]) / 100.0
+                            return x0 + (x1-x0)*q if k in ("x1", "x2", "cx", "fx") else y0 + (y1-y0)*q
+                        return float(v)
+                    if paint.get("type") == "radial":
+                        cx, cy, r = cv("cx", 0.5), cv("cy", 0.5), max(1e-6, cv("r", 0.5))
+                        t = np.sqrt((xs-cx)**2 + (ys-cy)**2) / r
+                    else:
+                        x1g, y1g, x2g, y2g = cv("x1", 0), cv("y1", 0), cv("x2", 1), cv("y2", 0)
+                        gx, gy = x2g-x1g, y2g-y1g; gl = gx*gx + gy*gy
+                        t = ((xs-x1g)*gx + (ys-y1g)*gy) / gl if gl > 1e-12 else np.zeros(len(xs))
+                    t = np.clip(t, 0, 1)
+                    stops = paint.get("stops") or []
+                    off = np.array([q[0] for q in stops], dtype=np.float32)
+                    lumv = np.array([(0.299*q[1][0] + 0.587*q[1][1] + 0.114*q[1][2]) / 255.0 * (q[2] if len(q) > 2 else 1.0) for q in stops], dtype=np.float32)
+                    arr[ys, xs] *= np.interp(t, off, lumv)
+            else:
+                arr *= lum(ch) / 255.0
+            cur = np.asarray(im, dtype=np.float32) / 255.0
+            im = Image.fromarray(np.clip(np.maximum(cur, arr) * 255, 0, 255).astype(np.uint8))
         for ch in list(el):
             draw_node(ch)
         out[el.get("id")] = {"encoding": "png-base64", "data": _mask_png(im), "luminance": True}

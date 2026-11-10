@@ -261,7 +261,7 @@ C++ 支持 fill/stroke/stroke-width/opacity 继承；`<use href="#symbol">` 会�
 - 外部引用：无 base 路径/资源策略；
 - 复杂 CSS：伪类、优先级、!important；
 - 厚涂 fill 渐变：native `paint_fill_gradient_polygon` 逐像素插值；
-- 厚涂 stroke 渐变：按段拆笔近似，不是连续渐变。
+- 厚涂 stroke 渐变：native 单笔逐像素插值；GPU 未同步。
 
 ## layer mask（alpha/luminance）
 
