@@ -75,6 +75,8 @@ def load():
     lib.paint_composite.restype = ctypes.c_int
     lib.paint_composite.argtypes = [vp, u8]
     lib.paint_layer_rgba.restype = ctypes.c_int
+    lib.paint_set_layer_rgba.restype = ctypes.c_int
+    lib.paint_set_layer_rgba.argtypes = [vp, ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte)]
     lib.paint_layer_rgba.argtypes = [vp, ctypes.c_int, u8]
     lib.paint_tip_add.restype = ctypes.c_int
     lib.paint_tip_add.argtypes = [vp, f32, ctypes.c_int, ctypes.c_int]
@@ -528,6 +530,12 @@ class Painter:
         buf = (ctypes.c_ubyte * (self.w * self.h * 4))()
         self._lib.paint_composite(self._ctx, buf)
         return np.frombuffer(buf, dtype=np.uint8).reshape(self.h, self.w, 4).copy()
+
+    def set_layer_rgba(self, idx, rgba):
+        rgba = np.ascontiguousarray(rgba, dtype=np.uint8)
+        if rgba.ndim != 3 or rgba.shape[2] != 4:
+            raise ValueError("rgba must be HxWx4")
+        return self._lib.paint_set_layer_rgba(self._ctx, int(idx), rgba.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)))
 
     def layer_rgba(self, idx):
         buf = (ctypes.c_ubyte * (self.w * self.h * 4))()

@@ -1453,6 +1453,21 @@ EXPORT int paint_layer_float(void* p, int idx, float* out) {
     return 1;
 }
 
+EXPORT int paint_set_layer_rgba(void* p, int idx, const unsigned char* src) {
+    Ctx* c = (Ctx*)p;
+    if (!c || !src || idx < 0 || idx >= (int)c->layers.size()) return 0;
+    Layer& L = c->layers[idx];
+    size_t n = (size_t)c->w * c->h;
+    for (size_t i = 0; i < n; ++i) {
+        float a = src[i*4+3] / 255.0f;
+        L.px[i*4+0] = src[i*4+0] / 255.0f * a;
+        L.px[i*4+1] = src[i*4+1] / 255.0f * a;
+        L.px[i*4+2] = src[i*4+2] / 255.0f * a;
+        L.px[i*4+3] = a;
+    }
+    return 1;
+}
+
 EXPORT int paint_layer_rgba(void* p, int idx, unsigned char* out) {
     Ctx* c = (Ctx*)p;
     if (!c || idx < 0 || idx >= (int)c->layers.size() || !out) return 0;

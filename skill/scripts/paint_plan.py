@@ -149,6 +149,21 @@ def render_plan(plan, threads=8, brush=None, region=None):
             idx = len(layers_spec)
             layers_spec.append({"name": "masked_%d" % idx, "blend": "normal", "mask": m})
             s["layer"] = idx
+    image_items = [x for x in strokes_in if (str(x.get("preset", "")) in ("image", "text", "pattern") or isinstance(x.get("pattern"), dict))]
+    if image_items:
+        for s in image_items:
+            owner = s.get("layer", 0)
+            if isinstance(owner, str):
+                owner = next((i for i, q in enumerate(layers_spec) if str(q.get("name")) == owner), 0)
+            pos = owner + 1
+            while pos < len(layers_spec) and str(layers_spec[pos].get("name", "")).startswith("__overlay"):
+                pos += 1
+            name = "__overlay%d" % len([q for q in layers_spec if str(q.get("name", "")).startswith("__overlay")])
+            spec = {"name": name, "blend": layers_spec[owner].get("blend", "normal")}
+            if isinstance(s.get("mask"), dict):
+                spec["mask"] = s["mask"]
+            layers_spec.insert(pos, spec)
+            s["layer"] = pos
     p = paint_native.Painter(int(w), int(h))
     for i, spec in enumerate(layers_spec):
         if i == 0:
@@ -208,50 +223,8 @@ def render_plan(plan, threads=8, brush=None, region=None):
         if buf:
             p.stroke_batch(layer, buf, nthreads=threads)
 
-    for i, spec in enumerate(layers_spec):
-        alpha = _mask_alpha(spec, int(w), int(h))
-        if alpha is not None:
-            p.apply_mask(i, alpha)
-
-    comp = p.composite()
-    for s in strokes_in:
-        if s.get("preset") != "image" or not isinstance(s.get("image"), dict):
-            continue
-        im = s["image"]
-        try:
-            raw = base64.b64decode(im.get("data", ""))
-            src = Image.open(io.BytesIO(raw)).convert("RGBA")
-        except Exception:
-            continue
-        tw = max(1, int(round(float(s.get("width", src.width)))))
-        th = max(1, int(round(float(s.get("height", src.height)))))
-        src = src.resize((tw, th), Image.LANCZOS)
-        a = src.getchannel("A").point(lambda v: int(v * max(0.0, min(1.0, float(s.get("opacity", 1.0))))))
-        src.putalpha(a)
-        tr = s.get("transform")
-        base = Image.fromarray(comp, "RGBA")
-        if isinstance(tr, (list, tuple)) and len(tr) == 6:
-            x0, y0 = float(s.get("x", 0)), float(s.get("y", 0))
-            L = _mat_mul(tuple(float(v) for v in tr), (1, 0, 0, 1, x0, y0))
-            pts = [_mat_apply(L, 0, 0), _mat_apply(L, tw, 0), _mat_apply(L, 0, th), _mat_apply(L, tw, th)]
-            xs = [q[0] for q in pts]; ys = [q[1] for q in pts]
-            mx, my = int(np.floor(min(xs))), int(np.floor(min(ys)))
-            mw, mh = max(1, int(np.ceil(max(xs))) - mx), max(1, int(np.ceil(max(ys))) - my)
-            inv = _mat_inv(L)
-            if inv is None:
-                continue
-            coeff = (inv[0], inv[2], inv[0]*mx + inv[2]*my + inv[4],
-                     inv[1], inv[3], inv[1]*mx + inv[3]*my + inv[5])
-            piece = src.transform((mw, mh), Image.AFFINE, coeff, resample=Image.BICUBIC)
-            layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-            layer.paste(piece, (mx, my), piece)
-            comp = np.asarray(Image.alpha_composite(base, layer))
-        else:
-            layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-            layer.paste(src, (int(round(float(s.get("x", 0)))), int(round(float(s.get("y", 0))))), src)
-            comp = np.asarray(Image.alpha_composite(base, layer))
-    for s in strokes_in:
-        if s.get("preset") != "text":
+    for s in image_items:
+        if str(s.get("preset", "")) != "text":
             continue
         txt = str(s.get("text", ""))
         if not txt:
@@ -260,24 +233,23 @@ def render_plan(plan, threads=8, brush=None, region=None):
         col = _color(s.get("color"), (0, 0, 0))
         alpha = max(0, min(255, int(round(float(s.get("opacity", 1.0)) * 255))))
         anchor = {"middle": "ms", "end": "rs"}.get(str(s.get("text_anchor", "start")), "ls")
-        base = Image.fromarray(comp, "RGBA")
-        layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        layer = Image.new("RGBA", (int(w), int(h)), (0, 0, 0, 0))
         ImageDraw.Draw(layer).text((float(s.get("x", 0)), float(s.get("y", 0))), txt,
                                    font=font, fill=(col[0], col[1], col[2], alpha), anchor=anchor)
         tr = s.get("transform")
         if isinstance(tr, (list, tuple)) and len(tr) == 6:
             inv = _mat_inv(tuple(float(v) for v in tr))
             if inv is not None:
-                coeff = (inv[0], inv[2], inv[4], inv[1], inv[3], inv[5])
-                layer = layer.transform(base.size, Image.AFFINE, coeff, resample=Image.BICUBIC)
-        comp = np.asarray(Image.alpha_composite(base, layer))
-    for s in strokes_in:
+                layer = layer.transform((int(w), int(h)), Image.AFFINE,
+                                        (inv[0], inv[2], inv[4], inv[1], inv[3], inv[5]), resample=Image.BICUBIC)
+        p.set_layer_rgba(int(s["layer"]), np.asarray(layer))
+
+    for s in image_items:
         ptn = s.get("pattern")
         if not isinstance(ptn, dict) or not ptn.get("data"):
             continue
         try:
-            raw = base64.b64decode(ptn.get("data", ""))
-            tile = Image.open(io.BytesIO(raw)).convert("RGBA")
+            tile = Image.open(io.BytesIO(base64.b64decode(ptn.get("data", "")))).convert("RGBA")
         except Exception:
             continue
         tw = max(1, int(round(float(ptn.get("width", tile.width)))))
@@ -291,7 +263,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
                 th = max(1, int(round(float(ptn.get("height", 0.1)) * bh)))
         if tile.size != (tw, th):
             tile = tile.resize((tw, th), Image.LANCZOS)
-        base = Image.fromarray(comp, "RGBA")
+        base = Image.new("RGBA", (int(w), int(h)), (0, 0, 0, 0))
         canvas = Image.new("RGBA", base.size, (0, 0, 0, 0))
         for y in range(0, base.height, th):
             for x in range(0, base.width, tw):
@@ -303,9 +275,54 @@ def render_plan(plan, threads=8, brush=None, region=None):
         a = max(0.0, min(1.0, float(s.get("opacity", 1.0))))
         if a < 1.0:
             mask = mask.point(lambda v: int(v * a))
-        layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-        layer.paste(canvas, (0, 0), mask)
-        comp = np.asarray(Image.alpha_composite(base, layer))
+        base.paste(canvas, (0, 0), mask)
+        p.set_layer_rgba(int(s["layer"]), np.asarray(base))
+
+    for i, spec in enumerate(layers_spec):
+        alpha = _mask_alpha(spec, int(w), int(h))
+        if alpha is not None:
+            p.apply_mask(i, alpha)
+
+    for s in image_items:
+        if str(s.get("preset", "")) != "image":
+            continue
+        im = s["image"]
+        try:
+            raw = base64.b64decode(im.get("data", ""))
+            src = Image.open(io.BytesIO(raw)).convert("RGBA")
+        except Exception:
+            continue
+        tw = max(1, int(round(float(s.get("width", src.width)))))
+        th = max(1, int(round(float(s.get("height", src.height)))))
+        src = src.resize((tw, th), Image.LANCZOS)
+        a = src.getchannel("A").point(lambda v: int(v * max(0.0, min(1.0, float(s.get("opacity", 1.0))))))
+        src.putalpha(a)
+        tr = s.get("transform")
+        base = Image.new("RGBA", (int(w), int(h)), (0, 0, 0, 0))
+        if isinstance(tr, (list, tuple)) and len(tr) == 6:
+            x0, y0 = float(s.get("x", 0)), float(s.get("y", 0))
+            L = _mat_mul(tuple(float(v) for v in tr), (1, 0, 0, 1, x0, y0))
+            pts = [_mat_apply(L, 0, 0), _mat_apply(L, tw, 0), _mat_apply(L, 0, th), _mat_apply(L, tw, th)]
+            xs = [q[0] for q in pts]; ys = [q[1] for q in pts]
+            mx, my = int(np.floor(min(xs))), int(np.floor(min(ys)))
+            mw, mh = max(1, int(np.ceil(max(xs))) - mx), max(1, int(np.ceil(max(ys))) - my)
+            inv = _mat_inv(L)
+            if inv is None:
+                continue
+            coeff = (inv[0], inv[2], inv[0]*mx + inv[2]*my + inv[4],
+                     inv[1], inv[3], inv[1]*mx + inv[3]*my + inv[5])
+            piece = src.transform((mw, mh), Image.AFFINE, coeff, resample=Image.BICUBIC)
+            base.paste(piece, (mx, my), piece)
+        else:
+            base.paste(src, (int(round(float(s.get("x", 0)))), int(round(float(s.get("y", 0))))), src)
+        p.set_layer_rgba(int(s["layer"]), np.asarray(base))
+
+    for i, spec in enumerate(layers_spec):
+        alpha = _mask_alpha(spec, int(w), int(h))
+        if alpha is not None:
+            p.apply_mask(i, alpha)
+
+    comp = p.composite()
     names = [spec.get("name", "layer%d" % i) for i, spec in enumerate(layers_spec)]
     out_layers = [(names[i], p.layer_rgba(i)) for i in range(p.layer_count())]
     p.close()
