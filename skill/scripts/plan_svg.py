@@ -1413,6 +1413,42 @@ def _rasterize_filtered(root, ch, w, h, base_dir=None):
                             im = shifted
                         except Exception:
                             pass
+                    elif t == "feColorMatrix":
+                        try:
+                            import numpy as _np
+                            typ = str(e.get("type", "matrix"))
+                            vals = [float(v) for v in re.split(r"[\s,]+", str(e.get("values", "")).strip()) if v]
+                            arr = _np.asarray(im, dtype=_np.float32) / 255.0
+                            r, g, b, a = arr[...,0], arr[...,1], arr[...,2], arr[...,3]
+                            if typ == "matrix" and len(vals) >= 20:
+                                m = _np.array(vals[:20], _np.float32).reshape(4,5)
+                            elif typ == "saturate" and vals:
+                                sv = vals[0]
+                                m = _np.array([[0.213+0.787*sv,0.715-0.715*sv,0.072-0.072*sv,0,0],
+                                               [0.213-0.213*sv,0.715+0.285*sv,0.072-0.072*sv,0,0],
+                                               [0.213-0.213*sv,0.715-0.715*sv,0.072+0.928*sv,0,0],
+                                               [0,0,0,1,0]], _np.float32)
+                            elif typ == "hueRotate":
+                                import math as _m
+                                ang = _m.radians(vals[0] if vals else 0)
+                                cs, sn = _m.cos(ang), _m.sin(ang)
+                                m = _np.array([[0.213+cs*0.787-sn*0.213,0.715-cs*0.715-sn*0.715,0.072-cs*0.072+sn*0.928,0,0],
+                                               [0.213-cs*0.213+sn*0.143,0.715+cs*0.285+sn*0.140,0.072-cs*0.072-sn*0.283,0,0],
+                                               [0.213-cs*0.213-sn*0.787,0.715-cs*0.715+sn*0.715,0.072+cs*0.928+sn*0.072,0,0],
+                                               [0,0,0,1,0]], _np.float32)
+                            elif typ == "luminanceToAlpha":
+                                m = _np.array([[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0.2126,0.7152,0.0722,0,0]], _np.float32)
+                            else:
+                                m = None
+                            if m is not None:
+                                out = _np.empty_like(arr)
+                                out[...,0] = m[0,0]*r+m[0,1]*g+m[0,2]*b+m[0,3]*a+m[0,4]
+                                out[...,1] = m[1,0]*r+m[1,1]*g+m[1,2]*b+m[1,3]*a+m[1,4]
+                                out[...,2] = m[2,0]*r+m[2,1]*g+m[2,2]*b+m[2,3]*a+m[2,4]
+                                out[...,3] = m[3,0]*r+m[3,1]*g+m[3,2]*b+m[3,3]*a+m[3,4]
+                                im = Image.fromarray(_np.clip(out*255.0,0,255).astype(_np.uint8), "RGBA")
+                        except Exception:
+                            pass
                     elif t == "feDropShadow":
                         try:
                             dx = float(e.get("dx", 0)); dy = float(e.get("dy", 0))
