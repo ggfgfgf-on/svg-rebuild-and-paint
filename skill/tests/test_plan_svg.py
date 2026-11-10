@@ -62,10 +62,10 @@ def test_deterministic():
     print("PASS plan->svg deterministic")
 
 
-def test_dump_cli(tmp):
-    src = Path(tmp) / "a.plan.json"
-    svg = Path(tmp) / "a.svg"
-    dst = Path(tmp) / "b.plan.json"
+def test_dump_cli(tmp_path):
+    src = Path(tmp_path) / "a.plan.json"
+    svg = Path(tmp_path) / "a.svg"
+    dst = Path(tmp_path) / "b.plan.json"
     doc = sample()
     plan_io.dump_plan(str(src), 120, 80, doc["strokes"],
                       layer_blends={l["name"]: l["blend"] for l in doc["layers"]},
