@@ -232,7 +232,7 @@ def unpack_plan(data: bytes):
 
 
 def plan_to_svg(doc) -> str:
-    if any(str(s.get("preset", "")) in ("image", "text") or s.get("holes") or s.get("fill_rule") for s in doc.get("strokes", [])):
+    if any(str(s.get("preset", "")) in ("image", "text") or s.get("holes") or s.get("fill_rule") or s.get("pattern") for s in doc.get("strokes", [])):
         import json as _json
         raw = _json.dumps(doc, ensure_ascii=False).encode("utf-8")
         ptr = _LIB.psvg_plan_to_svg(raw, len(raw))

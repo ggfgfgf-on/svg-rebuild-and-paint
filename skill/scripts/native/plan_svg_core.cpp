@@ -154,8 +154,21 @@ static std::string svg_from_plan(const std::string& input) {
             by[n].push_back(&s);
         }
     std::map<const Value*, std::string> paint_ids;
+    std::map<const Value*, std::string> pattern_ids;
     std::string defs;
     int paint_no = 0;
+    int pattern_no = 0;
+    if (const Value* ss1 = get_arr(d, "strokes")) for (const auto& s : ss1->GetArray()) {
+        auto pi = s.FindMember("pattern");
+        if (pi == s.MemberEnd() || !pi->value.IsObject()) continue;
+        const Value& p = pi->value;
+        std::string id = "pt" + std::to_string(pattern_no++);
+        pattern_ids[&s] = id;
+        defs += "<pattern id=\"" + id + "\" width=\"" + get_str(p, "width", "32") + "\" height=\"" +
+                get_str(p, "height", "32") + "\" patternUnits=\"" + get_str(p, "units", "userSpaceOnUse") + "\">";
+        defs += "<image href=\"data:image/png;base64," + get_str(p, "data", "") + "\" width=\"" +
+                get_str(p, "width", "32") + "\" height=\"" + get_str(p, "height", "32") + "\"/></pattern>";
+    }
     if (const Value* ss0 = get_arr(d, "strokes")) for (const auto& s : ss0->GetArray()) {
         auto pi = s.FindMember("paint");
         if (pi == s.MemberEnd() || !pi->value.IsObject()) continue;
@@ -271,8 +284,10 @@ static std::string svg_from_plan(const std::string& input) {
                     }
                 }
                 out += "\" fill=\"";
+                auto ptf = pattern_ids.find(&s);
                 auto pfill = paint_ids.find(&s);
-                if (pfill != paint_ids.end()) out += "url(#" + pfill->second + ")"; else out += color_hex(col);
+                if (ptf != pattern_ids.end()) out += "url(#" + ptf->second + ")";
+                else if (pfill != paint_ids.end()) out += "url(#" + pfill->second + ")"; else out += color_hex(col);
                 out += "\" fill-opacity=\""; out += fmt(op); out += "\" fill-rule=\"";
                 esc_to(out, get_str(s, "fill_rule", "nonzero"));
                 out += "\" data-layer=\""; esc_to(out, name);
