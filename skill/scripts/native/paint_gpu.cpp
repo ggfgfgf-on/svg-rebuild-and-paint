@@ -1108,6 +1108,34 @@ EXPORT int pg_read_acc(void* p, float* out) {
     return 1;
 }
 
+
+EXPORT int pg_apply_layer_mask(void* p, int idx, const unsigned char* mask, int mw, int mh) {
+    Gpu* g = (Gpu*)p;
+    if (!g || !mask || idx < 0 || idx >= (int)g->layers.size() || mw <= 0 || mh <= 0) return 0;
+    UINT npix = (UINT)g->W * (UINT)g->H;
+    std::vector<float> px((size_t)npix * 4);
+    ID3D11Buffer* rb = make_buf(g->dev, npix * 16, 16, 0, 0, D3D11_CPU_ACCESS_READ);
+    g->ctx->CopyResource(rb, g->layers[idx].buf);
+    D3D11_MAPPED_SUBRESOURCE ms{};
+    if (FAILED(g->ctx->Map(rb, 0, D3D11_MAP_READ, 0, &ms))) { rb->Release(); return 0; }
+    memcpy(px.data(), ms.pData, (size_t)npix * 16);
+    g->ctx->Unmap(rb, 0);
+    rb->Release();
+    for (int y = 0; y < g->H; ++y) {
+        int my = (int)((long long)y * mh / g->H);
+        if (my >= mh) my = mh - 1;
+        for (int x = 0; x < g->W; ++x) {
+            int mx = (int)((long long)x * mw / g->W);
+            if (mx >= mw) mx = mw - 1;
+            float a = mask[(size_t)my * mw + mx] / 255.0f;
+            float* d = px.data() + ((size_t)y * g->W + x) * 4;
+            d[0] *= a; d[1] *= a; d[2] *= a; d[3] *= a;
+        }
+    }
+    g->ctx->UpdateSubresource(g->layers[idx].buf, 0, nullptr, px.data(), 0, 0);
+    return 1;
+}
+
 EXPORT int pg_read_layer(void* p, int idx, float* out) {
     Gpu* g = (Gpu*)p;
     if (!g || idx < 0 || idx >= (int)g->layers.size()) return 0;
