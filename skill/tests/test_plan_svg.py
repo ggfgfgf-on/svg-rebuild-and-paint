@@ -260,6 +260,24 @@ def test_mask_type_alpha():
     assert raw[20 * m["width"] + 20] == 255
 
 
+
+
+def test_gradient_transform_roundtrip():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0"'
+           ' gradientTransform="rotate(90 0.5 0.5)">'
+           '<stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/>'
+           '</linearGradient></defs>'
+           '<rect width="100" height="100" fill="url(#g)"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    src = d["strokes"][0]["paint"]["source"]["gradient"]["attrs"]
+    assert "rotate(90" in src["gradientTransform"]
+    out = plan_svg.plan_to_svg(d)
+    assert "gradientTransform" in out
+    d2 = plan_svg.svg_to_plan(out)
+    assert "rotate(90" in d2["strokes"][0]["paint"]["source"]["gradient"]["attrs"]["gradientTransform"]
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -275,6 +293,7 @@ if __name__ == "__main__":
     test_radial_focal_roundtrip()
     test_clip_path_units_bbox()
     test_mask_type_alpha()
+    test_gradient_transform_roundtrip()
     test_gradient_paint_roundtrip()
     test_mask_layer_alpha()
     print("all plan_svg tests passed")

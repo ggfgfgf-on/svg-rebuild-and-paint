@@ -3,6 +3,7 @@ import ctypes
 import os
 import time
 import numpy as np
+from gradient_xform import apply_linear as _grad_xform
 
 import paint_native
 
@@ -174,6 +175,12 @@ class GpuPainter:
                 return (minx + (maxx-minx)*q) if k in ("x1", "x2", "cx", "fx") else (miny + (maxy-miny)*q)
             return q
         x1, y1, x2, y2 = coord("x1", 0.0), coord("y1", 0.0), coord("x2", 1.0), coord("y2", 0.0)
+        tr = _grad_xform(paint, (minx, miny, maxx, maxy)) if paint.get("type", "linear") == "linear" else None
+        if tr:
+            x1, y1, x2, y2 = tr
+        tr = _grad_xform(paint, (minx, miny, maxx, maxy)) if paint.get("type", "linear") == "linear" else None
+        if tr:
+            x1, y1, x2, y2 = tr
         sp = paint_native._spread(paint)
         if paint.get("type") == "radial":
             cx, cy = coord("cx", 0.5), coord("cy", 0.5)
@@ -245,6 +252,12 @@ class GpuPainter:
                 return (minx + (maxx - minx) * q) if k in ("x1", "x2", "cx", "fx") else (miny + (maxy - miny) * q)
             return q
         x1, y1, x2, y2 = coord("x1", 0.0), coord("y1", 0.0), coord("x2", 1.0), coord("y2", 0.0)
+        tr = _grad_xform(paint, (minx, miny, maxx, maxy)) if paint.get("type", "linear") == "linear" else None
+        if tr:
+            x1, y1, x2, y2 = tr
+        tr = _grad_xform(paint, (minx, miny, maxx, maxy)) if paint.get("type", "linear") == "linear" else None
+        if tr:
+            x1, y1, x2, y2 = tr
         sp = paint_native._spread(paint)
         if paint.get("type") == "radial":
             cx, cy = coord("cx", 0.5), coord("cy", 0.5)

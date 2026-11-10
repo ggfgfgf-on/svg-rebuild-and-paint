@@ -7,6 +7,7 @@ import ctypes
 import time, json, os
 from pathlib import Path
 import numpy as np
+from gradient_xform import apply_linear as _grad_xform
 
 _NATIVE_DIR = Path(__file__).resolve().parent / "native"
 PRESETS = {"round_soft": 0, "round_hard": 1, "flat": 2, "dry": 3, "airbrush": 4,
@@ -296,6 +297,9 @@ class Painter:
             return q
         x1, y1 = coord("x1", 0.0), coord("y1", 0.0)
         x2, y2 = coord("x2", 1.0), coord("y2", 0.0)
+        tr = _grad_xform(paint, (minx, miny, maxx, maxy)) if paint.get("type", "linear") == "linear" else None
+        if tr:
+            x1, y1, x2, y2 = tr
         sp = _spread(paint)
         if paint.get("type") == "radial":
             cx, cy = coord("cx", 0.5), coord("cy", 0.5)
@@ -345,6 +349,9 @@ class Painter:
             return q
         x1, y1 = coord("x1", 0.0), coord("y1", 0.0)
         x2, y2 = coord("x2", 1.0), coord("y2", 0.0)
+        tr = _grad_xform(paint, (minx, miny, maxx, maxy)) if paint.get("type", "linear") == "linear" else None
+        if tr:
+            x1, y1, x2, y2 = tr
         pid = PRESETS.get(preset, 0) if isinstance(preset, str) else int(preset)
         sp = _spread(paint)
         if paint.get("type") == "radial":
