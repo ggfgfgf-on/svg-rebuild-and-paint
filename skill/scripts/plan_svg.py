@@ -462,6 +462,45 @@ def plan_to_svg_stamps(doc, title=None):
         if n not in blends:
             order.append(n); blends[n] = "normal"
         by.setdefault(n, []).append(s)
+    paint_defs = []
+    paint_gid = {}
+    mask_defs = []
+    layer_mask = {}
+    stroke_mask = {}
+    for li, l in enumerate(layers):
+        m = l.get("mask")
+        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+            gid = "lmask%d" % li
+            layer_mask[str(l.get("name", "layer"))] = gid
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+    for st in doc.get("strokes") or []:
+        m = st.get("mask")
+        if isinstance(m, dict) and m.get("encoding") == "png-base64":
+            gid = "smask%d" % len(stroke_mask)
+            stroke_mask[id(st)] = gid
+            mask_defs.append('<mask id="%s" maskUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d"><image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>' % (gid, w, h, m.get("data", ""), w, h))
+        paint = st.get("paint")
+        if isinstance(paint, dict):
+            pts = st.get("points") or []
+            if pts:
+                xs = [float(q[0]) for q in pts]; ys = [float(q[1]) for q in pts]
+                minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+                def cv(k, d):
+                    v = paint.get(k, d)
+                    if isinstance(v, str) and v.endswith("%"):
+                        q = float(v[:-1]) / 100.0
+                        return minx + (maxx-minx)*q if k in ("x1","x2","cx","fx") else miny + (maxy-miny)*q
+                    return float(v)
+                pp = dict(paint); pp["units"] = "userSpaceOnUse"
+                if paint.get("type") == "radial":
+                    pp["cx"] = cv("cx", 0.5); pp["cy"] = cv("cy", 0.5); pp["r"] = max(1.0, cv("r", 0.5))
+                    pp["fx"] = pp["cx"]; pp["fy"] = pp["cy"]
+                else:
+                    pp["x1"] = cv("x1", 0.0); pp["y1"] = cv("y1", 0.0)
+                    pp["x2"] = cv("x2", 1.0); pp["y2"] = cv("y2", 0.0)
+                gid = "paint%d" % len(paint_defs)
+                paint_gid[id(st)] = gid
+                paint_defs.append(_paint_def(pp, gid))
     defs = []; used = {}; body = []
     def grad_id(col, hard):
         q = max(0.0, min(1.0, hard)); q = round(q * 4.0) / 4.0
@@ -475,7 +514,8 @@ def plan_to_svg_stamps(doc, title=None):
         defs.append('<radialGradient id="%s"><stop offset="0" stop-color="%s" stop-opacity="1"/><stop offset="%s" stop-color="%s" stop-opacity="0.55"/><stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>' % (gid, col, _f(mid), col, col))
         return gid
     for name in order:
-        body.append('<g data-name=%s data-blend=%s>' % (quoteattr(name), quoteattr(blends[name])))
+        lm = layer_mask.get(name)
+        body.append('<g data-name=%s data-blend=%s%s>' % (quoteattr(name), quoteattr(blends[name]), (' mask="url(#%s)"' % lm) if lm else ""))
         for st in by.get(name, []):
             pts = st.get("points") or []
             if not pts:
@@ -484,7 +524,16 @@ def plan_to_svg_stamps(doc, title=None):
             col = _rgb(st.get("color")); op0 = max(0.0, min(1.0, float(st.get("opacity", 1.0))))
             preset = str(st.get("preset", "round_soft")); hard = float(st.get("hardness", 0.7))
             ps = [(float(p[0]), float(p[1]), float(p[2] if len(p) > 2 else 1.0)) for p in pts]
-            body.append('<g data-stroke="1" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-center-hash="%s"%s>' % (
+            sm = stroke_mask.get(id(st))
+            pre = ('<g mask="url(#%s)">' % sm) if sm else ""
+            post = "</g>" if sm else ""
+            if preset == "fill":
+                d0 = "M " + " L ".join("%s %s" % (_f(float(q[0])), _f(float(q[1]))) for q in pts) + " Z"
+                pg = paint_gid.get(id(st))
+                body.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer=%s data-preset="fill" data-color="%s"/>' % (
+                    d0, ("url(#%s)" % pg) if pg else col, _f(op0), st.get("fill_rule", "nonzero"), quoteattr(name), col) + post)
+                continue
+            body.append(pre + '<g data-stroke="1" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-center-hash="%s"%s>' % (
                 quoteattr(name), quoteattr(preset), _f(size), _f(op0), _f(hard), col, _center_attr(ps), _center_hash(ps),
                 (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else ""))
             for i in range(1, len(pts)):
@@ -498,20 +547,24 @@ def plan_to_svg_stamps(doc, title=None):
                     r = base * pr
                     if r <= 0:
                         continue
-                    op = max(0.0, min(1.0, op0 * pa)); gid = grad_id(col, hard)
-                    fill = ("url(#%s)" % gid) if gid else col
+                    op = max(0.0, min(1.0, op0 * pa)); pg = paint_gid.get(id(st))
+                    if pg:
+                        fill = "url(#%s)" % pg
+                    else:
+                        gid = grad_id(col, hard)
+                        fill = ("url(#%s)" % gid) if gid else col
                     if preset in ("flat", "bristle"):
                         body.append('<ellipse cx="%s" cy="%s" rx="%s" ry="%s" fill="%s" fill-opacity="%s" transform="rotate(%s %s %s)"/>' % (_f(x), _f(y), _f(r), _f(max(0.8, r * 0.35)), fill, _f(op), _f(ang), _f(x), _f(y)))
                     else:
                         body.append('<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="%s"/>' % (_f(x), _f(y), _f(r), fill, _f(op)))
-            body.append("</g>")
+            body.append(post + "</g>")
         body.append("</g>")
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" data-bridge="plan_svg_stamps" shape-rendering="geometricPrecision">' % (w, h, w, h)]
     if title:
         out.append("<title>%s</title>" % escape(str(title)))
-    if defs:
-        out.append("<defs>%s</defs>" % "\n".join(defs))
+    if defs or paint_defs or mask_defs:
+        out.append("<defs>%s</defs>" % "\n".join(defs + paint_defs + mask_defs))
     out.extend(body); out.append("</svg>")
     return "\n".join(out) + "\n"
 
