@@ -150,6 +150,48 @@ static std::string svg_from_plan(const std::string& input) {
             add(n, "normal");
             by[n].push_back(&s);
         }
+    std::map<const Value*, std::string> paint_ids;
+    std::string defs;
+    int paint_no = 0;
+    if (const Value* ss0 = get_arr(d, "strokes")) for (const auto& s : ss0->GetArray()) {
+        auto pi = s.FindMember("paint");
+        if (pi == s.MemberEnd() || !pi->value.IsObject()) continue;
+        const Value& p = pi->value;
+        std::string id = "p" + std::to_string(paint_no++);
+        paint_ids[&s] = id;
+        std::string type = get_str(p, "type", "linear");
+        std::string units = get_str(p, "units", "objectBoundingBox");
+        defs += "<" + std::string(type == "radial" ? "radialGradient" : "linearGradient") + " id=\"" + id + "\" gradientUnits=\"" + units + "\"";
+        if (type == "radial") {
+            defs += " cx=\"" + get_str(p, "cx", "50%") + "\" cy=\"" + get_str(p, "cy", "50%") + "\" r=\"" + get_str(p, "r", "50%") + "\"";
+        } else {
+            defs += " x1=\"" + get_str(p, "x1", "0%") + "\" y1=\"" + get_str(p, "y1", "0%") + "\" x2=\"" + get_str(p, "x2", "100%") + "\" y2=\"" + get_str(p, "y2", "0%") + "\"";
+        }
+        auto src = p.FindMember("source");
+        if (src != p.MemberEnd() && src->value.IsObject()) {
+            auto g = src->value.FindMember("gradient");
+            if (g != src->value.MemberEnd() && g->value.IsObject()) {
+                auto at = g->value.FindMember("attrs");
+                if (at != g->value.MemberEnd() && at->value.IsObject()) {
+                    for (const char* key : {"gradientTransform", "spreadMethod", "fx", "fy"}) {
+                        auto kv = at->value.FindMember(key);
+                        if (kv != at->value.MemberEnd() && kv->value.IsString()) {
+                            defs += " " + std::string(key) + "=\"" + std::string(kv->value.GetString()) + "\"";
+                        }
+                    }
+                }
+            }
+        }
+        defs += ">";
+        auto stops = p.FindMember("stops");
+        if (stops != p.MemberEnd() && stops->value.IsArray()) for (const auto& st : stops->value.GetArray()) {
+            double off = st.IsArray() && st.Size() > 0 ? st[0].GetDouble() : 0.0;
+            const Value& c = st[1];
+            double aa = st.Size() > 2 ? st[2].GetDouble() : 1.0;
+            defs += "<stop offset=\"" + fmt(off) + "\" stop-color=\"#" + color_hex(c).substr(1) + "\" stop-opacity=\"" + fmt(aa) + "\"/>";
+        }
+        defs += "</" + std::string(type == "radial" ? "radialGradient" : "linearGradient") + ">";
+    }
     std::string out;
     out.reserve(16 * 1024 * 1024);
     out += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
@@ -157,6 +199,7 @@ static std::string svg_from_plan(const std::string& input) {
            "\" height=\"" + std::to_string(h) + "\" viewBox=\"0 0 " +
            std::to_string(w) + " " + std::to_string(h) +
            "\" data-bridge=\"plan_svg\" shape-rendering=\"geometricPrecision\">\n";
+    if (!defs.empty()) out += "<defs>" + defs + "</defs>\n";
     for (size_t li = 0; li < order.size(); ++li) {
         const std::string& name = order[li];
         const std::string& bl = blends[name];
@@ -178,14 +221,18 @@ static std::string svg_from_plan(const std::string& input) {
             Value dummy(kArrayType); dummy.PushBack(217, d.GetAllocator()).PushBack(180, d.GetAllocator()).PushBack(90, d.GetAllocator());
             const Value& col = (ci != s.MemberEnd() && ci->value.IsArray()) ? ci->value : dummy;
             if (preset == "fill") {
-                out += "<path d=\""; out += d_from(*pts); out += " Z\" fill=\""; out += color_hex(col);
+                out += "<path d=\""; out += d_from(*pts); out += " Z\" fill=\"";
+                auto pfill = paint_ids.find(&s);
+                if (pfill != paint_ids.end()) out += "url(#" + pfill->second + ")"; else out += color_hex(col);
                 out += "\" fill-opacity=\""; out += fmt(op); out += "\" fill-rule=\"nonzero\" data-layer=\""; esc_to(out, name);
                 out += "\" data-preset=\"fill\" data-color=\""; out += color_text(col); out += "\"";
                 auto ft = s.FindMember("tag"); if (ft != s.MemberEnd() && ft->value.IsString()) { out += " data-tag=\""; esc_to(out, ft->value.GetString()); out += "\""; }
                 out += "/>\n"; continue;
             }
             out += "<path d=\""; out += d_from(*pts);
-            out += "\" fill=\"none\" stroke=\""; out += color_hex(col);
+            out += "\" fill=\"none\" stroke=\"";
+            auto pstroke = paint_ids.find(&s);
+            if (pstroke != paint_ids.end()) out += "url(#" + pstroke->second + ")"; else out += color_hex(col);
             out += "\" stroke-width=\""; out += fmt(size);
             out += "\" stroke-opacity=\""; out += fmt(op);
             out += "\" stroke-linecap=\""; out += cap;
@@ -460,9 +507,24 @@ static std::string css_attr(pugi::xml_node ch, const std::map<std::string,std::m
     for(auto& r:css) if(selector_match(r.first,ch)){ auto it=r.second.find(key); if(it!=r.second.end()) return it->second; }
     return "";
 }
+static std::map<std::string,std::string> g_grad_paint;
 static std::map<std::string,std::string> load_grads(pugi::xml_node root) {
     std::map<std::string,std::string> out;
-    std::function<void(pugi::xml_node)> scan=[&](pugi::xml_node n){ for(pugi::xml_node ch=n.first_child();ch;ch=ch.next_sibling()){ std::string tag=ch.name(); if(tag=="linearGradient"||tag=="radialGradient"){ std::string id=ch.attribute("id").as_string(); if(!id.empty()){ double r=0,g=0,b=0; int c=0; for(pugi::xml_node st=ch.first_child();st;st=st.next_sibling()){ if(std::string(st.name())=="stop"){ auto v=color_from(st.attribute("stop-color").as_string()); if(v.size()>=3){r+=v[0];g+=v[1];b+=v[2];c++;} } } if(c){ char hex[8]; std::snprintf(hex,sizeof(hex),"#%02x%02x%02x",(int)std::lround(r/c),(int)std::lround(g/c),(int)std::lround(b/c)); out[id]=hex; } } } scan(ch);} };
+    g_grad_paint.clear();
+    std::function<void(pugi::xml_node)> scan=[&](pugi::xml_node n){ for(pugi::xml_node ch=n.first_child();ch;ch=ch.next_sibling()){ std::string tag=ch.name(); if(tag=="linearGradient"||tag=="radialGradient"){ std::string id=ch.attribute("id").as_string(); if(!id.empty()){ double r=0,g=0,b=0; int c=0; std::string pj="{\"type\":\""+std::string(tag=="radialGradient"?"radial":"linear")+"\",\"units\":\""+std::string(ch.attribute("gradientUnits").as_string("objectBoundingBox"))+"\",\"stops\":[";
+        bool first=true;
+        for(pugi::xml_node st=ch.first_child();st;st=st.next_sibling()){ if(std::string(st.name())=="stop"){ auto v=color_from(st.attribute("stop-color").as_string()); if(v.size()>=3){ r+=v[0];g+=v[1];b+=v[2];c++;
+            if(!first)pj+=","; first=false;
+            pj+="["+fmt(std::atof(st.attribute("offset").as_string("0")))+",["+fmt(v[0])+","+fmt(v[1])+","+fmt(v[2])+"],"+fmt(std::atof(st.attribute("stop-opacity").as_string("1")))+"]";
+        } } }
+        pj+="],\"source\":{\"gradient\":{\"attrs\":{";
+        bool fa=true;
+        for(const char* k: {"gradientTransform","spreadMethod","fx","fy"}){ std::string v=ch.attribute(k).as_string(); if(!v.empty()){ if(!fa)pj+=","; fa=false; pj+="\""+std::string(k)+"\":\""+v+"\""; } }
+        pj+="}}}}";
+        if(tag=="radialGradient"){ pj+=",\"cx\":\""+std::string(ch.attribute("cx").as_string("50%"))+"\",\"cy\":\""+std::string(ch.attribute("cy").as_string("50%"))+"\",\"r\":\""+std::string(ch.attribute("r").as_string("50%"))+"\""; }
+        else { pj+=",\"x1\":\""+std::string(ch.attribute("x1").as_string("0%"))+"\",\"y1\":\""+std::string(ch.attribute("y1").as_string("0%"))+"\",\"x2\":\""+std::string(ch.attribute("x2").as_string("100%"))+"\",\"y2\":\""+std::string(ch.attribute("y2").as_string("0%"))+"\""; }
+        g_grad_paint[id]=pj;
+        if(c){ char hex[8]; std::snprintf(hex,sizeof(hex),"#%02x%02x%02x",(int)std::lround(r/c),(int)std::lround(g/c),(int)std::lround(b/c)); out[id]=hex; } } } scan(ch);} };
     scan(root); return out;
 }
 static std::string resolve_paint(const std::string& v, const std::map<std::string,std::string>& grads) {
@@ -590,6 +652,9 @@ static std::string plan_from_svg(const std::string& input) {
         for(size_t i=0;i<xs.size();++i){ if(i)sj += ","; sj += "["; sj += fmt(xs[i]); sj += ","; sj += fmt(ys[i]); sj += ","; sj += fmt(i<ps.size()?ps[i]:1.0); sj += "]"; }
         sj += "]";
         if(!av("data-tag").empty()){ sj += ",\"tag\":\""; jesc_to(sj,av("data-tag")); sj += "\""; }
+        std::string rawFill=css_attr(ch,css,"fill"), rawStroke=css_attr(ch,css,"stroke");
+        if(rawFill.rfind("url(#",0)==0){ std::string id=rawFill.substr(5,rawFill.find(')',5)-5); auto gi=g_grad_paint.find(id); if(gi!=g_grad_paint.end()) sj += ",\"paint\":"+gi->second; }
+        else if(rawStroke.rfind("url(#",0)==0){ std::string id=rawStroke.substr(5,rawStroke.find(')',5)-5); auto gi=g_grad_paint.find(id); if(gi!=g_grad_paint.end()) sj += ",\"paint\":"+gi->second; }
         sj += "}";
         strokes.push_back(sj);
     };
@@ -1011,7 +1076,7 @@ EXPORT char* psvg_bin_to_svg(const unsigned char* data, int n, int* out_len) {
     catch(const std::exception& e){ *out_len=(int)(std::string("ERR:")+e.what()).size(); return dupstr(std::string("ERR:")+e.what()); }
 }
 EXPORT char* psvg_svg_to_bin(const char* svg, int n, int* out_len) {
-    try { std::string in(svg,n), s; if (in.find("data-bridge=\"plan_svg\"")!=std::string::npos) { try { s=scan_from_svg(in); } catch (...) { s=bin_from_svg(in); } } else { s=svg_to_bin(in); } *out_len=(int)s.size(); char* p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p; }
+    try { std::string in(svg,n), s; if (in.find("data-bridge=\"plan_svg\"")!=std::string::npos && in.find("Gradient")==std::string::npos) { try { s=scan_from_svg(in); } catch (...) { s=bin_from_svg(in); } } else { s=svg_to_bin(in); } *out_len=(int)s.size(); char* p=(char*)std::malloc(s.size()); if(p)std::memcpy(p,s.data(),s.size()); return p; }
     catch(const std::exception& e){ return dupstr(std::string("ERR:")+e.what()); }
 }
 
