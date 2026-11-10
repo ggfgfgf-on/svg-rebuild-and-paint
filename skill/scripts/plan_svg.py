@@ -163,7 +163,7 @@ def _paint_def(paint, gid):
 
 def _mask_png_b64(m):
     import numpy as np
-    if m.get("encoding") in ("png-base64", "zlib-base64"):
+    if m.get("encoding") == "png-base64":
         return m.get("data", "")
     if m.get("encoding") == "zlib-base64":
         from PIL import Image
@@ -183,9 +183,11 @@ def _mask_def(m, gid, w, h):
         mw = at.get("width", str(w)); mh = at.get("height", str(h))
         return ('<mask id="%s" maskUnits="%s" maskContentUnits="%s" x="%s" y="%s" width="%s" height="%s">%s</mask>'
                 % (gid, units, content, x, y, mw, mh, m.get("svg")))
+    mx, my = int(m.get("x", 0)), int(m.get("y", 0))
+    mw, mh = int(m.get("width", w)), int(m.get("height", h))
     return ('<mask id="%s" maskUnits="%s" x="0" y="0" width="%d" height="%d">'
-            '<image href="data:image/png;base64,%s" width="%d" height="%d"/></mask>'
-            % (gid, units, w, h, _mask_png_b64(m), w, h))
+            '<image href="data:image/png;base64,%s" x="%d" y="%d" width="%d" height="%d"/></mask>'
+            % (gid, units, w, h, _mask_png_b64(m), mx, my, mw, mh))
 
 
 def plan_to_svg(doc, *, filters=False, title=None):
@@ -1164,10 +1166,18 @@ def _resolved_attrs(ch, css, grads, paints=None, inh=None, pseudo_mode="ignore")
 def _mask_png(im):
     from PIL import Image
     import numpy as np
+    arr = np.asarray(im, dtype=np.uint8)
+    ys, xs = np.nonzero(arr)
+    if len(xs):
+        x0, y0, x1, y1 = int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+        im = Image.fromarray(arr[y0:y1, x0:x1])
+    else:
+        x0 = y0 = 0
+        im = Image.new("L", (1, 1), 0)
     w, h = im.size
     data = np.asarray(im, dtype=np.uint8).tobytes()
     return {"encoding": "zlib-base64", "data": base64.b64encode(zlib.compress(data, 6)).decode("ascii"),
-            "width": w, "height": h}
+            "width": w, "height": h, "x": x0, "y": y0}
 
 def _load_profiles(root, base_dir=None):
     import re as _re

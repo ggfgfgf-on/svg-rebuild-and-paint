@@ -125,8 +125,11 @@ def _apply_layer_mask(p, li, m):
         im = Image.frombytes("L", (int(m.get("width", p.w)), int(m.get("height", p.h))), raw)
     else:
         return
-    if im.size != (p.w, p.h):
-        im = im.resize((p.w, p.h), Image.BILINEAR)
+    mx, my = int(m.get("x", 0)), int(m.get("y", 0))
+    if mx or my or im.size != (p.w, p.h):
+        full = Image.new("L", (p.w, p.h), 0)
+        full.paste(im, (mx, my))
+        im = full
     p.apply_mask(li, np.asarray(im, dtype=np.uint8))
 
 

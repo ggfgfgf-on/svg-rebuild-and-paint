@@ -127,16 +127,17 @@ def _mask_alpha(spec, w, h):
         return None
     if m.get("encoding") == "png-base64" and m.get("data"):
         im = Image.open(io.BytesIO(base64.b64decode(m["data"]))).convert("L")
-        if im.size != (w, h):
-            im = im.resize((w, h), Image.BILINEAR)
-        return np.asarray(im, dtype=np.uint8)
-    if m.get("encoding") == "zlib-base64" and m.get("data"):
+    elif m.get("encoding") == "zlib-base64" and m.get("data"):
         raw = zlib.decompress(base64.b64decode(m["data"]))
         im = Image.frombytes("L", (int(m.get("width", w)), int(m.get("height", h))), raw)
-        if im.size != (w, h):
-            im = im.resize((w, h), Image.BILINEAR)
-        return np.asarray(im, dtype=np.uint8)
-    return None
+    else:
+        return None
+    x, y = int(m.get("x", 0)), int(m.get("y", 0))
+    if x or y or im.size != (w, h):
+        full = Image.new("L", (w, h), 0)
+        full.paste(im, (x, y))
+        im = full
+    return np.asarray(im, dtype=np.uint8)
 
 def render_plan(plan, threads=8, brush=None, region=None):
     """按 plan 渲染，返回 (composite_rgba, layers[(name, rgba)])。"""
