@@ -114,11 +114,17 @@ def _is_advanced(items):
 
 
 def _apply_layer_mask(p, li, m):
-    if not isinstance(m, dict) or m.get("encoding") != "png-base64":
+    if not isinstance(m, dict):
         return
-    import base64, io
+    import base64, io, zlib
     from PIL import Image
-    im = Image.open(io.BytesIO(base64.b64decode(m["data"]))).convert("L")
+    if m.get("encoding") == "png-base64" and m.get("data"):
+        im = Image.open(io.BytesIO(base64.b64decode(m["data"]))).convert("L")
+    elif m.get("encoding") == "zlib-base64" and m.get("data"):
+        raw = zlib.decompress(base64.b64decode(m["data"]))
+        im = Image.frombytes("L", (int(m.get("width", p.w)), int(m.get("height", p.h))), raw)
+    else:
+        return
     if im.size != (p.w, p.h):
         im = im.resize((p.w, p.h), Image.BILINEAR)
     p.apply_mask(li, np.asarray(im, dtype=np.uint8))
