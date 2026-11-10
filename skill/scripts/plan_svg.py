@@ -18,6 +18,7 @@ import io
 import json
 import zlib
 import math
+import os
 import re
 import sys
 import time
@@ -579,7 +580,7 @@ def _color(s, default=(217, 180, 90)):
 
 
 
-def plan_to_svg_stamps(doc, title=None):
+def plan_to_svg_stamps(doc, title=None, fast=False):
     """Stamp-level SVG with approximate brush tip gradients/shapes (debug/visual reference)."""
     w, h = [int(v) for v in doc["canvas"]]
     layers = doc.get("layers") or []
@@ -676,6 +677,14 @@ def plan_to_svg_stamps(doc, title=None):
                 continue
             const_op = len({round(float(p[2] if len(p) > 2 else 1.0), 6) for p in pts}) == 1
             op_const = max(0.0, min(1.0, op0 * (0.15 + 0.85 * float(pts[0][2] if len(pts[0]) > 2 else 1.0)))) if const_op else None
+            const_op = len({round(float(p[2] if len(p) > 2 else 1.0), 6) for p in pts}) == 1
+            if fast and const_op and len(pts) >= 2:
+                d = _path_line_compact([(p[0], p[1]) for p in pts])
+                body.append(pre + '<path d="%s" fill="none" stroke="%s" stroke-width="%s" stroke-opacity="%s" stroke-linecap="round" stroke-linejoin="round" data-layer=%s data-preset=%s data-size="%s" data-opacity="%s" data-hardness="%s" data-color="%s" data-center="%s" data-d-hash="%s"%s/>' % (
+                    d, _rgb(st.get("color")), _fc(size), _f(op0), quoteattr(name), quoteattr(preset),
+                    _f(size), _f(op0), _f(hard), _rgb(st.get("color")), _center_attr(ps), _d_hash(d),
+                    (' data-tag=' + quoteattr(str(st["tag"]))) if st.get("tag") else "") + post)
+                continue
             spg = paint_gid.get(id(st))
             if spg:
                 fill0 = "url(#%s)" % spg
@@ -1523,9 +1532,10 @@ def needs_python_parser(svg_text):
         return True
     if "<image" in svg_text:
         return True
-    if "<pattern" in svg_text and any(k in svg_text for k in ("linearGradient", "radialGradient", "gradientTransform", "<text", "<use", "<image")):
+    approx = os.environ.get("PLAN_SVG_CPP_APPROX", "0") == "1"
+    if not approx and "<pattern" in svg_text and any(k in svg_text for k in ("linearGradient", "radialGradient", "gradientTransform", "<text", "<use", "<image")):
         return True
-    if "<filter" in svg_text:
+    if not approx and "<filter" in svg_text:
         prims = re.findall(r"<fe([A-Za-z]+)", svg_text)
         if any(p not in ("GaussianBlur", "Offset") for p in prims):
             return True
