@@ -294,6 +294,20 @@ def test_text_roundtrip():
     assert "<text" in out and 'font-family="Arial"' in out
 
 
+
+
+def test_pattern_roundtrip():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">'
+           '<defs><pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse">'
+           '<rect width="5" height="5" fill="#ff0000"/></pattern></defs>'
+           '<rect width="100" height="50" fill="url(#p)"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    st = d["strokes"][0]
+    assert st.get("pattern") and st["pattern"].get("data")
+    out = plan_svg.plan_to_svg(d)
+    assert "<pattern" in out and "url(#pat" in out
+
+
 if __name__ == "__main__":
     test_roundtrip()
     test_deterministic()
@@ -311,6 +325,7 @@ if __name__ == "__main__":
     test_mask_type_alpha()
     test_gradient_transform_roundtrip()
     test_text_roundtrip()
+    test_pattern_roundtrip()
     test_gradient_paint_roundtrip()
     test_mask_layer_alpha()
     print("all plan_svg tests passed")

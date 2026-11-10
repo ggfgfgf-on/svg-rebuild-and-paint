@@ -166,7 +166,7 @@ def _mask_def(m, gid, w, h):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") or x.get("preset") in ("image", "text") for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("fill_rule") or x.get("preset") in ("image", "text") or x.get("pattern") for x in doc.get("strokes", []))
             and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
@@ -196,6 +196,15 @@ def plan_to_svg(doc, *, filters=False, title=None):
 
     paint_defs = []
     paint_gid = {}
+    pattern_defs = []
+    pattern_gid = {}
+    for st in doc.get("strokes") or []:
+        ptn = st.get("pattern")
+        if isinstance(ptn, dict) and ptn.get("data"):
+            gid = "pat%d" % len(pattern_defs)
+            pattern_gid[id(st)] = gid
+            pattern_defs.append('<pattern id="%s" width="%s" height="%s" patternUnits="userSpaceOnUse"><image href="data:image/png;base64,%s" width="%s" height="%s"/></pattern>' % (
+                gid, _f(ptn.get("width", 32)), _f(ptn.get("height", 32)), ptn.get("data"), _f(ptn.get("width", 32)), _f(ptn.get("height", 32))))
     mask_defs = []
     mask_gid = {}
     for i, layer in enumerate(layers):
@@ -221,8 +230,8 @@ def plan_to_svg(doc, *, filters=False, title=None):
             'shape-rendering="geometricPrecision">' % (w, h, w, h)]
     if title:
         head.append("<title>%s</title>" % escape(str(title)))
-    if fids or paint_defs or mask_defs:
-        head.append("<defs>%s</defs>" % "".join(paint_defs + mask_defs + ([_filter_defs(fids)] if fids else [])))
+    if fids or paint_defs or pattern_defs or mask_defs:
+        head.append("<defs>%s</defs>" % "".join(paint_defs + pattern_defs + mask_defs + ([_filter_defs(fids)] if fids else [])))
     out = ["".join(head)]
     for li, name in enumerate(order):
         blend = blends.get(name, "normal")
@@ -256,7 +265,7 @@ def plan_to_svg(doc, *, filters=False, title=None):
             hard = max(0.0, min(1.0, float(s.get("hardness", 0.7))))
             preset = str(s.get("preset", "round_soft"))
             gid = paint_gid.get(id(s))
-            paint_ref = ("url(#%s)" % gid) if gid else _rgb(s.get("color"))
+            paint_ref = ("url(#%s)" % pattern_gid[id(s)]) if id(s) in pattern_gid else (("url(#%s)" % gid) if gid else _rgb(s.get("color")))
             if preset == "image" and isinstance(s.get("image"), dict):
                 im = s["image"]
                 out.append('<image href="data:%s;base64,%s" x="%s" y="%s" width="%s" height="%s" opacity="%s"/>' % (
@@ -569,6 +578,13 @@ def plan_to_svg_stamps(doc, title=None):
                 gid = "paint%d" % len(paint_defs)
                 paint_gid[id(st)] = gid
                 paint_defs.append(_paint_def(pp, gid))
+    for st in doc.get("strokes") or []:
+        ptn = st.get("pattern")
+        if isinstance(ptn, dict) and ptn.get("data"):
+            gid = "pat%d" % len(pattern_defs)
+            pattern_gid[id(st)] = gid
+            pattern_defs.append('<pattern id="%s" width="%s" height="%s" patternUnits="userSpaceOnUse"><image href="data:image/png;base64,%s" width="%s" height="%s"/></pattern>' % (
+                gid, _f(ptn.get("width", 32)), _f(ptn.get("height", 32)), ptn.get("data"), _f(ptn.get("width", 32)), _f(ptn.get("height", 32))))
     defs = []; used = {}; body = []
     def grad_id(col, hard):
         q = max(0.0, min(1.0, hard)); q = round(q * 4.0) / 4.0
@@ -597,7 +613,7 @@ def plan_to_svg_stamps(doc, title=None):
             post = "</g>" if sm else ""
             if preset == "fill":
                 d0 = _path_d_holes(pts, st.get("holes") or [])
-                pg = paint_gid.get(id(st))
+                pg = pattern_gid.get(id(st)) or paint_gid.get(id(st))
                 body.append(pre + '<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer=%s data-preset="fill" data-color="%s"/>' % (
                     d0, ("url(#%s)" % pg) if pg else col, _f(op0), st.get("fill_rule", "nonzero"), quoteattr(name), col) + post)
                 continue
@@ -1265,6 +1281,42 @@ def _raster_mask_element(el, w, h, bbox=None, content_units="userSpaceOnUse", ro
     return p
 
 
+def _pattern_tiles(root, w, h, base_dir=None):
+    out = {}
+    for el in root.iter():
+        if _local(el.tag) != "pattern" or not el.get("id"):
+            continue
+        def _len(v, d):
+            try:
+                v = str(v)
+                return float(v[:-1]) / 100.0 * (w if v.endswith("%") else 1.0) if v.endswith("%") else float(v[:-2] if v.endswith("px") else v)
+            except Exception:
+                return d
+        pw = _len(el.get("width", "32"), 32.0)
+        ph = _len(el.get("height", "32"), 32.0)
+        if pw <= 0 or ph <= 0:
+            continue
+        children = "".join(ET.tostring(ch, encoding="unicode") for ch in list(el))
+        children = children.replace("ns0:", "").replace(' xmlns:ns0="http://www.w3.org/2000/svg"', "")
+        if not children:
+            continue
+        mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" width="%s" height="%s">%s</svg>'
+                % (pw, ph, pw, ph, children))
+        try:
+            d = svg_to_plan(mini, base_dir=base_dir)
+            import paint_plan as _pp
+            img, _ = _pp.render_plan(d)
+            from PIL import Image
+            buf = io.BytesIO()
+            Image.fromarray(img, "RGBA").save(buf, format="PNG")
+            out[el.get("id")] = {"encoding": "png-base64", "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+                                 "width": pw, "height": ph,
+                                 "units": el.get("patternUnits", "objectBoundingBox")}
+        except Exception:
+            continue
+    return out
+
+
 def _gradient_paints(root):
     out = {}
     for el in root.iter():
@@ -1315,7 +1367,7 @@ def needs_python_parser(svg_text):
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
         return True
-    if "<image" in svg_text or "<text" in svg_text or "<tspan" in svg_text:
+    if "<image" in svg_text or "<text" in svg_text or "<tspan" in svg_text or "<pattern" in svg_text:
         return True
     if "<style" in svg_text or "<link" in svg_text or re.search(r'href="[^"]+\.svg#', svg_text):
         return True
@@ -1338,6 +1390,7 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
     grads = _gradient_colors(root)
     paints = _gradient_paints(root)
     masks = _mask_elements(root)
+    patterns = _pattern_tiles(root, w, h, base_dir)
     clips = _clip_geoms(root)
     by_id = {el.get("id"): el for el in root.iter() if el.get("id")}
 
@@ -1386,8 +1439,20 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
                 st["holes"] = holes; st["fill_rule"] = "evenodd"; st["_evenodd"] = True
                 strokes.append(st); return
         if not polys:
+            pm = re.match(r"url\(#([^)]+)\)", str(a.get("fill", "")))
+            if pm and pm.group(1) in patterns and not a.get("stroke"):
+                st = _stroke_from_attrs(a, name, pts)
+                st["preset"] = "fill"; st.pop("size", None); st.pop("hardness", None)
+                st["pattern"] = patterns[pm.group(1)]
+                strokes.append(st); return
             strokes.append(_stroke_from_attrs(a, name, pts)); return
         if a.get("data-preset") == "fill" or (a.get("fill") and a.get("fill") != "none" and not a.get("stroke")):
+            pm = re.match(r"url\(#([^)]+)\)", str(a.get("fill", "")))
+            if pm and pm.group(1) in patterns:
+                st = _stroke_from_attrs(a, name, pts)
+                st["preset"] = "fill"; st.pop("size", None); st.pop("hardness", None)
+                st["pattern"] = patterns[pm.group(1)]
+                strokes.append(st); return
             if evenodd and _native is not None and _native.available():
                 try:
                     out = _native.clip_polygons([[(p[0], p[1]) for p in pts]], [[(q[0], q[1]) for q in poly] for poly in polys], True)

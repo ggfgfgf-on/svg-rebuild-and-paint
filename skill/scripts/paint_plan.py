@@ -177,12 +177,13 @@ def render_plan(plan, threads=8, brush=None, region=None):
             "spacing": s.get("spacing", 1.0),
             "region_id": int(s.get("region_id", 0)),
             "paint": s.get("paint"),
+            "pattern": s.get("pattern"),
         })
     # 分层按笔触所属层提交，保证层内顺序 = plan 顺序
     for layer in sorted(grouped):
         buf = []
         for it in grouped[layer]:
-            if str(it.get("preset", "")) in ("image", "text"):
+            if str(it.get("preset", "")) in ("image", "text", "pattern") or it.get("pattern"):
                 continue
             if str(it.get("preset", "")) == "fill":
                 if buf:
@@ -263,6 +264,34 @@ def render_plan(plan, threads=8, brush=None, region=None):
         layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
         ImageDraw.Draw(layer).text((float(s.get("x", 0)), float(s.get("y", 0))), txt,
                                    font=font, fill=(col[0], col[1], col[2], alpha), anchor=anchor)
+        comp = np.asarray(Image.alpha_composite(base, layer))
+    for s in strokes_in:
+        ptn = s.get("pattern")
+        if not isinstance(ptn, dict) or not ptn.get("data"):
+            continue
+        try:
+            raw = base64.b64decode(ptn.get("data", ""))
+            tile = Image.open(io.BytesIO(raw)).convert("RGBA")
+        except Exception:
+            continue
+        tw = max(1, int(round(float(ptn.get("width", tile.width)))))
+        th = max(1, int(round(float(ptn.get("height", tile.height)))))
+        if tile.size != (tw, th):
+            tile = tile.resize((tw, th), Image.LANCZOS)
+        base = Image.fromarray(comp, "RGBA")
+        canvas = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        for y in range(0, base.height, th):
+            for x in range(0, base.width, tw):
+                canvas.alpha_composite(tile, (x, y))
+        mask = Image.new("L", base.size, 0)
+        pts = [(float(q[0]), float(q[1])) for q in (s.get("points") or [])]
+        if len(pts) >= 3:
+            ImageDraw.Draw(mask).polygon(pts, fill=255)
+        a = max(0.0, min(1.0, float(s.get("opacity", 1.0))))
+        if a < 1.0:
+            mask = mask.point(lambda v: int(v * a))
+        layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        layer.paste(canvas, (0, 0), mask)
         comp = np.asarray(Image.alpha_composite(base, layer))
     names = [spec.get("name", "layer%d" % i) for i, spec in enumerate(layers_spec)]
     out_layers = [(names[i], p.layer_rgba(i)) for i in range(p.layer_count())]
