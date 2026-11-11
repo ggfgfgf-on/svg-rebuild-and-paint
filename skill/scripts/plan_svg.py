@@ -1772,7 +1772,7 @@ def _pattern_tiles(root, w, h, base_dir=None):
             Image.fromarray(img, "RGBA").save(buf, format="PNG")
             out[el.get("id")] = {"encoding": "png-base64", "data": base64.b64encode(buf.getvalue()).decode("ascii"),
                                  "width": stored_w, "height": stored_h,
-                                 "units": units}
+                                 "units": units, "svg": mini}
         except Exception:
             continue
     return out

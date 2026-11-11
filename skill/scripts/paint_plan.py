@@ -14,7 +14,7 @@ plan = {
 用法: python paint_plan.py plan.json out.png [--kra a.kra] [--psd a.psd]
 """
 from __future__ import annotations
-import base64, io, json, sys, zlib
+import base64, io, json, re, sys, zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -22,6 +22,29 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import paint_native
 from gradient_xform import _mat_mul as _mat_mul, _inv as _mat_inv
+
+_PATTERN_TILE_CACHE = {}
+
+
+def _pattern_tile_vector(ptn, tw, th):
+    svg = ptn.get("svg")
+    if not svg:
+        return None
+    key = (id(ptn), int(tw), int(th))
+    if key in _PATTERN_TILE_CACHE:
+        return _PATTERN_TILE_CACHE[key]
+    try:
+        import plan_svg
+        s = re.sub(r'width="[^"]*"', 'width="%d"' % int(tw), svg, count=1)
+        s = re.sub(r'height="[^"]*"', 'height="%d"' % int(th), s, count=1)
+        d = plan_svg.svg_to_plan(s)
+        img, _ = render_plan(d)
+        im = Image.fromarray(img, "RGBA")
+        _PATTERN_TILE_CACHE[key] = im
+        return im
+    except Exception:
+        return None
+
 
 def _mat_apply(m, x, y):
     return (m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5])
@@ -260,12 +283,8 @@ def render_plan(plan, threads=8, brush=None, region=None):
         ptn = s.get("pattern")
         if not isinstance(ptn, dict) or not ptn.get("data"):
             continue
-        try:
-            tile = Image.open(io.BytesIO(base64.b64decode(ptn.get("data", "")))).convert("RGBA")
-        except Exception:
-            continue
-        tw = max(1, int(round(float(ptn.get("width", tile.width)))))
-        th = max(1, int(round(float(ptn.get("height", tile.height)))))
+        tile = None
+        tw = th = 256
         if ptn.get("units") == "objectBoundingBox":
             src = s.get("subpaths") or [s.get("points") or []]
             q = [(float(a[0]), float(a[1])) for one in src for a in one]
@@ -274,8 +293,20 @@ def render_plan(plan, threads=8, brush=None, region=None):
                 bh = max(1e-6, max(a[1] for a in q) - min(a[1] for a in q))
                 tw = max(1, int(round(float(ptn.get("width", 0.1)) * bw)))
                 th = max(1, int(round(float(ptn.get("height", 0.1)) * bh)))
-        if tile.size != (tw, th):
-            tile = tile.resize((tw, th), Image.LANCZOS)
+            tile = _pattern_tile_vector(ptn, tw, th)
+        if tile is None:
+            try:
+                tile = Image.open(io.BytesIO(base64.b64decode(ptn.get("data", "")))).convert("RGBA")
+            except Exception:
+                continue
+            if ptn.get("units") == "objectBoundingBox":
+                tw = max(1, int(round(float(ptn.get("width", 0.1)) * (bw if 'bw' in locals() else 256))))
+                th = max(1, int(round(float(ptn.get("height", 0.1)) * (bh if 'bh' in locals() else 256))))
+            else:
+                tw = max(1, int(round(float(ptn.get("width", tile.width)))))
+                th = max(1, int(round(float(ptn.get("height", tile.height)))))
+            if tile.size != (tw, th):
+                tile = tile.resize((tw, th), Image.LANCZOS)
         base = Image.new("RGBA", (int(w), int(h)), (0, 0, 0, 0))
         canvas = Image.new("RGBA", base.size, (0, 0, 0, 0))
         for y in range(0, base.height, th):
