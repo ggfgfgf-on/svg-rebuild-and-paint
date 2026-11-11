@@ -7,6 +7,17 @@
 > instructions into plan edits. Everything below is measured, and every threshold that matters is
 > calibrated per project — the skill itself ships **no** tuned values.
 
+[![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](LICENSE)
+![tests](https://img.shields.io/badge/tests-114%20passed-brightgreen)
+![python](https://img.shields.io/badge/python-3.10%2B-blue)
+![platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey)
+
+<p align="center">
+  <img src="skill/docs/images/painting-rose.png" alt="程序化厚涂渲染的红玫瑰" width="340">
+  <br>
+  <sub>厚涂引擎输出：分层计划、逐笔 stamp 光栅化，确定性回放。</sub>
+</p>
+
 仓库名沿用了历史名称，内容早已不止 SVG。现在它是一个 DSH Skill 仓库，三层都可运行、可验收：
 
 1. **真矢量 SVG 重绘** —— 任意位图（PNG/JPEG，≤2MP）→ potrace 逐色掩码曲线重建（2–3× 超采样）→ 单文件自包含 HTML，纯 `<path>` 平涂几何 + 离散步骤播放器；纯矢量，放大无台阶。
@@ -18,6 +29,67 @@
 仓库原名为 `generic-pixel-svg-rebuild`，现已更名为 **`svg-rebuild-and-paint`**（内容早已从纯 SVG 扩展到完整绘画引擎）。
 GitHub 会自动重定向旧链接：`github.com/ggfgfgf-on/generic-pixel-svg-rebuild` → `github.com/ggfgfgf-on/svg-rebuild-and-paint`。
 Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOME/skills/svg-rebuild-and-paint`）。
+
+---
+
+## 效果：三层，各一张图
+
+### 1. 位图 → 真矢量：放大 4× 没有台阶
+
+![raster 4x vs vector 4x](skill/docs/images/vector-4x.png)
+
+左：320×200 位图直接按最近邻放大 4×，斜边是阶梯。  
+右：同一张图经 `vectorize.py` 重建为纯 `<path>` 曲线，再放大 4×，边界仍是连续曲线。
+
+### 2. 程序化厚涂：计划 → 像素
+
+![8 层厚涂玫瑰](skill/docs/images/painting-rose.png)
+
+每根笔触带位置、压力、颜色、硬度和纹理；同一份 plan 重复渲染逐位相同，也支持 GPU、差量和 tile 增量。
+
+### 3. 计划空间改画：改色只重算脏区域
+
+![叶子改色前后](skill/docs/images/ops-leaf.png)
+
+左：原图。右：`ops.json` 编译后的改色结果；几何/背景不动，脏矩形外 0 px 变化。
+
+---
+
+## Plan ⇄ SVG 双向桥
+
+`plan_svg.py` 负责 plan 与 SVG 的双向转换，`plan_svg_native.py` / C++ `plan_svg_core.dll` 负责快速路径。
+
+```mermaid
+flowchart LR
+  P[plan.json / plan] --> S[plan_to_svg]
+  S --> V[SVG: layers, paths, masks, patterns]
+  V --> U[svg_stream / native parser]
+  U --> P
+  P --> R[render_plan / paint core]
+  R --> I[PNG]
+  O[ops.json] --> P
+```
+
+关键实测（本机，单次测量，非统一测试集）：
+
+| 场景 | 结果 |
+|---|---:|
+| demo 计划往返 | 1–4 ms |
+| 57k 笔 plan → SVG | 0.99 s / 87.7 MB |
+| 57k 笔 SVG → plan | 2.16 s |
+| 57k 笔文件缓存命中 | 0.95 s |
+| 角色图 plan → SVG | 0.25 s / 53.8 MB |
+| 角色图 SVG → plan | 1.29 s |
+
+实现要点：
+
+- **曲线不丢**：导入时保存 `path_d` 和按子路径拆分的 `path_d_parts`；未修改的子路径原样输出，只有被改的子路径才退化为折线。
+- **精确校验**：`verify_path_d="auto"` 默认对完整几何做哈希，不是抽样；`False` 才按信任模式跳过。
+- **大文件快路径**：bridge 输出带 `data-bridge="plan_svg"`，无高级标签时直接走 native；否则走流式/ Python 完整解析。
+- **文件缓存**：`load_plan_svg` 用 `path + mtime + size` 缓存二进制 plan，命中后 `unpack` 出新对象；总预算 256MB，LRU 淘汰。
+- **不静默丢内容**：`foreignObject` 只支持纯文本子集，遇到 table/img/flex/grid 等会显式 `ValueError`。
+
+边界：完整 CSS 级联、滤镜浏览器栅格化、复杂文本排版、曲线控制点编辑仍是待完善项；详见 `skill/docs/PLAN_SVG.md`。
 
 ---
 
