@@ -648,8 +648,13 @@ EXPORT void* pg_create(int w, int h) {
     Gpu* g = new Gpu();
     g->W = w; g->H = h;
     D3D_FEATURE_LEVEL fl;
-    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0,
-                                 D3D11_SDK_VERSION, &g->dev, &fl, &g->ctx))) {
+    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0,
+                                   D3D11_SDK_VERSION, &g->dev, &fl, &g->ctx);
+    if (FAILED(hr)) {
+        hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0,
+                               D3D11_SDK_VERSION, &g->dev, &fl, &g->ctx);
+    }
+    if (FAILED(hr)) {
         delete g;
         return nullptr;
     }
@@ -1417,8 +1422,12 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
     if (!stops || ns < 1) { stops = one; ns = 1; }
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
     if (nh > 0) {
-        g->ctx->UpdateSubresource(g->fillHolePts, 0, nullptr, hpts, 0, 0);
-        g->ctx->UpdateSubresource(g->fillHoleOff, 0, nullptr, hoff, 0, 0);
+        std::vector<float> hp((size_t)npix * 2, 0.0f);
+        std::memcpy(hp.data(), hpts, (size_t)hn * 2 * sizeof(float));
+        std::vector<uint32_t> ho(4096, 0);
+        std::memcpy(ho.data(), hoff, (size_t)(nh + 1) * sizeof(uint32_t));
+        g->ctx->UpdateSubresource(g->fillHolePts, 0, nullptr, hp.data(), 0, 0);
+        g->ctx->UpdateSubresource(g->fillHoleOff, 0, nullptr, ho.data(), 0, 0);
     }
     float meta[24] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread, 0,
                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, (float)nh, 0, 0};
