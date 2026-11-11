@@ -59,16 +59,7 @@ Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOM
 
 `plan_svg.py` 负责 plan 与 SVG 的双向转换，`plan_svg_native.py` / C++ `plan_svg_core.dll` 负责快速路径。
 
-```mermaid
-flowchart LR
-  P[plan.json / plan] --> S[plan_to_svg]
-  S --> V[SVG: layers, paths, masks, patterns]
-  V --> U[svg_stream / native parser]
-  U --> P
-  P --> R[render_plan / paint core]
-  R --> I[PNG]
-  O[ops.json] --> P
-```
+![Plan ⇄ SVG 双向桥架构](skill/docs/images/bridge-architecture.png)
 
 关键实测（本机，单次测量，非统一测试集）：
 
