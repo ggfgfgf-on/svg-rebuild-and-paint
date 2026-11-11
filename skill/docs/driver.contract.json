@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "driver": {
+    "input": "plan: canvas / layers / strokes",
+    "output": "PNG via render_plan.py",
+    "required": ["plan_io", "render_plan"],
+    "optional": ["reference_image.img2img"],
+    "implicit_model_load": false,
+    "validation": ["plan_io check", "rerender maxdiff = 0"]
+  },
+  "models": {
+    "sdxs-512": {
+      "role": "optional advisory text-to-image / image-to-image",
+      "inputs": ["prompt", "reference_image"],
+      "output": "advisory PNG",
+      "reference_image": true,
+      "default_called": false,
+      "writes_plan": false,
+      "verified": "text 512x512 1 step; img2img 512x512 strength 0.45 4 steps"
+    },
+    "imf-b2": {
+      "role": "optional ImageNet class prior",
+      "inputs": ["class_id"],
+      "output": "256px class image",
+      "reference_image": false,
+      "default_called": false,
+      "writes_plan": false,
+      "verified": "class 277 (red fox)"
+    }
+  }
+}

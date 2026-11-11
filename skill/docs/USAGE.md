@@ -398,17 +398,7 @@ frame = p.composite()                                    # (H, W, 4) uint8
 
 ### 6.1 driver 契约
 
-| 项 | 契约 |
-|---|---|
-| 输入 | plan：canvas / layers / strokes |
-| 输出 | PNG，由 render_plan.py 生成 |
-| 必需 | plan_io、render_plan |
-| 可选旁路 | reference_image.py img2img，仅 SDXS，显式调用 |
-| 旁路输出 | advisory 图；不写 plan、不生成几何 |
-| 隐式依赖 | 无；不自动加载模型权重 |
-| 校验 | plan_io check；同 plan 重渲 maxdiff = 0 |
-| 接口 | [SHAPE_API.md](SHAPE_API.md) / [EXAMPLES.md](EXAMPLES.md) |
-| 视觉辅助 | [VISUAL_HELPERS.md](VISUAL_HELPERS.md) |
+由 [driver.contract.json](driver.contract.json) 生成：[DRIVER.md](DRIVER.md)。
 
 ### 6.2 交付清单
 
