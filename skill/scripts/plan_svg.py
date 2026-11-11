@@ -1662,6 +1662,17 @@ def _rasterize_filtered(root, ch, w, h, base_dir=None):
 
 def _pattern_tiles(root, w, h, base_dir=None):
     out = {}
+    defs_parts = []
+    for n in root.iter():
+        if _local(n.tag) == "pattern":
+            continue
+        if n.get("id") and _local(n.tag) in ("linearGradient", "radialGradient", "filter",
+                                             "symbol", "clipPath", "mask", "path", "rect",
+                                             "circle", "ellipse", "polygon", "g"):
+            x = ET.tostring(n, encoding="unicode")
+            x = x.replace("ns0:", "").replace(' xmlns:ns0="http://www.w3.org/2000/svg"', "")
+            defs_parts.append(x)
+    defs_xml = "".join(defs_parts)
     for el in root.iter():
         if _local(el.tag) != "pattern" or not el.get("id"):
             continue
@@ -1691,8 +1702,15 @@ def _pattern_tiles(root, w, h, base_dir=None):
         children = children.replace("ns0:", "").replace(' xmlns:ns0="http://www.w3.org/2000/svg"', "")
         if not children:
             continue
-        mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s" width="%s" height="%s">%s</svg>'
-                % (pw, ph, pw, ph, children))
+        vb = el.get("viewBox")
+        content_units = el.get("patternContentUnits", "userSpaceOnUse")
+        if content_units == "objectBoundingBox" and not vb:
+            children = ('<g transform="scale(%s %s)">%s</g>' % (pw, ph, children))
+        if el.get("patternTransform"):
+            children = ('<g transform="%s">%s</g>' % (el.get("patternTransform"), children))
+        view_box = vb if vb else "0 0 %s %s" % (pw, ph)
+        mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="%s" width="%s" height="%s">'
+                '<defs>%s</defs>%s</svg>' % (view_box, pw, ph, defs_xml, children))
         try:
             d = svg_to_plan(mini, base_dir=base_dir)
             import paint_plan as _pp
