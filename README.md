@@ -1,10 +1,10 @@
 # svg-rebuild-and-paint
 
-**位图 → 真矢量 SVG 重绘（曲线，缩放无台阶）** · **程序化厚涂绘画引擎**（确定性回放 / 增量重绘 / CPU + GPU 双后端） · **计划空间改画**（指令 → 算子 → 像素）
+**位图 → 真矢量 SVG 重绘（曲线，缩放无台阶）** · **模拟重绘过程** · **程序化厚涂绘画引擎**（确定性回放 / 增量重绘 / CPU + GPU 双后端） · **计划空间改画**（指令 → 算子 → 像素） · **Plan ⇄ SVG 双向桥**
 
-> An asset-agnostic DSH skill repository with three runnable layers: a potrace-based curve SVG
-> reconstructor, a deterministic thick-paint rendering engine, and a calibrated ops layer that turns
-> instructions into plan edits. Everything below is measured, and every threshold that matters is
+> An asset-agnostic DSH skill repository with five runnable capabilities: a potrace-based curve SVG
+> reconstructor, a simulated redraw process, a deterministic thick-paint rendering engine, a calibrated
+> ops layer that turns instructions into plan edits, and a Plan ⇄ SVG bridge. Everything below is measured, and every threshold that matters is
 > calibrated per project — the skill itself ships **no** tuned values.
 
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](LICENSE)
@@ -18,15 +18,13 @@
   <sub>厚涂引擎输出：分层计划、逐笔 stamp 光栅化，确定性回放。</sub>
 </p>
 
-<p align="center">
-  <a href="https://github.com/ggfgfgf-on/svg-rebuild-and-paint/releases/download/v1.1.0/svg-rebuild-and-paint-demo.mp4">功能演示</a>
-</p>
-
-仓库名沿用了历史名称，内容早已不止 SVG。现在它是一个 DSH Skill 仓库，三层都可运行、可验收：
+仓库名沿用了历史名称，内容早已不止 SVG。现在它是一个 DSH Skill 仓库，五项功能都可运行、可验收：
 
 1. **真矢量 SVG 重绘** —— 任意位图（PNG/JPEG，≤2MP）→ potrace 逐色掩码曲线重建（2–3× 超采样）→ 单文件自包含 HTML，纯 `<path>` 平涂几何 + 离散步骤播放器；纯矢量，放大无台阶。
-2. **程序化厚涂绘画引擎** —— 场景定义的分层计划（层数/层名由场景决定）→ 笔触光栅化 → 30fps 视频；支持确定性回放、差量/单层/tile 增量重绘、GPU 后端、逐 stamp 上色、PSD/KRA 互操作。
-3. **计划空间改画** —— 指令编译成算子（改色/扩缩/细化/局部重画）→ 只重算脏区域；阈值全部来自工程标定，技能只提供机制与辅助函数。
+2. **模拟重绘过程** —— 位图 → 分层重演，输出可播放 HTML；也支持 plan → 30fps 过程视频。
+3. **程序化厚涂绘画引擎** —— 场景定义的分层计划（层数/层名由场景决定）→ 笔触光栅化 → PNG / 30fps 视频；支持确定性回放、差量/单层/tile 增量重绘、GPU 后端、逐 stamp 上色、PSD/KRA 互操作。
+4. **计划空间改画** —— 指令编译成算子（改色/扩缩/细化/局部重画）→ 只重算脏区域；阈值全部来自工程标定，技能只提供机制与辅助函数。
+5. **Plan ⇄ SVG 双向桥** —— plan 与 SVG 互转，保留曲线/子路径；支持 native 快路径与大文件缓存。
 
 ### 关于仓库名
 
