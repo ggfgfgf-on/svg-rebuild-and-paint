@@ -87,7 +87,12 @@ def dump_plan(path, w, h, strokes, layer_blends=None, regions=None, subject_laye
     if regions:
         doc["regions"] = regions
         doc["subject_layers"] = list(subject_layers or [])
-    Path(path).write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")
+    def _json_default(o):
+        if hasattr(o, "tolist"):
+            return o.tolist()
+        raise TypeError("not JSON serializable: %r" % (type(o),))
+
+    Path(path).write_text(json.dumps(doc, separators=(",", ":"), default=_json_default), encoding="utf-8")
     return len(out)
 
 

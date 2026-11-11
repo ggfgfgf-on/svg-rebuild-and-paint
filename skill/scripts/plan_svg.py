@@ -62,7 +62,7 @@ def _rgb_text(color):
 
 def _path_d(points):
     pts = [[float(p[0]), float(p[1])] for p in points]
-    if not pts:
+    if len(pts) == 0:
         return "M 0 0"
     out = ["M %s %s" % (_f(pts[0][0]), _f(pts[0][1]))]
     if len(pts) == 1:
@@ -106,7 +106,7 @@ def _path_d_compact(points, holes=None):
 
 def _path_line_compact(points):
     pts = [(float(p[0]), float(p[1])) for p in points]
-    if not pts:
+    if len(pts) == 0:
         return ""
     d = "M %s %s" % (_fc(pts[0][0]), _fc(pts[0][1]))
     cur = pts[0]
@@ -133,9 +133,9 @@ def _path_d_holes(points, holes):
 def _geom_sig_fast(st):
     import hashlib
     h = hashlib.blake2b(digest_size=16)
-    arrays = [st.get("points") or []]
-    arrays += list(st.get("subpaths") or [])
-    arrays += list(st.get("holes") or [])
+    arrays = [st.get("points") if st.get("points") is not None else []]
+    arrays += list(st.get("subpaths") if st.get("subpaths") is not None else [])
+    arrays += list(st.get("holes") if st.get("holes") is not None else [])
     import struct
     for ai, arr in enumerate(arrays):
         n = len(arr)
@@ -162,11 +162,11 @@ def _geom_sig(st):
     import hashlib
     import numpy as np
     h = hashlib.blake2b(digest_size=16)
-    arrays = [st.get("points") or []]
-    arrays += list(st.get("subpaths") or [])
-    arrays += list(st.get("holes") or [])
+    arrays = [st.get("points") if st.get("points") is not None else []]
+    arrays += list(st.get("subpaths") if st.get("subpaths") is not None else [])
+    arrays += list(st.get("holes") if st.get("holes") is not None else [])
     for arr in arrays:
-        if not arr:
+        if len(arr) == 0:
             continue
         a = np.asarray(arr, dtype=np.float32)
         if a.ndim == 2 and a.shape[1] > 2:
@@ -368,8 +368,8 @@ def plan_to_svg(doc, *, filters=False, title=None, verify_path_d="auto"):
                     _esc(im.get("mime", "image/png")), im.get("data", ""), _f(s.get("x", 0)), _f(s.get("y", 0)),
                     _f(s.get("width", 1)), _f(s.get("height", 1)), _f(s.get("opacity", 1.0)), trs))
                 continue
-            pts = s.get("points") or []
-            if not pts:
+            pts = s.get("points") if s.get("points") is not None else []
+            if len(pts) == 0:
                 continue
             size = float(s.get("size", 8.0))
             op = max(0.0, min(1.0, float(s.get("opacity", 1.0))))
@@ -390,7 +390,7 @@ def plan_to_svg(doc, *, filters=False, title=None, verify_path_d="auto"):
                     if verify_path_d is True:
                         if s.get("path_d_sig") and _geom_sig(s) != s["path_d_sig"]:
                             raw_d = None
-                    elif s.get("path_d_fast") and _geom_sig_fast(s) != s["path_d_fast"]:
+                    elif s.get("path_d_sig") and _geom_sig(s) != s["path_d_sig"]:
                         raw_d = None
                 d = raw_d or (_path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or []))
                 out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
@@ -536,7 +536,7 @@ def _parse_d(d):
         return vals
 
     def add(p):
-        if not pts or abs(pts[-1][0] - p[0]) > 1e-9 or abs(pts[-1][1] - p[1]) > 1e-9:
+        if len(pts) == 0 or abs(pts[-1][0] - p[0]) > 1e-9 or abs(pts[-1][1] - p[1]) > 1e-9:
             pts.append([float(p[0]), float(p[1])])
 
     while i < len(toks):
@@ -676,7 +676,7 @@ def plan_to_svg_stamps(doc, title=None, fast=False):
             mask_defs.append(_mask_def(m, gid, w, h))
         paint = st.get("paint")
         if isinstance(paint, dict):
-            pts = st.get("points") or []
+            pts = st.get("points") if st.get("points") is not None else []
             if pts:
                 xs = [float(q[0]) for q in pts]; ys = [float(q[1]) for q in pts]
                 minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
@@ -722,8 +722,8 @@ def plan_to_svg_stamps(doc, title=None, fast=False):
         lm = layer_mask.get(name)
         body.append('<g data-name=%s data-blend=%s%s>' % (quoteattr(name), quoteattr(blends[name]), (' mask="url(#%s)"' % lm) if lm else ""))
         for st in by.get(name, []):
-            pts = st.get("points") or []
-            if not pts:
+            pts = st.get("points") if st.get("points") is not None else []
+            if len(pts) == 0:
                 continue
             size = float(st.get("size", 8.0)); base = size * 0.5
             col = _rgb(st.get("color")); op0 = max(0.0, min(1.0, float(st.get("opacity", 1.0))))
@@ -885,8 +885,8 @@ def plan_to_svg_outline(doc, title=None, texture=False, soft=False, fast=True):
         lm = layer_mask.get(name)
         out.append('<g data-name=%s data-blend=%s%s%s>' % (quoteattr(name), quoteattr(blends[name]), ' filter="url(#soft)"' if soft else "", (' mask="url(#%s)"' % lm) if lm else ""))
         for st in by.get(name, []):
-            pts = st.get("points") or []
-            if not pts:
+            pts = st.get("points") if st.get("points") is not None else []
+            if len(pts) == 0:
                 continue
             preset = str(st.get("preset", "round_soft"))
             pgid = paint_gid.get(id(st))
@@ -2106,7 +2106,7 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
                     first = [[*_mat_apply(m, p[0], p[1]), 1.0] for p in groups[0]]
                     emit(a, name, first)
                     return
-            if not pts:
+            if len(pts) == 0:
                 for group in _parse_d_subpaths(dval):
                     if not group:
                         continue
@@ -2145,7 +2145,7 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
         st.pop("_evenodd", None)
     by = {}
     for st in strokes:
-        by.setdefault(st["layer"], []).append(st.get("points") or [])
+        by.setdefault(st["layer"], []).append(st.get("points") if st.get("points") is not None else [])
     for layer in layers:
         mid = layer.pop("_mask_id", None)
         if not mid or mid not in masks:

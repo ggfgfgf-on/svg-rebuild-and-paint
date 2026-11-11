@@ -365,9 +365,16 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 if len(good) > 1:
                     st["subpaths"] = [[[float(p[0]), float(p[1]), 1.0] for p in q] for q in good]
                 if path_d:
+                    import numpy as _np
+                    total = len(st.get("points") or []) + sum(len(q) for q in (st.get("subpaths") or [])) + sum(len(h) for h in (st.get("holes") or []))
+                    if total > 10000:
+                        st["points"] = _np.asarray(st.get("points") or [], dtype=_np.float64)
+                        if st.get("subpaths"):
+                            st["subpaths"] = [_np.asarray(q, dtype=_np.float64) for q in st["subpaths"]]
+                        if st.get("holes"):
+                            st["holes"] = [_np.asarray(h, dtype=_np.float64) for h in st["holes"]]
                     st["path_d"] = path_d
                     st["path_d_sig"] = _ps._geom_sig(st)
-                    st["path_d_fast"] = _ps._geom_sig_fast(st)
                 strokes.append(st)
 
             for rm in re.finditer(br"<rect\b([^>]*)>", mm):

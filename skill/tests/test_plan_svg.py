@@ -554,6 +554,10 @@ def test_path_d_preserved(tmp_path):
     assert "C20 0 30 40 50 50" not in out2
 
     d = svg_stream.stream_svg_to_plan(str(p))
+    d["strokes"][0]["points"][1][1] += 1.0
+    assert "C20 0 30 40 50 50" not in plan_svg.plan_to_svg(d)
+
+    d = svg_stream.stream_svg_to_plan(str(p))
     d["strokes"][0]["color"] = [0, 255, 0]
     assert "C20 0 30 40 50 50" in plan_svg.plan_to_svg(d)
 
