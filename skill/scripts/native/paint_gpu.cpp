@@ -66,6 +66,8 @@ StructuredBuffer<float> fillstops : register(t9);
 StructuredBuffer<float> fillmeta : register(t10);
 StructuredBuffer<float2> fillholes : register(t11);
 StructuredBuffer<uint> fillholeoff : register(t12);
+StructuredBuffer<float> shapemask : register(t13);
+StructuredBuffer<float> shapemeta : register(t14);
 StructuredBuffer<float> gradstops : register(t11);
 StructuredBuffer<float> gradmeta : register(t12);
 
@@ -489,7 +491,12 @@ void cs_fill(uint3 dt : SV_DispatchThreadID) {
         ca = lerp(fillstops[k0*5+4], fillstops[k1*5+4], u);
     }
     float sa = fillmeta[7] * ca;
-    if (fillmeta[22] > 0.5f) sa *= maskbuf[idx];
+    if (fillmeta[22] > 0.5f) {
+        int mx = (int)shapemeta[0], my = (int)shapemeta[1];
+        int mw = (int)shapemeta[2], mh = (int)shapemeta[3];
+        int lx = x - mx, ly = y - my;
+        sa *= (lx >= 0 && ly >= 0 && lx < mw && ly < mh) ? shapemask[ly * mw + lx] : 0.0f;
+    }
     float4 d = layer[idx];
     float inv = 1.0f - sa;
     layer[idx] = float4(col * sa + d.rgb * inv, sa + d.a * inv);
@@ -588,6 +595,11 @@ struct Gpu {
     ID3D11ShaderResourceView* gradMetaSrv = nullptr;
     ID3D11Buffer* maskBuf = nullptr;
     ID3D11ShaderResourceView* maskSrv = nullptr;
+    ID3D11Buffer* shapeMaskBuf = nullptr;
+    ID3D11ShaderResourceView* shapeMaskSrv = nullptr;
+    UINT shapeMaskCap = 0;
+    ID3D11Buffer* shapeMaskMeta = nullptr;
+    ID3D11ShaderResourceView* shapeMaskMetaSrv = nullptr;
     ID3D11Buffer* snap = nullptr;
     ID3D11ShaderResourceView* snapSrv = nullptr;
     int driver_type = 0;  // 1=HARDWARE, 2=WARP
@@ -744,6 +756,19 @@ EXPORT void* pg_create(int w, int h) {
         msd.Buffer.NumElements = npix;
         g->dev->CreateShaderResourceView(g->maskBuf, &msd, &g->maskSrv);
     }
+    g->shapeMaskBuf = make_buf(g->dev, 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->shapeMaskCap = 1;
+    if (g->shapeMaskBuf) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC ss{};
+        ss.Format = DXGI_FORMAT_UNKNOWN; ss.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ss.Buffer.NumElements = 1;
+        g->dev->CreateShaderResourceView(g->shapeMaskBuf, &ss, &g->shapeMaskSrv);
+    }
+    g->shapeMaskMeta = make_buf(g->dev, 4 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    if (g->shapeMaskMeta) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC sm{};
+        sm.Format = DXGI_FORMAT_UNKNOWN; sm.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; sm.Buffer.NumElements = 4;
+        g->dev->CreateShaderResourceView(g->shapeMaskMeta, &sm, &g->shapeMaskMetaSrv);
+    }
     g->fillPts = make_buf(g->dev, 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->fillPtsCap = 1;
     g->fillStops = make_buf(g->dev, 20, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
@@ -839,10 +864,12 @@ EXPORT void pg_destroy(void* p) {
     for (auto* b : { g->acc, g->base, g->acc8 }) if (b) b->Release();
     if (g->scratchUav) g->scratchUav->Release();
     for (auto* v : { g->stampsSrv, g->regionSrv, g->dummySrv, g->tipSrv, g->lutSrv, g->cosSrv,
-                     g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv, g->fillHolePtsSrv, g->fillHoleOffSrv })
+                     g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv, g->fillHolePtsSrv, g->fillHoleOffSrv,
+                     g->shapeMaskSrv, g->shapeMaskMetaSrv })
         if (v) v->Release();
     for (auto* b : { g->scratch, g->stamps, g->regionBuf, g->dummy, g->cb, g->lutb, g->tipbuf, g->cosb,
-                     g->fillPts, g->fillStops, g->fillMeta, g->fillHolePts, g->fillHoleOff })
+                     g->fillPts, g->fillStops, g->fillMeta, g->fillHolePts, g->fillHoleOff,
+                     g->shapeMaskBuf, g->shapeMaskMeta })
         if (b) b->Release();
     if (g->cs_splat) g->cs_splat->Release();
     if (g->cs_over) g->cs_over->Release();
@@ -1466,19 +1493,14 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
         g->ctx->UpdateSubresource(g->fillHolePts, 0, nullptr, hpts, 0, 0);
         g->ctx->UpdateSubresource(g->fillHoleOff, 0, nullptr, hoff, 0, 0);
     }
-    bool use_mask = mask && mw > 0 && mh > 0;
+    bool use_mask = mask && mw > 0 && mh > 0 && g->shapeMaskMeta && g->shapeMaskMetaSrv;
     if (use_mask) {
-        std::vector<float> alpha((size_t)npix, 0.0f);
-        for (int y = 0; y < mh; ++y) {
-            int dy = y + my;
-            if (dy < 0 || dy >= (int)g->H) continue;
-            for (int x = 0; x < mw; ++x) {
-                int dx = x + mx;
-                if (dx < 0 || dx >= (int)g->W) continue;
-                alpha[(size_t)dy * g->W + dx] = mask[(size_t)y * mw + x] / 255.0f;
-            }
-        }
-        g->ctx->UpdateSubresource(g->maskBuf, 0, nullptr, alpha.data(), 0, 0);
+        if (!ensure_struct(g->dev, g->shapeMaskBuf, g->shapeMaskSrv, g->shapeMaskCap, (UINT)(mw * mh), 4)) return 0;
+        std::vector<float> alpha((size_t)mw * mh);
+        for (size_t i = 0; i < alpha.size(); ++i) alpha[i] = mask[i] / 255.0f;
+        g->ctx->UpdateSubresource(g->shapeMaskBuf, 0, nullptr, alpha.data(), 0, 0);
+        float sm[4] = {(float)mx, (float)my, (float)mw, (float)mh};
+        g->ctx->UpdateSubresource(g->shapeMaskMeta, 0, nullptr, sm, 0, 0);
     }
     float meta[24] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread, 0,
                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, (float)nh, use_mask ? 1.0f : 0.0f, 0.0f};
@@ -1492,8 +1514,9 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
                                           g->fillHolePtsSrv, g->fillHoleOffSrv };
     g->ctx->CSSetShader(g->cs_fill, nullptr, 0);
     g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
-    ID3D11ShaderResourceView* msrv = use_mask ? g->maskSrv : nullptr;
-    g->ctx->CSSetShaderResources(7, 1, &msrv);
+    ID3D11ShaderResourceView* msrv[2] = { use_mask ? g->shapeMaskSrv : nullptr,
+                                         use_mask ? g->shapeMaskMetaSrv : nullptr };
+    g->ctx->CSSetShaderResources(13, 2, msrv);
     g->ctx->CSSetShaderResources(8, 5, srvs);
     g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
     g->ctx->Dispatch((npix + 255) / 256, 1, 1);
@@ -1501,7 +1524,7 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
     g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
     ID3D11ShaderResourceView* no[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
     g->ctx->CSSetShaderResources(8, 5, no);
-    g->ctx->CSSetShaderResources(7, 1, &no[0]);
+    g->ctx->CSSetShaderResources(13, 2, no);
     g->ctx->CSSetShader(nullptr, nullptr, 0);
     return 1;
 }
