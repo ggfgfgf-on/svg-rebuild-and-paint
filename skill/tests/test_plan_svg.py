@@ -669,6 +669,16 @@ def test_path_d_parts_partial_edit():
     assert "M20 20 C21 21 22 22 23 23 Z" not in out
 
 
+def test_load_plan_svg_cache(tmp_path):
+    p = tmp_path / "cached.svg"
+    p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">'
+                 '<path fill="#f00" d="M0 0 L10 0 L10 10 Z"/></svg>', encoding="utf-8")
+    d1 = plan_svg.load_plan_svg(str(p))
+    d1["strokes"][0]["color"] = [0, 0, 0]
+    d2 = plan_svg.load_plan_svg(str(p))
+    assert d2["strokes"][0]["color"][0] == 255
+
+
 def test_stream_file_incremental(tmp_path):
     import svg_stream
     p = tmp_path / "big.svg"

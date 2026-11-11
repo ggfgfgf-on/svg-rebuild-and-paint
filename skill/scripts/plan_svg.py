@@ -2397,8 +2397,42 @@ def load_svg_plan_stream(path, chunk_size=65536):
     return stream_svg_to_plan(path, chunk_size=chunk_size)
 
 
-def load_plan_svg(path):
-    return load_svg_plan_stream(str(path))
+_SVG_PLAN_CACHE = {}
+_SVG_PLAN_CACHE_MAX = 2
+
+
+def load_plan_svg(path, use_cache=True):
+    p = Path(path)
+    key = str(p.resolve())
+    st = p.stat()
+    sig = (st.st_mtime_ns, st.st_size)
+    if use_cache:
+        ent = _SVG_PLAN_CACHE.get(key)
+        if ent and ent[0] == sig:
+            try:
+                import plan_svg_native as _n
+                return _n.unpack_plan(ent[1])
+            except Exception:
+                _SVG_PLAN_CACHE.pop(key, None)
+    try:
+        head = p.open("r", encoding="utf-8").read(4096)
+    except Exception:
+        head = ""
+    if 'data-bridge="plan_svg"' in head:
+        doc = svg_to_plan(p.read_text(encoding="utf-8"))
+    else:
+        doc = load_svg_plan_stream(str(p))
+    if use_cache and len(_SVG_PLAN_CACHE) >= _SVG_PLAN_CACHE_MAX:
+        _SVG_PLAN_CACHE.pop(next(iter(_SVG_PLAN_CACHE)), None)
+    if use_cache and not any(s.get("path_d_parts") for s in doc.get("strokes", [])):
+        try:
+            import plan_svg_native as _n
+            data = _n.pack_plan(doc)
+            if len(data) <= 128 * 1024 * 1024:
+                _SVG_PLAN_CACHE[key] = (sig, data)
+        except Exception:
+            pass
+    return doc
 
 
 def plan_to_svgz(doc, path, level=6):
