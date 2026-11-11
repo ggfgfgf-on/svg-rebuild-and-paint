@@ -1205,6 +1205,53 @@ EXPORT int paint_fill_polygon_holes(void* p, int layer, const float* pts, int n,
 }
 
 
+EXPORT int paint_fill_polygon_masked(void* p, int layer, const float* pts, int n,
+                                      const unsigned char* mask, int mw, int mh,
+                                      int mx, int my, float r, float g, float b, float a) {
+    Ctx* c = (Ctx*)p;
+    if (!c || !pts || n < 3 || !mask || mw <= 0 || mh <= 0) return 0;
+    if (layer < 0 || layer >= (int)c->layers.size()) return 0;
+    float al = a < 0 ? 0 : (a > 1 ? 1 : a);
+    if (al <= 0) return 0;
+    Layer& L = c->layers[layer];
+    float ymin = 1e30f, ymax = -1e30f;
+    for (int i = 0; i < n; ++i) { float y = pts[i*2+1]; ymin = std::min(ymin, y); ymax = std::max(ymax, y); }
+    int y0 = std::max(0, (int)std::floor(ymin));
+    int y1 = std::min(c->h - 1, (int)std::ceil(ymax));
+    std::vector<float> xs;
+    for (int y = y0; y <= y1; ++y) {
+        float yy = y + 0.5f; xs.clear();
+        for (int i = 0; i < n; ++i) {
+            int j = (i + 1) % n;
+            float ax = pts[i*2], ay = pts[i*2+1];
+            float bx = pts[j*2], by = pts[j*2+1];
+            if ((ay <= yy && by > yy) || (by <= yy && ay > yy))
+                xs.push_back(ax + (yy - ay) * (bx - ax) / (by - ay));
+        }
+        std::sort(xs.begin(), xs.end());
+        int myi = y - my;
+        if (myi < 0 || myi >= mh) continue;
+        for (size_t k = 0; k + 1 < xs.size(); k += 2) {
+            int xa = std::max(0, (int)std::ceil(xs[k] - 0.5f));
+            int xb = std::min(c->w - 1, (int)std::floor(xs[k+1] - 0.5f));
+            for (int x = xa; x <= xb; ++x) {
+                int mxi = x - mx;
+                if (mxi < 0 || mxi >= mw) continue;
+                float sa = al * (mask[(size_t)myi * mw + mxi] / 255.0f);
+                if (sa <= 0) continue;
+                float* d = L.px.data() + ((size_t)y * c->w + x) * 4;
+                float inv = 1.0f - sa;
+                d[0] = r * sa + d[0] * inv;
+                d[1] = g * sa + d[1] * inv;
+                d[2] = b * sa + d[2] * inv;
+                d[3] = sa + d[3] * inv;
+            }
+        }
+    }
+    return 1;
+}
+
+
 EXPORT int paint_stroke_l(void* p, int layer, const float* pts, int n,
                           float size, float opacity, float r, float g, float b,
                           int preset, float hardness, float spacing,

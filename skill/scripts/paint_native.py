@@ -3,8 +3,9 @@
 缺 DLL 时 load() 返回 None，调用方自行回退。
 """
 from __future__ import annotations
+import base64
 import ctypes
-import time, json, os
+import time, json, os, zlib
 from pathlib import Path
 import numpy as np
 from gradient_xform import apply_linear as _grad_xform, radial_matrix as _radial_matrix
@@ -72,6 +73,10 @@ def load():
     lib.paint_fill_polygon_holes.restype = ctypes.c_int
     lib.paint_fill_polygon_holes.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int,
                                              f32, ctypes.c_int, i32, ctypes.c_int] + [ctypes.c_float] * 4
+    lib.paint_fill_polygon_masked.restype = ctypes.c_int
+    lib.paint_fill_polygon_masked.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int,
+                                              u8, ctypes.c_int, ctypes.c_int,
+                                              ctypes.c_int, ctypes.c_int] + [ctypes.c_float] * 4
     lib.paint_stroke_l.restype = ctypes.c_int
     lib.paint_stroke_l.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 5 + [
         ctypes.c_int, ctypes.c_float, ctypes.c_float, i32, ctypes.c_int, f32, f32, ctypes.c_int]
@@ -309,6 +314,22 @@ class Painter:
             self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
             flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(flat),
             offs.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), len(hs),
+            r / 255.0, g / 255.0, b / 255.0, float(opacity))
+
+    def fill_polygon_masked(self, layer, pts, mask, rgb=(0, 0, 0), opacity=1.0):
+        pts = np.ascontiguousarray(pts, dtype=np.float32)
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError("fill points must be Nx2")
+        mw, mh = int(mask.get("width", 0)), int(mask.get("height", 0))
+        if mw <= 0 or mh <= 0:
+            return 0
+        raw = zlib.decompress(base64.b64decode(mask.get("data", "")))
+        arr = np.frombuffer(raw, dtype=np.uint8).reshape(mh, mw)
+        r, g, b = rgb
+        return self._lib.paint_fill_polygon_masked(
+            self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+            arr.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)), mw, mh,
+            int(mask.get("x", 0)), int(mask.get("y", 0)),
             r / 255.0, g / 255.0, b / 255.0, float(opacity))
 
     def fill_gradient(self, layer, pts, paint, opacity=1.0):

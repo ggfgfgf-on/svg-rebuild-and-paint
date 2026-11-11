@@ -196,6 +196,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
             "pattern": s.get("pattern"),
             "subpaths": s.get("subpaths"),
             "holes": s.get("holes"),
+            "mask": s.get("mask"),
         })
     # 分层按笔触所属层提交，保证层内顺序 = plan 顺序
     for layer in sorted(grouped):
@@ -209,6 +210,13 @@ def render_plan(plan, threads=8, brush=None, region=None):
                     buf = []
                 subs = it.get("subpaths") or [it.get("points") or []]
                 holes = it.get("holes") or []
+                mask = it.get("mask")
+                if isinstance(mask, dict) and not isinstance(it.get("paint"), dict):
+                    for one in subs:
+                        pts = [(float(q[0]), float(q[1])) for q in one]
+                        if len(pts) >= 3:
+                            p.fill_polygon_masked(layer, pts, mask, it.get("color"), it.get("opacity", 1.0))
+                    continue
                 if holes and not isinstance(it.get("paint"), dict):
                     pts = [(float(q[0]), float(q[1])) for q in (subs[0] if subs else [])]
                     if len(pts) >= 3:

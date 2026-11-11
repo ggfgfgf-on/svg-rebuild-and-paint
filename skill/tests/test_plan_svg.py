@@ -419,6 +419,23 @@ def test_mixed_fill_stroke_roundtrip():
     assert back["strokes"][1]["preset"] == "dry"
 
 
+def test_plan_render_shape_mask():
+    import paint_plan
+    import numpy as np
+    from PIL import Image, ImageDraw
+    m = Image.new("L", (100, 100), 0)
+    ImageDraw.Draw(m).rectangle([0, 0, 50, 100], fill=255)
+    doc = {"canvas": [100, 100], "layers": [{"name": "layer", "blend": "normal"}],
+           "strokes": [{"layer": "layer", "preset": "fill", "opacity": 1.0,
+                        "color": [255, 0, 0],
+                        "points": [[0, 0, 1], [100, 0, 1], [100, 100, 1], [0, 100, 1]],
+                        "mask": plan_svg._mask_png(m)}]}
+    img, _ = paint_plan.render_plan(doc)
+    a = np.asarray(img)
+    assert int(a[50, 25, 3]) == 255
+    assert int(a[50, 75, 3]) == 0
+
+
 def test_plan_render_holes():
     import paint_plan
     import numpy as np
