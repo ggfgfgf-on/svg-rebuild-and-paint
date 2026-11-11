@@ -51,11 +51,11 @@ Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOM
 
 每根笔触带位置、压力、颜色、硬度和纹理；同一份 plan 重复渲染逐位相同，也支持 GPU、差量和 tile 增量。
 
-### 3. 计划空间改画：改色只重算脏区域
+### 3. 计划空间改画：红玫瑰 → 白玫瑰
 
-![叶子改色前后](skill/docs/images/ops-leaf.png)
+![红白玫瑰改色前后](skill/docs/images/ops-rose.png)
 
-左：原图。右：`ops.json` 编译后的改色结果；几何/背景不动，脏矩形外 0 px 变化。
+左：红玫瑰。右：白玫瑰；只改花，叶子和背景保持原样。
 
 ---
 
