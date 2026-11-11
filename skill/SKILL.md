@@ -26,7 +26,7 @@ whenToUse: >-
 
 # SVG 重建与厚涂绘画
 
-这个 skill 不是只有“位图转 SVG”。它有四条可组合的能力线，共用同一套确定性光栅器：
+这个 skill 覆盖四条能力线，共用同一套确定性光栅器：
 
 - **矢量线**：位图 → 真矢量 `.svg`（纯 `<path>`，无 `<image>`/base64/渐变），可选单文件 HTML 过程播放器；用逐像素误差验收。
 - **绘画线**：plan（canvas + layers + strokes）→ 厚涂 PNG / 30fps 过程视频；用同 plan 复渲 maxdiff=0 验收。
@@ -37,7 +37,7 @@ whenToUse: >-
 
 ## 执行契约（先读这张）
 
-这不是“看完再决定”的散文，而是一张执行卡：先选路线，按阶段走，每阶段有产物和通过条件；不过门就回退，不要往下硬做。
+执行卡：先选路线，按阶段走；每阶段有产物和通过条件，不过门就回退。
 
 ### 0.1 路线选择
 
@@ -105,16 +105,16 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 它是操作手册主入口：五分钟跑通、四层能力与两个入口、调参手册、症状速查都在那里。
 本文件只保留路由、契约和坑位；算子细节查 [API.md](docs/API.md)，形状参数查 [SHAPE_API.md](docs/SHAPE_API.md)。
 
-## 交付要求（目标级，不是画法）
+## 交付要求
 
 这份技能不规定画法；但每次交付要满足这些：
 
 | 要求 | 具体含义 |
 |---|---|
 | 先整体后局部 | 先把整体做到能读（主体成立、焦点单一、25% 可读），再细化局部。主体/接地不成立时，先回 plan 改层与形体；`densify` / 加光通常只修质感，修不好结构。 |
-| 允许试错 | 可以改计划、重建、换路线；不是只能微调既有笔触。 |
+| 允许试错 | 可以改计划、重建、换路线；不必只微调既有笔触。 |
 | 原创绘制 | 凭空画走 plan / paint 链路；不得用描图或照片转矢量冒充绘画。 |
-| 可交付 | 细化到你愿意为“可以交付”负责；不是跑通一次就交。 |
+| 可交付 | 细化到愿意负责的程度；不要跑通一次就交。 |
 | 量化自评 | 报告最终 plan / png / ops、尺寸、笔数、渲染耗时；说明“画出来/细化”各到什么程度、缺什么。 |
 | 诚实 | 不声称没做过的事；卡住就说卡在哪、文档哪里不够用。 |
 | 语义验收 | 主体是否成立、肢体/枝干连接与承重是否成立、脚/接触点是否有承托面、最亮处是否单焦点、25% 是否可读、是否符合意图；机械判据只管确定性/合法/不露底。 |
@@ -149,7 +149,7 @@ python scripts/auto.py ref.png out.svg       # 默认入口，不要先手调 K/
 
 - `fill_polygon` 只给块面第一层；体积/颜色变化要多次 fill，或 `split_shading`/`relight_dir`。
 - `flat` 是平涂/建筑面；厚涂用 `bristle`/`round_soft`，低透明度多层叠加。
-- `draw_path` 是每条连续子路径一笔；毛发要很多短笔，不是几条长线。
+- `draw_path` 是每条连续子路径一笔；毛发用大量短笔，不用几条长线。
 
 ### C. 改画线：指令 → ops → 改后 PNG
 
@@ -170,12 +170,12 @@ python scripts/auto.py ref.png out.svg       # 默认入口，不要先手调 K/
 python scripts/paint_cli.py video plan.json --ops ops.json --out out.mp4 --frames 600
 ```
 
-- 先在静帧上过 B/C 的验收，再出视频；视频不是验收工具。
+- 先在静帧上过 B/C 验收，再出视频。
 - 末帧必须与同 plan 静帧一致；帧率固定 30fps，不丢帧。
 
 ## ops 算子全表（21 个，确定性、可 diff、零随机）
 
-凭空画/改画都走这层：先把画面拆成 plan（layers + strokes），再用算子改；`draw_path` 让空画布长出笔画（层不存在会自动建层），`add_layer` 显式建层，`set_light` / `split_shading` / `relight_dir` / `light_rig` 给形体（`light_rig` 还支持 `map` 贴图式光照与 `mask_file` 任意形状），`densify` / `redraw` 加细节——**这就是"从零画出一张画"的完整链路**，不是只有改色。
+凭空画/改画都走这层：拆 plan（layers + strokes）后加笔画或叠 ops。`draw_path` 从空画布加笔，`add_layer` 建层，`split_shading` / `relight_dir` / `light_rig` 给形体，`densify` / `redraw` 加细节。**从零画和改色共用这条链路。**
 
 | op | 作用 | 必填键 |
 |---|---|---|
@@ -205,19 +205,19 @@ python scripts/paint_cli.py video plan.json --ops ops.json --out out.mp4 --frame
 
 校验：`python scripts/compile_ops.py validate plan.json --ops ops.json`（多余键会被拒——模型最容易在这里瞎编）。
 
-> 形状 helper（不是 op，不改上表）：`scripts/shape_ops.py` 的 `fill_polygon`（在多边形内撒笔触，可对同一块面重复调用、分到不同层）、`tapered_stroke`（沿 path 生成粗细变化的笔触）和 `ribbon`（中心线 + 宽度 → 有体积的闭合多边形）；层、part、pass 由你的场景驱动决定。参数见 `docs/SHAPE_API.md`，案例见 `docs/EXAMPLES.md`（案例不是模板）。
+> 形状 helper（不属于 ops，不改上表）：`scripts/shape_ops.py` 的 `fill_polygon`（在多边形内撒笔触，可对同一块面重复调用、分到不同层）、`tapered_stroke`（沿 path 生成粗细变化的笔触）和 `ribbon`（中心线 + 宽度 → 有体积的闭合多边形）；层、part、pass 由你的场景驱动决定。参数见 `docs/SHAPE_API.md`，案例见 `docs/EXAMPLES.md`（只作接口示例）。
 
 **用 ops 凭空画的三个硬约束（踩过坑，写在这里）**
 
 1. **顺序**：`split_shading` 必须在 `relight_dir` / `light_rig` 之前，否则直接抛 `ValueError: 笔触缺少 albedo/shade`。`set_light` 同样依赖它。
-2. **draw_path 是“每条连续子路径 = 一笔”**：一条 `path` 里若写了多个 `M...` 子路径，会拆成多笔；只有一条连续子路径时才是单笔。给一条 1200px 的粗折线，画出来是一根粗线，不是一片山；要厚涂得像落日那样发上千条短笔，不是发十几条粗线。
+2. **draw_path 是“每条连续子路径 = 一笔”**：一条 `path` 里写了多个 `M...` 子路径，会拆成多笔；只有一条连续子路径时才是单笔。一条 1200px 粗折线只出一根粗线；厚涂要大量短笔。
 3. **增量渲染看不见新笔画**：`paint_cli.py edit` 只重画「原有笔触」的脏矩形，凭空加笔画会得到空白图（4 KB）。新的 `paint_cli.py` 检测到笔画数变化会自动整幅重画，host 工具 `art_apply_ops` 也带上了 `--fast`；手工调 CLI 时记得加 `--fast`。
 
 4. **一次 edit 里别混用「带 layer 的算子」和「全局算子」**：`paint_cli.py edit`（即 `art_apply_ops`）先取「带 layer 的算子提到的层」做 selection，再传给所有算子，全局 `tone_map`/`erase`/`redraw` 会被悄悄压到那几层上。实测同一组 ops：真全局 luma 52.894，走 CLI 49.555，约 95% 像素不同。要全局就单独跑一次，或用 `ops.apply(doc, specs, selection=None)` materialize 成新 plan 再 `render_plan.py`（这样 PNG 与 plan 一一对应）。`art_apply_ops` 只回 `selected`/`dirty_rect`，不落盘 plan；`art_edit_brief` 的缩略图固定在系统临时目录 `compile_thumb.png`。详见 docs/USAGE.md §5.3、§6.1。
 
 5. **`densify` 长不出新东西**：它只在既有笔触旁加子笔触，层集合不变。要**新加一层内容**（新的一层光/雨/船/纹理）必须 `add_layer` / `draw_path`（或改计划重新生成）；在既有层里改结构可用 `light_rig` / `set_light` / `redraw`。
 
-**已验证的凭空链路**：123 条 `draw_path`（天空/山脊/水面）→ `split_shading` → `relight_dir(azimuth=300, elevation=28)` → `densify(k=1.7)` → `set_light`，167 笔，0.07 s，出图 202 KB。它是「贴纸/海报」质感而不是厚涂——原因就是第 2 条：笔画太少、每条太长。
+**已验证的凭空链路**：123 条 `draw_path`（天空/山脊/水面）→ `split_shading` → `relight_dir(azimuth=300, elevation=28)` → `densify(k=1.7)` → `set_light`，167 笔，0.07 s，出图 202 KB。这是「贴纸/海报」质感：笔画太少、每条太长。
 
 
 ## 有 host 工具包时（先看这里）
@@ -245,7 +245,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 ```
 
 - **Plan ⇄ SVG 双向桥**：`scripts/plan_to_svg.py` / `svg_to_plan.py`，逐笔可编辑、双向亚秒；保真边界见 [PLAN_SVG.md](docs/PLAN_SVG.md)。
-- `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状，层数、层名、配色都不是模板；层怎么拆由你按场景决定，接口见 `docs/SHAPE_API.md`。
+- `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状；层数、层名、配色按场景定。接口见 `docs/SHAPE_API.md`。
 
   ![demo plan](examples/demo.plan.png)
 - **凭空画（无参考图）的主路径**：写 build script，先把 plan 攒出来，再渲染看图。最小骨架：
@@ -285,7 +285,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 
   层/part/pass 由你定；`fill_polygon` / `tapered_stroke` / `ribbon` 的用途见 [SHAPE_API.md](docs/SHAPE_API.md)，案例见 [EXAMPLES.md](docs/EXAMPLES.md)。渲染用 `scripts/render_plan.py`；driver 由你写。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
-- **`planner_8layer.py` 有 CLI 外壳，但不是无参考图入口**：它和 `plan_pipeline.py` 都需要「参考图 + `regions.npz`」，而 `regions.npz` 是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
+- **`planner_8layer.py` 有 CLI 外壳，但需要参考图**：它和 `plan_pipeline.py` 都要「参考图 + `regions.npz`」；`regions.npz` 是管线内部产物，技能里没有生成它的命令。外部调用方要么自带 plan，要么用 `draw` 追加。
 
 ---
 
@@ -377,7 +377,7 @@ python scripts\calib_report.py --json <工程>\calibrated.json --out <工程>\CA
 
 交集为空 = 样本互相矛盾，先查哪份判据错了，不要硬选一个数。
 某个判据“一个块都没筛掉”时，`attach_thin` 的 `info.inert`（模块级 `LAST_ATTACH`）会点名，
-对应条目带 `inert_on_sample`——未验证是一等数据，不是脚注。
+对应条目带 `inert_on_sample`——未验证是一等数据。
 
 **已知限制（与工程无关的机制性坑）**
 
@@ -406,7 +406,7 @@ python scripts\calib_report.py --json <工程>\calibrated.json --out <工程>\CA
 python <skill>/scripts/auto.py ref.png out.svg
 ```
 
-它会依次跑 3 个预设（illustration / portrait / photo），每档都真实渲染 + 算 mean / ≤5 / uncovered，按 `score = mean + 0.35·log2(kb/100)` 选一个（精度与体积的加权，不是纯精度），把最好的复制到 `out.svg`，并输出：
+它会依次跑 3 个预设（illustration / portrait / photo），每档都真实渲染 + 算 mean / ≤5 / uncovered，按 `score = mean + 0.35·log2(kb/100)` 选一个（精度与体积加权），把最好的复制到 `out.svg`，并输出：
 
 ```json
 {"picked": "photo", "mean": 2.935, "kb": 11252,
@@ -433,7 +433,7 @@ python <skill>/scripts/auto.py ref.png out.svg --region 150,200,330,430:384 --re
 
 `--region` / `--region-mask` 都可重复。实测 400×711 人像，illustration 预设：脸区 mean 8.17 → **4.98（-39%）**，体积 5.78MB → 6.94MB，背景不变（5.33）。输出 JSON 会多一个 `regions` 字段回显实际用的框。
 
-**报错或结果明显不对时**：先看 `candidates` 里每档的 `mean`，不是看 `picked`。某档 `mean` 异常高通常说明该预设不适合这类图（例如线稿跑 photo），换预设比调参更快。
+**报错或结果明显不对时**：先看 `candidates` 里每档的 `mean`，再看 `picked`。某档 `mean` 异常高通常说明该预设不适合这类图（例如线稿跑 photo），换预设比调参更快。
 
 ## 区域预算：脸用高色数，背景用低色数
 
@@ -476,7 +476,7 @@ python <skill>/scripts/iterate.py ref.png out.svg --base "48 6 1.0 1 0.4 2 0" --
 python <skill>/scripts/iterate.py ref.png out.svg --base "..." --patch patch.json
 ```
 
-补丁是数据，不是代码，所以模型可以直接产出：
+补丁是数据，模型可以直接产出：
 
 ```json
 {"ops": [{"op": "region", "box": [150, 200, 330, 430], "k": 384, "ss": 2},
@@ -656,7 +656,7 @@ plan2 = paint_diff.apply(plan, paint_diff.load("edit.diff.npz"), spec)
 tile_inc.rebuild(p, plan2, spec, {"band": [(320, 160, 479, 319)]}, base_of, gpu=True)
 ```
 
-判定标准不是"看起来对"，而是 **局部重绘结果 == 整份重画结果逐位相同**：
+判定标准：**局部重绘结果 == 整份重画结果逐位相同**。
 
     python tests/test_incremental.py
 
@@ -665,7 +665,7 @@ tile_inc.rebuild(p, plan2, spec, {"band": [(320, 160, 479, 319)]}, base_of, gpu=
 边界：
 
 - 区域裁剪逐像素（`rv == region_id || rv == -2`）：跨区域笔触只更新目标区域，区域外保持原样；
-- 同一后端逐位可复现；CPU 与 GPU 目前**不是**视觉等效：实测 99.0% 像素不同、max_delta 187（见 GPU 章节）；
+- 同一后端逐位可复现；CPU 与 GPU 目前**不视觉等效**：实测 99.0% 像素不同、max_delta 187（见 GPU 章节）；
 - 成本与「脏区内的笔触数」成正比，与整幅尺寸无关。
 
 ### 独立工具（不参与默认管线）
@@ -736,7 +736,7 @@ iterate.py - yy2.svg --from-svg yy1.svg --patch fix.json
 
 scripts/form.py 是 **SVG 人像**的定形量表。参数、返回、--parts / --rules 格式见 [docs/FORM.md](docs/FORM.md)；人像默认配色/规则只是示例，放在 [docs/EXAMPLES.md](docs/EXAMPLES.md) §10。
 
-它不是 paint plan 的结构 metric；paint plan 的结构度量见 docs/STRUCTURE_METRIC.md。
+这是 SVG 层的结构 metric；paint plan 的结构度量见 docs/STRUCTURE_METRIC.md。
 
 ask 在有参考和无参考两种情况下都会停住，输出 `preview_png`、路径数、颜色数，以及下一轮命令；`--base` 可省。想回到脚本自己挑块（无模型），加 `--mode auto`。
 
@@ -754,7 +754,7 @@ ask 在有参考和无参考两种情况下都会停住，输出 `preview_png`�
 
 ## 前置分层：ink.py（线稿 / 黑白海报）
 
-不是 vectorize 的开关，而是**给模型调用的辅助件**：一次只出一种层，打印 JSON（前景像素 / 路径数 / 体积），模型比完数字再决定要不要叠。
+**给模型调用的辅助件**：一次只出一种层，打印 JSON（前景像素 / 路径数 / 体积），模型比完数字再决定要不要叠。
 
 ```bash
 # 黑白海报层：实心块直出，最省
@@ -809,7 +809,7 @@ python <skill>/scripts/ink.py ref.png --style line --line-per-stroke --compose b
 | 4 色聚类 | 774 | 4 | 222.7KB | — |
 | **逐线取色（edges）** | 231 | **177** | 109.3KB | 13,872 |
 
-**线宽分段**（不是全局加粗）：`--line-width auto` 给每段线单独算宽度——用该线处的 Sobel 梯度强度（强轮廓粗、纹理细），并加了三道保护：小闭环（眼睛/鼻孔）不加粗、加粗后会碰到邻线的不加粗、`area<150` 或跨度 `<40px` 的不加粗。实测 238 段线里只有 17 段变成 3px，体积 +2.5KB（102.2KB），其余保持 1px。
+**线宽分段**：`--line-width auto` 给每段线单独算宽度——用该线处的 Sobel 梯度强度（强轮廓粗、纹理细），并加了三道保护：小闭环（眼睛/鼻孔）不加粗、加粗后会碰到邻线的不加粗、`area<150` 或跨度 `<40px` 的不加粗。实测 238 段线里只有 17 段变成 3px，体积 +2.5KB（102.2KB），其余保持 1px。
 
 **完整性的两个杀手**：`--dilate 1`（把细线加粗成块）和 `--min-stroke-px 25`（把小笔画整条丢掉）。现在默认是 `dilate=0` + `min-stroke-px=1`，产出与"裸 Canny 直接描"一致（参考：239 路径 / 115.4KB / 14,013 px）。
 
@@ -835,7 +835,7 @@ python <skill>/scripts/attribute.py ref.png out.svg --top 8
 
 **受控验证**：把画好的场景里太阳 path 挪到别处再跑归因——$id=2$ 排第一，mean 126.26，`guess=shape`，`suggest_fill` 直接给出“这块底下其实是背景色”的证据。
 
-**真实人像上的发现**：48 色量化后，最差的 path 是**颜色类**（bbox 横跨整幅），误差集中在轮廓（`ring > inner`）——所以换色几乎没用（mean 8.23 → 8.13），该加的是预算（`--region`），不是手术。**路径手术只对手绘/线稿类有意义**，对量化照片没有“一条线”可修。
+**真实人像上的发现**：48 色量化后，最差的 path 是**颜色类**（bbox 横跨整幅），误差集中在轮廓（`ring > inner`）——换色几乎没用（mean 8.23 → 8.13），优先加预算（`--region`）。**路径手术只对手绘/线稿类有意义**，量化照片没有“一条线”可修。
 
 闭环用法：`attribute.py` 看排名 → 组补丁 → `iterate.py --patch` → 复测（mean 与 `total_err_sum` 都看）。
 
@@ -912,7 +912,7 @@ python <skill>/scripts/paint_process.py ref.png out.html --size 876x1904 --durat
 # 阶段：起稿勾线 → 铺大色 → 分区平涂 → 二分光影 → 深入细化 → 遮罩细化 → 闭塞塑形 → 藏色 → 罩染调色 → 提亮补色 → 收线高光
 # 输出 out.html + out.preview.html；支持 ?static=1&ui=0、?step=N
 # 这是算法过程模拟，页面必须保留「AI 生成 / 算法路径模拟」标注，不能包装成真人作画录像
-# 注：以上数值是基准建议，不是固定档位；最高档需按目标（静态保真 / 过程可信）和预算扫参，取 Pareto 最优点。
+# 注：以上数值是基准建议；最高档按目标（静态保真 / 过程可信）和预算扫参，取 Pareto 最优点。
 ```
 
 依赖：Python 3 + numpy + Pillow + scipy + potracer（曲线分支）；原生 DLL 的 ctypes 绑定集中在 `scripts/native_loader.py`（两个脚本共用，缺失/DLL 报错时自动回退纯 Python，结果曲线一致：实测 Δmean 0.02）；`--full-palette` 另需 Windows x64 的 `scripts/native/palette_core.dll`，缺失会回退纯 Python 全量 median cut（很慢）；`--palette > 256` 另需 scikit-learn。**截图默认 `render.py`，零依赖**——直接调系统 Edge/Chrome 的 `--headless --screenshot`，找不到时看 `BROWSER_BIN` 环境变量；`render.js`（playwright-core）只在需要它时作为备选，按 `PW_CORE` → cwd/DSH_HOME/DSH_CHECKOUT 向上找 `.pnpm/playwright-core@*`。
@@ -938,7 +938,7 @@ python <skill>/scripts/paint_process.py ref.png out.html --size 876x1904 --durat
 
 > 表内是 750×434 源。876×1904 的 K=384/3× 实测 **385 层 / 139.7MB / 约 50s**；尺寸不同，别把 19.7MB 当成这张图的体积。默认抽样色板与全量色板在这张图上 mean 分别是 5.4917 / 5.4885，差距很小；追求极致再用 `--full-palette`。
 
-> K 是**颜色层数**，不是绘画阶段数。过程模式的 11 个阶段是 `paint_process.py` 专有；`vectorize.py` 的 384 层是 384 个色块路径。静态 `.svg` 不写 `data-step`，只有 HTML 播放器/过程模式需要播放标记。
+> K 是**颜色层数**；绘画阶段由 `paint_process.py` 管理，共 11 个阶段；`vectorize.py` 的 384 层是 384 个色块路径。静态 `.svg` 不写 `data-step`，只有 HTML 播放器/过程模式需要播放标记。
 
 ### 指令编译评测（30 条）+ 视觉框选样例
 
@@ -960,7 +960,7 @@ python scripts/eval_instructions.py plan.json examples/batch/expected_add.json e
 结果：**10/10 正确**（schema 全通过 + 算子集合 + 受影响层集合一致，`failures: []`）。
 覆盖：右下角金叶、花心高光、左下角叶子、茎上亮边、背景弧线、金色叶脉、水珠、蝴蝶轮廓、签名、飘落花瓣。
 诚实标注：`compiled_add.json` 是我按 schema 人工写的（本机没有模型 key，无法现场调模型），
-所以它验证的是**schema + 层/算子映射**，不是模型对开放指令的命中率；要测模型就配好 key 后重跑
+所以它验证的是**schema + 层/算子映射**；模型对开放指令的命中率需配好 key 后另测
 `compile_ops.py compile --thumb`，把输出存成 compiled_add.json 再 eval。
 
 
@@ -1020,7 +1020,7 @@ v1 保留作案例：**模型会在最不起眼的地方（色板类型）出错
 另：子代理自报 20/20，我没有直接采信，是本地重跑 eval 复核后才写进文档的。
 
 设计要点：10 条可表达 + 10 条**不可表达**（变成水彩 / 换成纯白背景 / 把玫瑰变成牡丹 /
-恢复上一次修改 / 更通透 / 更贵一点），后者期望模型输出空数组表示拒绝，而不是硬凑算子。
+恢复上一次修改 / 更通透 / 更贵一点），后者期望模型输出空数组表示拒绝。
 实测模型确实全部拒绝（6/6 类），说明"知道自己的边界"这件事是可以被量化的。
 
 > 说明：复核期望时有 4 条（id 7/9/10/18）属于判断题，已放宽为 `any_of`（多种合理答案都算对）；
@@ -1046,7 +1046,7 @@ python scripts/paint_cli.py eval plan.json examples/batch/expected_hard.json exa
 
 ## 可选附录：构图观察与视觉辅助（默认不使用）
 
-如果任务需要审美判断，可参考 [COMPOSITION.md](docs/COMPOSITION.md)：它只列观察问题和失败模式，不是流程、不是合格线。默认凭空画不需要读它。
+如果任务需要审美判断，可参考 [COMPOSITION.md](docs/COMPOSITION.md)：只列观察问题和失败模式，不含流程/合格线。默认凭空画不需要读它。
 
 默认凭空画不调用视觉辅助函数，也不需要任何模型权重。只有在任务明确允许外部视觉辅助时，才参考 [VISUAL_HELPERS.md](docs/VISUAL_HELPERS.md)。
 
@@ -1057,6 +1057,6 @@ python scripts/paint_cli.py eval plan.json examples/batch/expected_hard.json exa
 - class_reference + imf_runner：生成 ImageNet 类别先验（例如 277 = red fox）；
 - status：检查依赖、本地模型路径是否可用。
 
-参考图只支持 SDXS img2img。Sana-Sprint 已移除：本机未安装、pipeline 没有 image 入口，不再维护。输出仍只是 advisory 图，不是 plan。
+参考图只支持 SDXS img2img。Sana-Sprint 已移除：本机未安装、pipeline 没有 image 入口，不再维护。输出只是 advisory 图，不写 plan。
 
 它们只返回图片/元数据：不写 plan、不生成几何、不判断接地；不能描图或 vectorize。
