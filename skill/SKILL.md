@@ -35,19 +35,46 @@ whenToUse: >-
 
 这些线都不依赖模型权重；参考图只是可选 advisory，不写 plan。
 
-## 先选路线
+## 执行契约（先读这张）
 
-| 你要的 | 走这条 | 最短入口 |
-|---|---|---|
-| 位图 → 真矢量 SVG、放大不糊 | 矢量线 | `art_vectorize` / `python scripts/auto.py ref.png out.svg` |
-| 凭空画一张、厚涂、从零起稿 | 绘画线 | 写 `plan.json` → `art_paint` / `render_plan.py` |
-| 一句话改色、调光、局部重画 | 改画线 | `art_edit_brief` → 写 ops → `art_apply_ops` |
-| 画的过程视频、30fps | 视频线 | `paint_cli.py video` / `paint_video.py` |
-| 验收“像不像 / 是否露底” | 取证 | `metric.py`；确定性用同 plan 复渲 |
+这不是“看完再决定”的散文，而是一张执行卡：先选路线，按阶段走，每阶段有产物和通过条件；不过门就回退，不要往下硬做。
 
-**四层能力，两个入口**：能力是 A 矢量 / B 绘画 / C 改画 / D 视频；入口是 host `art_*` 工具和命令行脚本，二者是同一套代码，工具只是薄包装。
+### 0.1 路线选择
 
-**绘画线三条硬规矩**：
+| 你要的 | 走这条 | 最短入口 | 产物 | 通过条件 |
+|---|---|---|---|---|
+| 位图 → 真矢量 SVG、放大不糊 | 矢量线 | `art_vectorize` / `python scripts/auto.py ref.png out.svg` | `.svg` + 误差报告 | `metric.py` 的 mean/uncovered 达标，且 SVG 无 `<image>`/base64/渐变 |
+| 凭空画一张、厚涂、从零起稿 | 绘画线 | 写 `plan.json` → `art_paint` / `render_plan.py` | `.png`（+ 可选 `.mp4`） | 主体/接地/单焦点/25% 可读；同 plan 复渲 `maxdiff=0` |
+| 一句话改色、调光、局部重画 | 改画线 | `art_edit_brief` → 写 ops → `art_apply_ops` | 改后 `.png` + `ops.json` | `validate` 通过；选区外像素不变；改后看图成立 |
+| 画的过程视频、30fps | 视频线 | `paint_cli.py video` / `paint_video.py` | `.mp4` | 帧率/帧数/时长对；末帧与同 plan 静帧一致 |
+| 验收“像不像 / 是否露底” | 取证 | `metric.py`；确定性用同 plan 复渲 | 报告 | 数字与目检都过，不只看一个指标 |
+
+### 0.2 执行阶段
+
+| 阶段 | 做什么 | 产物 | 通过条件 | 失败回退 |
+|---|---|---|---|---|
+| 0 自检 | `python scripts/selfcheck.py` | 三行 OK | 三条全 OK | 先修 Python/原生 DLL，不进入画图 |
+| 1 选路 | 按 0.1 分类；只选一条主路线 | route | 不混路线 | 需求不清就先问，不要猜 |
+| 2 造输入 | 矢量：`auto.py`；绘画：写 plan；改画：`brief` | svg / plan / brief | 输入文件存在且可读 | 没有 plan 就不要渲染；回到造 plan |
+| 3 执行 | host `art_*` 或 CLI | png / svg / mp4 | 输出非空、尺寸/帧率对 | 看最后一条错误，不要重复同一命令 |
+| 4 验收 | `metric.py` / 复渲 / 看图 | 报告 | 机械门 + 语义门都过 | 只回退一个变量，保留 baseline |
+| 5 回改 | 改 plan/ops，不改“感觉” | 新产物 | 比 baseline 好或至少不差 | 不如 baseline 就回滚，不要叠补丁 |
+| 6 交付 | 保留 plan/ops/png/报告 | 交付包 | 能复现、能说明缺什么 | 不能复现就不算交付 |
+
+### 0.3 两个入口
+
+能力是 A 矢量 / B 绘画 / C 改画 / D 视频；入口是 host `art_*` 工具和命令行脚本。二者是同一套代码，工具只是薄包装：当前会话有工具就用工具，没有就照命令敲。
+
+### 0.4 停止条件
+
+- **没有 plan**：不要开始画；先造 plan。
+- **输出为空 / 0 字节**：不要声称完成。
+- **`maxdiff != 0`**：不要声称逐像素确定；先固定入口/后端/look。
+- **主体、接地、接触点不成立**：不要用 `densify` / 加光硬修；回 plan 改形体。
+- **没看过图**：不要写“已交付”；至少看 100% 和 25%。
+- **改画选区外变了**：回滚，检查 mask/selection，不要接受“差不多”。
+
+### 0.5 三条硬规矩
 
 1. `plan` 是唯一事实源；改画面 = 改 plan 或往 plan 上叠 ops。
 2. 先形体/接地/单焦点，再光效和细节；`densify` 修不了结构。
@@ -93,6 +120,58 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 | 语义验收 | 主体是否成立、肢体/枝干连接与承重是否成立、脚/接触点是否有承托面、最亮处是否单焦点、25% 是否可读、是否符合意图；机械判据只管确定性/合法/不露底。 |
 
 驱动契约见 [docs/DRIVER.md](docs/DRIVER.md)；交付清单与验收见 [docs/USAGE.md](docs/USAGE.md) §6.2/§6.3。阶段内用什么层、笔刷、算子，由题材决定。
+
+## 路线最小执行链
+
+下面四段是“按契约跑”的最短路径；详细参数、坑位在后面的参考节。
+
+### A. 矢量线：位图 → SVG
+
+```powershell
+python scripts/auto.py ref.png out.svg       # 默认入口，不要先手调 K/ss
+# auto.py 的 JSON 报告里已有 mean / kb / candidates
+# 要自己复验像素，再用 render.py 把 SVG 渲成 PNG，然后 metric.py
+```
+
+- 先跑 `auto.py`，它自己选预设；用户明确要参数时才传 `--k/--ss`。
+- 静态交付输出 `.svg`；过程播放器 `.html` 只在用户明确要“过程/回放”时生成。
+- 验收：mean / ≤5 / ≤10 / uncovered；SVG 内不得出现 `<image>`、base64、渐变。
+
+### B. 绘画线：plan → PNG
+
+```text
+1. 写 build script：canvas + layers + strokes
+2. plan_io.dump_plan(...)
+3. art_paint(plan, out) / python scripts/render_plan.py plan --out out.png
+4. 看 100% 和 25%；主体/接地/接触/单焦点不过就回 plan
+5. 同 plan 再渲一次，maxdiff 必须为 0
+```
+
+- `fill_polygon` 只给块面第一层；体积/颜色变化要多次 fill，或 `split_shading`/`relight_dir`。
+- `flat` 是平涂/建筑面；厚涂用 `bristle`/`round_soft`，低透明度多层叠加。
+- `draw_path` 是每条连续子路径一笔；毛发要很多短笔，不是几条长线。
+
+### C. 改画线：指令 → ops → 改后 PNG
+
+```text
+1. art_edit_brief(plan, instruction, out) 读 thumb + prompt
+2. 自己写 ops.json
+3. compile_ops.py validate plan --ops ops.json
+4. art_apply_ops(plan, ops, out)（或 paint_cli.py edit ... --fast）
+5. 看选区外是否不变；全局改色单独跑
+```
+
+- 局部改色用 raster mask + `--mask-mode all`，不要用颜色连通块外接矩形代替背景 mask。
+- 一次 edit 不要混用“带 layer 的算子”和全局算子；全局就单独 materialize。
+
+### D. 视频线：plan → 30fps 过程片
+
+```powershell
+python scripts/paint_cli.py video plan.json --ops ops.json --out out.mp4 --frames 600
+```
+
+- 先在静帧上过 B/C 的验收，再出视频；视频不是验收工具。
+- 末帧必须与同 plan 静帧一致；帧率固定 30fps，不丢帧。
 
 ## ops 算子全表（21 个，确定性、可 diff、零随机）
 
