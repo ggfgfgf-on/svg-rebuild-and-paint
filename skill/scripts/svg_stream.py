@@ -477,6 +477,10 @@ def stream_svg_to_plan(source, chunk_size=65536):
         keys = ("x1", "y1", "x2", "y2") if p["type"] == "linear" else ("cx", "cy", "r")
         for k in keys:
             p[k] = node["attrs"].get(k, "0%" if p["type"] == "linear" and k in ("x1", "y1") else ("100%" if k == "x2" else "50%"))
+        if p["type"] == "radial":
+            for k in ("fx", "fy", "fr"):
+                if k in node["attrs"]:
+                    p[k] = node["attrs"][k]
         return p
 
     def node_xml(node):
@@ -616,6 +620,27 @@ def stream_svg_to_plan(source, chunk_size=65536):
             strokes.append({"layer": layer, "preset": "image", "image": fimg,
                             "x": 0, "y": 0, "width": canvas[0], "height": canvas[1], "opacity": 1.0})
             return
+        clip_refs = re.findall(r"url\(#([^)]+)\)", str(a.get("clip-path", "")) + " " + str(a.get("mask", "")))
+        if clip_refs:
+            refs = [defs_map[r] for r in clip_refs if r in defs_map]
+            if refs:
+                defs_xml = "".join(node_xml(n) for n in refs)
+                attrs = "".join(' %s="%s"' % (k, html.escape(str(v), quote=True)) for k, v in a.items())
+                mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s"><defs>%s</defs>'
+                        '<%s%s/></svg>' % (canvas[0], canvas[1], defs_xml, tag, attrs))
+                try:
+                    sub = _ps._svg_to_plan_py(mini)
+                    for sl in sub.get("layers", []):
+                        if isinstance(sl.get("mask"), dict):
+                            for L in layers:
+                                if L["name"] == layer:
+                                    L["mask"] = sl["mask"]
+                    for st in sub.get("strokes", []):
+                        st["layer"] = layer
+                        strokes.append(st)
+                    return
+                except Exception:
+                    pass
         fill = a.get("fill", "")
         stroke = a.get("stroke", "")
         data_preset = a.get("data-preset", "")
@@ -651,6 +676,10 @@ def stream_svg_to_plan(source, chunk_size=65536):
             op = float(a.get("fill-opacity", a.get("opacity", 1.0)) or 1.0)
             rule = a.get("fill-rule", "nonzero")
             color = _ps._color(fill, (0, 0, 0))
+            if pt and fill.startswith("url(") and pt.get("stops"):
+                cols = [s[1] for s in pt["stops"] if len(s) > 1]
+                if cols:
+                    color = [sum(c[i] for c in cols) / len(cols) for i in range(3)]
             if not holes and len(subs) > 1:
                 st = {"layer": layer, "preset": "fill", "opacity": op, "color": color,
                       "points": [[float(p[0]), float(p[1]), 1.0] for p in subs[0]],
