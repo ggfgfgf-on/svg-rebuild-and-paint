@@ -538,6 +538,18 @@ def test_native_parse_d_subpaths():
     assert subs[0][0] == [0.0, 0.0]
 
 
+def test_path_d_preserved(tmp_path):
+    import svg_stream
+    p = tmp_path / "curve.svg"
+    p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+                 '<path fill="#f00" d="M0 0 C20 0 30 40 50 50 L80 80 Z"/></svg>',
+                 encoding="utf-8")
+    d = svg_stream.stream_svg_to_plan(str(p))
+    assert d["strokes"][0].get("path_d")
+    out = plan_svg.plan_to_svg(d)
+    assert "C20 0 30 40 50 50" in out
+
+
 def test_stream_file_incremental(tmp_path):
     import svg_stream
     p = tmp_path / "big.svg"

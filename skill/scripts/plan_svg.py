@@ -222,7 +222,7 @@ def _mask_def(m, gid, w, h):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("runs") or x.get("subpaths") or x.get("holes") for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("runs") or x.get("subpaths") or x.get("holes") or x.get("path_d") for x in doc.get("strokes", []))
             and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
@@ -336,7 +336,7 @@ def plan_to_svg(doc, *, filters=False, title=None):
                 continue
             if preset == "fill":
                 subs = s.get("subpaths")
-                d = _path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or [])
+                d = s.get("path_d") or (_path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or []))
                 out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
                            (d, paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
                             (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))

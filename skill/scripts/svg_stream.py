@@ -345,7 +345,7 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 return None
             strokes = []
 
-            def add_fill(attrs, subpaths):
+            def add_fill(attrs, subpaths, path_d=None):
                 fill = attrs.get("fill", "")
                 if not fill or fill == "none":
                     return
@@ -364,6 +364,8 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                       "fill_rule": rule}
                 if len(good) > 1:
                     st["subpaths"] = [[[float(p[0]), float(p[1]), 1.0] for p in q] for q in good]
+                if path_d:
+                    st["path_d"] = path_d
                 strokes.append(st)
 
             for rm in re.finditer(br"<rect\b([^>]*)>", mm):
@@ -394,10 +396,11 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 pre = mm[start:qstart].decode("utf-8", "replace")
                 post = mm[qend + 1:tag_end].decode("utf-8", "replace")
                 attrs = dict(re.findall(r'([\w:-]+)="([^"]*)"', pre + " " + post))
+                raw_d = mm[qstart:qend].decode("ascii", "ignore")
                 subs = None
                 if _native is not None and _native.available():
                     try:
-                        subs = _native.parse_d_subpaths(mm[qstart:qend].decode("ascii", "ignore"))
+                        subs = _native.parse_d_subpaths(raw_d)
                     except Exception:
                         subs = None
                 if subs is None:
@@ -406,7 +409,7 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                         ps.feed(mm[i:min(i + chunk_size, qend)].decode("ascii", "ignore"))
                     ps.finish()
                     subs = ps.out
-                add_fill(attrs, subs)
+                add_fill(attrs, subs, raw_d)
             if not strokes:
                 return None
             return {"canvas": [w, h], "layers": [{"name": "layer", "blend": "normal"}], "strokes": strokes}
