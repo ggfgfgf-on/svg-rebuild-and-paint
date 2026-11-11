@@ -1,15 +1,15 @@
 ---
 name: svg-rebuild-and-paint
 description: >-
-  Three runnable layers, all measured. (1) Bitmap -> true vector SVG: potrace curves per colour mask,
+  Four runnable capabilities, all measured. (1) Bitmap -> true vector SVG: potrace curves per colour mask,
   pure flat <path> (no <image>/base64/gradients), no staircase at any zoom, plus a per-pixel error
   report (mean / <=5 / <=10 / uncovered). (2) Deterministic thick-paint engine: scene-defined layered plans,
-  brush-stamp rasterization (CPU + DirectCompute GPU), 30fps video, plan diff, tile incremental repaint.
-  (3) Semantic ops layer, ZERO KEY: a plain natural-language instruction is compiled by the current
-  multimodal model itself (it reads a plan summary + a live thumbnail) into ops JSON - recolour by layer
-  or mask, resize, refine/detail, local repaint - which is validated and then applied; the same layer draws FROM SCRATCH
-  with draw ops on a blank canvas - no reference image needed. Everything is measured; the skill ships no
-  tuned thresholds. Triggers: 重绘/转SVG/矢量化, 按指令改图/改成蓝色/局部重画, 凭空画一张/从零画,
+  brush-stamp rasterization (CPU + DirectCompute GPU). (3) Semantic ops layer, ZERO KEY: a plain natural-language
+  instruction is compiled by the current multimodal model itself (it reads a plan summary + a live thumbnail)
+  into ops JSON - recolour by layer or mask, resize, refine/detail, local repaint - which is validated and then
+  applied; the same layer draws FROM SCRATCH with draw ops on a blank canvas - no reference image needed.
+  (4) Plan-driven 30fps process video, plan diff and tile incremental repaint. Everything is measured; the
+  skill ships no tuned thresholds. Triggers: 重绘/转SVG/矢量化, 按指令改图/改成蓝色/局部重画, 凭空画一张/从零画,
   redraw as SVG, recolour this painting, edit artwork by instruction, paint from scratch.
 whenToUse: >-
   The default choice for image-to-SVG redraws - 重绘, 重绘这个, svg重绘, 矢量化, 转SVG, SVG 化,
@@ -24,9 +24,45 @@ whenToUse: >-
   extraction and element location, not for faithful raster-to-path reproduction).
 ---
 
-# 像素级 SVG 重绘（与素材无关）
+# SVG 重建与厚涂绘画
 
-把任意位图重绘成**单文件自包含 HTML**：纯 SVG 平涂 `<path>` + 离散步骤播放器；用逐像素误差闭环验收，不靠目视判断。
+这个 skill 不是只有“位图转 SVG”。它有四条可组合的能力线，共用同一套确定性光栅器：
+
+- **矢量线**：位图 → 真矢量 `.svg`（纯 `<path>`，无 `<image>`/base64/渐变），可选单文件 HTML 过程播放器；用逐像素误差验收。
+- **绘画线**：plan（canvas + layers + strokes）→ 厚涂 PNG / 30fps 过程视频；用同 plan 复渲 maxdiff=0 验收。
+- **改画线**：一句指令 → ops JSON → 作用在已有 plan 上；不重画整张。
+- **视频线**：按 plan 的笔画顺序逐帧出片，30fps。
+
+这些线都不依赖模型权重；参考图只是可选 advisory，不写 plan。
+
+## 先选路线
+
+| 你要的 | 走这条 | 最短入口 |
+|---|---|---|
+| 位图 → 真矢量 SVG、放大不糊 | 矢量线 | `art_vectorize` / `python scripts/auto.py ref.png out.svg` |
+| 凭空画一张、厚涂、从零起稿 | 绘画线 | 写 `plan.json` → `art_paint` / `render_plan.py` |
+| 一句话改色、调光、局部重画 | 改画线 | `art_edit_brief` → 写 ops → `art_apply_ops` |
+| 画的过程视频、30fps | 视频线 | `paint_cli.py video` / `paint_video.py` |
+| 验收“像不像 / 是否露底” | 取证 | `metric.py`；确定性用同 plan 复渲 |
+
+**四层能力，两个入口**：能力是 A 矢量 / B 绘画 / C 改画 / D 视频；入口是 host `art_*` 工具和命令行脚本，二者是同一套代码，工具只是薄包装。
+
+**绘画线三条硬规矩**：
+
+1. `plan` 是唯一事实源；改画面 = 改 plan 或往 plan 上叠 ops。
+2. 先形体/接地/单焦点，再光效和细节；`densify` 修不了结构。
+3. 同 plan、同后端、同 look 复渲必须逐像素一致；跨入口不承诺逐位一致。
+
+## 文档地图
+
+| 文档 | 解决什么 |
+|---|---|
+| [docs/USAGE.md](docs/USAGE.md) | 操作手册主入口：四层能力、两个入口、五分钟跑通、调参、症状速查 |
+| [docs/API.md](docs/API.md) | 21 个 ops 的完整参数、默认值、选区语义 |
+| [docs/SHAPE_API.md](docs/SHAPE_API.md) | `fill_polygon` / `tapered_stroke` / `ribbon` 的参数与边界 |
+| [docs/EXAMPLES.md](docs/EXAMPLES.md) | plan 字段样板、driver 骨架、最小调用 |
+| [docs/DRIVER.md](docs/DRIVER.md) | driver 契约：输入、输出、校验、可选模型 |
+| [docs/VISUAL_HELPERS.md](docs/VISUAL_HELPERS.md) | advisory 参考图；不写 plan、不生成几何 |
 
 ## 30 秒自检（陌生环境先跑这个）
 
@@ -39,14 +75,8 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 ## 不会调？先看 docs/USAGE.md
 
-**[docs/USAGE.md](docs/USAGE.md) 是唯一的操作手册**：四层能力 → 哪个入口 → 改哪个参数。它回答的是"别的模型拿到这套东西不会用"：
-
-- **四层能力与两个入口**：`art_vectorize` / `art_paint` / `art_edit_brief` / `art_apply_ops` 各自背后是哪条命令、传什么、返回什么、坑在哪；
-- **一句话 → 走哪条**：转 SVG、画一张、改色调光、出视频、验收，各自的第一条命令；
-- **调参手册**：SVG 的 `K/ss/turd/dil/blur/区域预算`，绘画的层/笔刷/size/opacity/hardness，改画的 21 个算子与顺序约束，视频的帧数与增量渲染；
-- **症状 → 参数速查**：露白、发灰、太阳成环、天空横带、云像药丸、水面竖条、改画没反应，各自先改哪个参数。
-
-先读它，再回这份文件查具体坑位与实测数据。
+它是操作手册主入口：五分钟跑通、四层能力与两个入口、调参手册、症状速查都在那里。
+本文件只保留路由、契约和坑位；算子细节查 [API.md](docs/API.md)，形状参数查 [SHAPE_API.md](docs/SHAPE_API.md)。
 
 ## 交付要求（目标级，不是画法）
 
@@ -62,7 +92,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 | 诚实 | 不声称没做过的事；卡住就说卡在哪、文档哪里不够用。 |
 | 语义验收 | 主体是否成立、肢体/枝干连接与承重是否成立、脚/接触点是否有承托面、最亮处是否单焦点、25% 是否可读、是否符合意图；机械判据只管确定性/合法/不露底。 |
 
-驱动接口见 `docs/USAGE.md` §6.1；交付清单 §6.2；验收 §6.3。阶段内用什么层、笔刷、算子，由题材决定。
+驱动契约见 [docs/DRIVER.md](docs/DRIVER.md)；交付清单与验收见 [docs/USAGE.md](docs/USAGE.md) §6.2/§6.3。阶段内用什么层、笔刷、算子，由题材决定。
 
 ## ops 算子全表（21 个，确定性、可 diff、零随机）
 
@@ -101,7 +131,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 **用 ops 凭空画的三个硬约束（踩过坑，写在这里）**
 
 1. **顺序**：`split_shading` 必须在 `relight_dir` / `light_rig` 之前，否则直接抛 `ValueError: 笔触缺少 albedo/shade`。`set_light` 同样依赖它。
-2. **draw_path 是一条 path = 一笔**：给一条 1200px 的粗折线，画出来就是一根粗线，不是一片山。要厚涂得像落日那样发上千条短笔，不是发十几条粗线。
+2. **draw_path 是“每条连续子路径 = 一笔”**：一条 `path` 里若写了多个 `M...` 子路径，会拆成多笔；只有一条连续子路径时才是单笔。给一条 1200px 的粗折线，画出来是一根粗线，不是一片山；要厚涂得像落日那样发上千条短笔，不是发十几条粗线。
 3. **增量渲染看不见新笔画**：`paint_cli.py edit` 只重画「原有笔触」的脏矩形，凭空加笔画会得到空白图（4 KB）。新的 `paint_cli.py` 检测到笔画数变化会自动整幅重画，host 工具 `art_apply_ops` 也带上了 `--fast`；手工调 CLI 时记得加 `--fast`。
 
 4. **一次 edit 里别混用「带 layer 的算子」和「全局算子」**：`paint_cli.py edit`（即 `art_apply_ops`）先取「带 layer 的算子提到的层」做 selection，再传给所有算子，全局 `tone_map`/`erase`/`redraw` 会被悄悄压到那几层上。实测同一组 ops：真全局 luma 52.894，走 CLI 49.555，约 95% 像素不同。要全局就单独跑一次，或用 `ops.apply(doc, specs, selection=None)` materialize 成新 plan 再 `render_plan.py`（这样 PNG 与 plan 一一对应）。`art_apply_ops` 只回 `selected`/`dirty_rect`，不落盘 plan；`art_edit_brief` 的缩略图固定在系统临时目录 `compile_thumb.png`。详见 docs/USAGE.md §5.3、§6.1。
@@ -124,7 +154,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 工具只是命令行的薄包装，没有额外逻辑；没有工具的环境照旧走下面的命令行。
 
-**两条渲染入口的后端/profile 处理不同**：`render_plan.py`（`art_paint` 背后就是它）走 `render_util`，可用 `--gpu` 切后端，并按 `--look` / `scripts/native/look.json` 叠外观 profile；`plan_io.render_plan()` 是直接 `paint_native` 的 CPU 批渲染，不套 profile。默认 `look.json` 当前是恒等（tone=1/0/1、ops=空），但“两个入口都走 CPU 就逐像素一致”**没有实测保证**：冷读审计观察到 `plan_io.render_plan()` 与 host `art_paint` 的 CPU 结果有 1 LSB 差异。要逐位比较，固定同一入口 + 同一后端 + 同一 look；不要跨入口承诺逐位一致。
+**两条渲染入口的后端/profile 处理不同**：`render_plan.py`（`art_paint` 背后就是它）走 `render_util`，可用 `--gpu` 切后端，并按 `--look` / `scripts/native/look.json` 叠外观 profile；`plan_io.render_plan()` 是直接 `paint_native` 的 CPU 批渲染，不套 profile。默认 `look.json` 当前是恒等（tone=1/0/1、ops=空），但**不要承诺两个入口逐位一致**：冷读审计观察到 `plan_io.render_plan()` 与 host `art_paint` 的 CPU 结果有 1 LSB 差异。要逐位比较，固定同一入口 + 同一后端 + 同一 look。
 
 ## 计划从哪来（绘画 / 改画的起点）
 
@@ -176,7 +206,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 
   层/part/pass 由你定；`fill_polygon` / `tapered_stroke` / `ribbon` 的用途见 [SHAPE_API.md](docs/SHAPE_API.md)，案例见 [EXAMPLES.md](docs/EXAMPLES.md)。渲染用 `scripts/render_plan.py`；driver 由你写。
 - 想从零画（没有参考图）：用 `draw` 算子往空画布计划里追加笔画（`iterate.py --blank` 或 `ops` 的 `draw_path`），不要等自动生成。
-- **`planner_8layer.py` 是库，不是命令行入口**；`plan_pipeline.py` 需要「参考图 + `regions.npz`」，后者是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
+- **`planner_8layer.py` 有 CLI 外壳，但不是无参考图入口**：它和 `plan_pipeline.py` 都需要「参考图 + `regions.npz`」，而 `regions.npz` 是管线内部产物，技能里没有生成它的命令。外部调用方不要指望这两条自动出 plan：要么自带 plan，要么用 `draw` 追加。
 
 ---
 
