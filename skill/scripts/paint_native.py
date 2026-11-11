@@ -69,6 +69,9 @@ def load():
     lib.paint_fill_gradient_polygon.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4 + [ctypes.c_float]
     lib.paint_fill_polygon.restype = ctypes.c_int
     lib.paint_fill_polygon.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 4
+    lib.paint_fill_polygon_holes.restype = ctypes.c_int
+    lib.paint_fill_polygon_holes.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int,
+                                             f32, ctypes.c_int, i32, ctypes.c_int] + [ctypes.c_float] * 4
     lib.paint_stroke_l.restype = ctypes.c_int
     lib.paint_stroke_l.argtypes = [vp, ctypes.c_int, f32, ctypes.c_int] + [ctypes.c_float] * 5 + [
         ctypes.c_int, ctypes.c_float, ctypes.c_float, i32, ctypes.c_int, f32, f32, ctypes.c_int]
@@ -289,6 +292,24 @@ class Painter:
         r, g, b = rgb
         return self._lib.paint_fill_polygon(self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
                                             len(pts), r / 255.0, g / 255.0, b / 255.0, float(opacity))
+
+    def fill_polygon_holes(self, layer, pts, holes, rgb=(0, 0, 0), opacity=1.0):
+        pts = np.ascontiguousarray(pts, dtype=np.float32)
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError("fill points must be Nx2")
+        hs = [np.asarray(h, dtype=np.float32).reshape(-1, 2) for h in (holes or []) if len(h) >= 3]
+        if not hs:
+            return self.fill_polygon(layer, pts, rgb, opacity)
+        flat = np.ascontiguousarray(np.concatenate(hs, axis=0), dtype=np.float32)
+        offs = np.zeros(len(hs) + 1, dtype=np.int32)
+        for i, h in enumerate(hs):
+            offs[i + 1] = offs[i] + len(h)
+        r, g, b = rgb
+        return self._lib.paint_fill_polygon_holes(
+            self._ctx, int(layer), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+            flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(flat),
+            offs.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), len(hs),
+            r / 255.0, g / 255.0, b / 255.0, float(opacity))
 
     def fill_gradient(self, layer, pts, paint, opacity=1.0):
         pts = np.ascontiguousarray(pts, dtype=np.float32)

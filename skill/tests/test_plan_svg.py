@@ -227,7 +227,7 @@ def test_clip_evenodd_fill_hole():
     st = d["strokes"][0]
     assert st["fill_rule"] == "evenodd"
     assert len(st["holes"]) == 1
-    assert isinstance(st["mask"], dict)
+    assert "mask" not in st
     out = plan_svg.plan_to_svg(d)
     assert 'fill-rule="evenodd"' in out
     path_d = out.split('<path d="', 1)[1].split('"', 1)[0]

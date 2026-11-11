@@ -670,7 +670,7 @@ def stream_svg_to_plan(source, chunk_size=65536):
             if node and node["tag"] == "clipPath":
                 polys = _clip_polys(node)
                 evenodd = str(node.get("attrs", {}).get("clip-rule", "nonzero")) == "evenodd"
-                if polys and not evenodd:
+                if polys:
                     if tag == "path":
                         subs0 = [q for q in _ps._parse_d_subpaths(a.get("d", "")) if len(q) >= 3]
                     elif tag in ("rect", "circle", "ellipse", "polygon", "polyline"):
@@ -684,6 +684,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
                         for q in clipped:
                             parts.append("M " + " L ".join("%.3f %.3f" % (float(p[0]), float(p[1])) for p in q) + " Z")
                         a = dict(a); a["d"] = " ".join(parts); a.pop("clip-path", None)
+                        if evenodd:
+                            a["fill-rule"] = "evenodd"
                         tag = "path"
         clip_refs = re.findall(r"url\(#([^)]+)\)", str(a.get("clip-path", "")) + " " + str(a.get("mask", "")))
         if clip_refs:

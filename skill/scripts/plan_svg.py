@@ -222,7 +222,7 @@ def _mask_def(m, gid, w, h):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("runs") or x.get("subpaths") for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("runs") or x.get("subpaths") or x.get("holes") for x in doc.get("strokes", []))
             and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
@@ -2086,17 +2086,7 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
     for ch in list(root):
         visit(ch)
     for st in strokes:
-        if st.pop("_evenodd", False):
-            outer = [(float(p[0]), float(p[1])) for p in (st.get("points") or [])]
-            holes = [[(float(p[0]), float(p[1])) for p in h] for h in (st.get("holes") or [])]
-            if len(outer) >= 3:
-                from PIL import Image, ImageDraw
-                im = Image.new("L", (w, h), 0)
-                ImageDraw.Draw(im).polygon(outer, fill=255)
-                for hole in holes:
-                    if len(hole) >= 3:
-                        ImageDraw.Draw(im).polygon(hole, fill=0)
-                st["mask"] = _mask_png(im)
+        st.pop("_evenodd", None)
     by = {}
     for st in strokes:
         by.setdefault(st["layer"], []).append(st.get("points") or [])
