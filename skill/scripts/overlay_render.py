@@ -128,7 +128,7 @@ def render_overlay(s, w, h):
         tw = max(1, int(round(float(ptn.get("width", tile.width)))))
         th = max(1, int(round(float(ptn.get("height", tile.height)))))
         if ptn.get("units") == "objectBoundingBox":
-            q = [(float(a[0]), float(a[1])) for a in (s.get("points") or [])]
+            q = [(float(a[0]), float(a[1])) for a in (s.get("points") if s.get("points") is not None else [])]
             if len(q) >= 3:
                 bw = max(1e-6, max(a[0] for a in q) - min(a[0] for a in q))
                 bh = max(1e-6, max(a[1] for a in q) - min(a[1] for a in q))
@@ -141,7 +141,7 @@ def render_overlay(s, w, h):
             for x in range(0, w, tw):
                 canvas.alpha_composite(tile, (x, y))
         mask = Image.new("L", (w, h), 0)
-        pts = [(float(a[0]), float(a[1])) for a in (s.get("points") or [])]
+        pts = [(float(a[0]), float(a[1])) for a in (s.get("points") if s.get("points") is not None else [])]
         if len(pts) >= 3:
             ImageDraw.Draw(mask).polygon(pts, fill=255)
         op = max(0.0, min(1.0, float(s.get("opacity", 1.0))))

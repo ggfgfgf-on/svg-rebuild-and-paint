@@ -141,7 +141,7 @@ def _draw_items(p, li, items, gpu, nthreads=8, region=None):
             if rgba is not None and hasattr(p, "set_layer_rgba"):
                 p.set_layer_rgba(li, rgba)
             continue
-        pts = np.asarray(s.get("points") or [], np.float32)
+        pts = np.asarray(s.get("points") if s.get("points") is not None else [], np.float32)
         if len(pts) < 1:
             continue
         if str(s.get("preset")) == "fill":
@@ -198,7 +198,7 @@ def _rebuild_local(p, plan, spec, dirty, base_of, gpu, nthreads=8):
             p.set_region(mask_for([(x0, y0, x1, y1)], base_of(nm), H, W))
             p.clear_rect(li + 1, x0, y0, x1, y1)
             for s in items:
-                pts = np.asarray(s.get("points") or [], np.float32)
+                pts = np.asarray(s.get("points") if s.get("points") is not None else [], np.float32)
                 if str(s.get("preset")) == "fill":
                     q = _clip_rect(pts[:, :2], x0, y0, x1, y1)
                     if len(q) >= 3:

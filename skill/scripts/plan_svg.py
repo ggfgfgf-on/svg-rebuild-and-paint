@@ -420,12 +420,8 @@ def plan_to_svg(doc, *, filters=False, title=None, verify_path_d="auto"):
                         else:
                             chunks.append(_path_d_compact(q))
                             changed = True
-                    if use_tr and changed:
-                        d = _path_d_multi(subs, s.get("holes") or [])
-                        trs = ""
-                    else:
-                        d = " ".join(chunks)
-                        trs = (' transform="matrix(%s)"' % " ".join(_f(float(v)) for v in tr)) if use_tr else ""
+                    d = " ".join(chunks)
+                    trs = (' transform="matrix(%s)"' % " ".join(_f(float(v)) for v in tr)) if use_tr else ""
                     out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s%s/>' %
                                (d, paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
                                 trs, (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))
@@ -439,7 +435,7 @@ def plan_to_svg(doc, *, filters=False, title=None, verify_path_d="auto"):
                         raw_d = None
                 d = raw_d or (_path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or []))
                 tr = s.get("transform")
-                trs = (' transform="matrix(%s)"' % " ".join(_f(float(v)) for v in tr)) if raw_d and isinstance(tr, (list, tuple)) and len(tr) == 6 else ""
+                trs = (' transform="matrix(%s)"' % " ".join(_f(float(v)) for v in tr)) if (raw_d or s.get("path_d")) and isinstance(tr, (list, tuple)) and len(tr) == 6 else ""
                 out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s%s/>' %
                            (d, paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
                             trs, (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))

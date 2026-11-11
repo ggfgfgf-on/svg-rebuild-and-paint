@@ -95,7 +95,7 @@ def _pack_plan_py(doc) -> bytes:
         out += struct.pack("<fff", float(s.get("size", 8.0)), float(s.get("opacity", 1.0)), float(s.get("hardness", 0.7)))
         c = s.get("color") or [217, 180, 90]
         out += struct.pack("<fff", float(c[0]), float(c[1]), float(c[2]))
-        pts = s.get("points") or []
+        pts = s.get("points") if s.get("points") is not None else []
         out += struct.pack("<H", len(pts))
         for q in pts:
             out += struct.pack("<fff", float(q[0]), float(q[1]), float(q[2] if len(q) > 2 else 1.0))
