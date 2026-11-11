@@ -12,6 +12,7 @@
 | Optional | reference_image.img2img |
 | Implicit model load | no |
 | Validation | plan_io check; rerender maxdiff = 0 |
+| Smoke | scripts/model_smoke.py --model all |
 
 ## Models
 

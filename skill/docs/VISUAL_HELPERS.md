@@ -95,6 +95,18 @@ meta = class_reference(277, "out/prior", n=1, seed=0, runner=runner)
 
 277 是 ImageNet 的 red fox。类别图只提供“狐狸长什么样”的先验，不提供构图、姿态、支撑关系。
 
+## 3.1 模型 smoke
+
+模型推理不跑默认 pytest；显式跑：
+
+~~~powershell
+python scripts/model_smoke.py --model sdxs --out out/smoke-sdxs
+python scripts/model_smoke.py --model imf --repo <imeanflow_torch> --ckpt <iMF-B-2.pth> --out out/smoke-imf
+~~~
+
+SDXS smoke 会跑两次：文生图 + 拿文生图结果做 img2img。
+模型测试默认 skip；DSH_MODEL_SMOKE=1 时才在 pytest 里跑。
+
 ## 4. 许可证与发布
 
 - SDXS-512-DreamShaper：OpenRAIL++；

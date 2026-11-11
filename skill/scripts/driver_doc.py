@@ -33,6 +33,7 @@ def build():
         "| Optional | " + ", ".join(d["optional"]) + " |",
         "| Implicit model load | " + ("yes" if d["implicit_model_load"] else "no") + " |",
         "| Validation | " + "; ".join(d["validation"]) + " |",
+        "| Smoke | " + str(d.get("smoke", "")) + " |",
         "",
         "## Models",
         "",

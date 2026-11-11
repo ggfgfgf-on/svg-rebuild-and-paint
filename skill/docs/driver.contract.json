@@ -6,7 +6,8 @@
     "required": ["plan_io", "render_plan"],
     "optional": ["reference_image.img2img"],
     "implicit_model_load": false,
-    "validation": ["plan_io check", "rerender maxdiff = 0"]
+    "validation": ["plan_io check", "rerender maxdiff = 0"],
+    "smoke": "scripts/model_smoke.py --model all"
   },
   "models": {
     "sdxs-512": {
