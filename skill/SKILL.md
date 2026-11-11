@@ -79,7 +79,7 @@ whenToUse: >-
 - **没看过图**：不要写“已交付”；至少看 100% 和 25%。
 - **改画选区外变了**：回滚，检查 mask/selection，不要接受“差不多”。
 
-### 0.5 三条硬规矩
+### 0.5 三条验收不变量
 
 1. `plan` 是唯一事实源；改画面 = 改 plan 或往 plan 上叠 ops。
 2. 先形体/接地/单焦点，再光效和细节；`densify` 修不了结构。
@@ -125,11 +125,21 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 | 诚实 | 不声称没做过的事；卡住就说卡在哪、文档哪里不够用。 |
 | 语义验收 | 主体是否成立、肢体/枝干连接与承重是否成立、脚/接触点是否有承托面、最亮处是否单焦点、25% 是否可读、是否符合意图；机械判据只管确定性/合法/不露底。 |
 
-驱动契约见 [docs/DRIVER.md](docs/DRIVER.md)；交付清单与验收见 [docs/USAGE.md](docs/USAGE.md) §6.2/§6.3。阶段内用什么层、笔刷、算子，由题材决定。
+驱动契约见 [docs/DRIVER.md](docs/DRIVER.md)；交付清单与验收见 [docs/USAGE.md](docs/USAGE.md) §6.2/§6.3。
 
-## 路线最小执行链
+## 绘画 driver 契约
 
-下面四段是“按契约跑”的最短路径；详细参数、坑位在后面的参考节。
+| 项 | 契约 |
+|---|---|
+| 输入 | 意图/场景/已有 plan |
+| 输出 | plan（layers + strokes）+ PNG |
+| 固定 | `plan_io` / `render_plan` / 确定性 / 语义验收门 |
+| 不固定 | 层数、层名、笔刷、遍数、风格、构图；全部由 driver 决定 |
+| 边界 | SKILL 不提供默认画法；示例只作接口，不作模板 |
+
+## 路线入口与验收
+
+下面只列入口、产物和验收；不规定画法。详细参数、坑位在后面的参考节。
 
 ### A. 矢量线：位图 → SVG
 
@@ -146,16 +156,15 @@ python scripts/auto.py ref.png out.svg       # 默认入口，不要先手调 K/
 ### B. 凭空画：plan → PNG
 
 ```text
-1. 写 build script：canvas + layers + strokes
+1. driver 产出 plan（脚本、ops 或其它方式均可）
 2. plan_io.dump_plan(...)
 3. art_paint(plan, out) / python scripts/render_plan.py plan --out out.png
-4. 看 100% 和 25%；主体/接地/接触/单焦点不过就回 plan
+4. 看 100% 和 25%；不过语义门就回 driver
 5. 同 plan 再渲一次，maxdiff 必须为 0
 ```
 
-- `fill_polygon` 只给块面第一层；体积/颜色变化要多次 fill，或 `split_shading`/`relight_dir`。
-- `flat` 是平涂/建筑面；厚涂用 `bristle`/`round_soft`，低透明度多层叠加。
-- `draw_path` 是每条连续子路径一笔；毛发用大量短笔，不用几条长线。
+- 层、形状、笔刷、遍数、风格由 driver 决定；SKILL 不规定。
+- 参数语义与边界见 [SHAPE_API.md](docs/SHAPE_API.md)；不要从示例反推画法。
 
 ### C. 改画：指令 → ops → 改后 PNG
 
@@ -192,7 +201,7 @@ python scripts/svg_to_plan.py out.svg back.plan.json
 
 ## ops 算子全表（21 个，确定性、可 diff、零随机）
 
-凭空画/改画都走这层：拆 plan（layers + strokes）后加笔画或叠 ops。`draw_path` 从空画布加笔，`add_layer` 建层，`split_shading` / `relight_dir` / `light_rig` 给形体，`densify` / `redraw` 加细节。**从零画和改色共用这条链路。**
+ops 是工具集，不是默认画法。driver 可以只写 plan，也可以在上面叠 ops；具体层/顺序/参数由 driver 决定。完整参数见 [API.md](docs/API.md)。
 
 | op | 作用 | 必填键 |
 |---|---|---|
@@ -265,7 +274,7 @@ python scripts/render_plan.py examples/demo.plan.json --out demo.png          # 
 - `examples/demo.plan.json`：4 层 / 359 笔 / 59 KB，是 `canvas` / `layers` / `strokes` 的**字段 fixture**（用来跑通渲染/视频）；只说明字段形状；层数、层名、配色按场景定。接口见 `docs/SHAPE_API.md`。
 
   ![demo plan](examples/demo.plan.png)
-- **凭空画（无参考图）的主路径**：写 build script，先把 plan 攒出来，再渲染看图。最小骨架：
+- **凭空画（无参考图）的主路径**：driver 先产出 plan，再渲染看图。下面是字段骨架，不是画法模板：
 
   ```python
   import plan_io
