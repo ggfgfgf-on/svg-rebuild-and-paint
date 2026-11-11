@@ -334,8 +334,7 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 hm = re.search(r'height="([0-9.]+)"', head)
                 w = int(float(wm.group(1))) if wm else 1200
                 h = int(float(hm.group(1))) if hm else 900
-            if any(x in mm for x in (b"<defs", b"<g", b"<use", b"<mask", b"<clipPath",
-                                      b"<pattern", b"<filter", b"<style", b"<image", b"<text")):
+            if re.search(br"<(?:defs|g|use|mask|clipPath|pattern|filter|style|image|text)\b", mm):
                 return None
             if re.search(br"<(?:path|rect)\b[^>]*\btransform\s*=", mm):
                 return None
