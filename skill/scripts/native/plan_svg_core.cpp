@@ -438,6 +438,89 @@ static void parse_d(const std::string& d, std::vector<double>& xs, std::vector<d
 }
 
 
+static void add_flat(std::vector<double>& pts, double x, double y) {
+    size_t n = pts.size();
+    if (n >= 2 && std::fabs(pts[n-2]-x) < 1e-9 && std::fabs(pts[n-1]-y) < 1e-9) return;
+    pts.push_back(x); pts.push_back(y);
+}
+
+static void parse_d_flat(const std::string& d, std::vector<double>& pts, std::vector<uint32_t>& offs) {
+    if (!d.empty() && d[0] == 'M' && d.find_first_of("CcSsQqTtAaHhVvZz") == std::string::npos) {
+        auto v = fast_nums(d);
+        offs.push_back(0);
+        for (size_t i = 0; i + 1 < v.size(); i += 2) pts.push_back(v[i]), pts.push_back(v[i+1]);
+        offs.push_back((uint32_t)(pts.size() / 2));
+        return;
+    }
+    PP q(d); char c=0, prev=0;
+    double cx=0,cy=0,sx=0,sy=0,px=0,py=0;
+    bool started=false;
+    while (true) {
+        q.ws(); if (q.p>=q.e) break;
+        char nc;
+        if (q.cmd(nc)) c=nc;
+        else if (!q.num()) break;
+        bool rel = (c>='a' && c<='z');
+        char C = (char)std::toupper((unsigned char)c);
+        if (C=='M') {
+            offs.push_back((uint32_t)(pts.size()/2));
+            double x=q.n(), y=q.n(); if(rel){x+=cx;y+=cy;}
+            cx=x; cy=y; sx=x; sy=y; add_flat(pts,cx,cy); c=rel?'l':'L'; prev=C; started=true; continue;
+        }
+        if (!started) { offs.push_back((uint32_t)(pts.size()/2)); started=true; }
+        if (C=='Z') { cx=sx; cy=sy; add_flat(pts,cx,cy); prev=C; continue; }
+        if (C=='L') { double x=q.n(),y=q.n(); if(rel){x+=cx;y+=cy;} cx=x;cy=y;add_flat(pts,cx,cy);prev=C; }
+        else if (C=='H') { double x=q.n(); if(rel)x+=cx; cx=x; add_flat(pts,cx,cy); prev=C; }
+        else if (C=='V') { double y=q.n(); if(rel)y+=cy; cy=y; add_flat(pts,cx,cy); prev=C; }
+        else if (C=='C') {
+            double x1=q.n(),y1=q.n(),x2=q.n(),y2=q.n(),x=q.n(),y=q.n();
+            if(rel){x1+=cx;y1+=cy;x2+=cx;y2+=cy;x+=cx;y+=cy;}
+            for(int k=1;k<=8;++k){double t=k/8.0,u=1-t;add_flat(pts,u*u*u*cx+3*u*u*t*x1+3*u*t*t*x2+t*t*t*x,u*u*u*cy+3*u*u*t*y1+3*u*t*t*y2+t*t*t*y);}
+            px=x2;py=y2;cx=x;cy=y;prev=C;
+        } else if (C=='S') {
+            double x2=q.n(),y2=q.n(),x=q.n(),y=q.n(); if(rel){x2+=cx;y2+=cy;x+=cx;y+=cy;}
+            double x1=(prev=='C'||prev=='S')?2*cx-px:cx, y1=(prev=='C'||prev=='S')?2*cy-py:cy;
+            for(int k=1;k<=8;++k){double t=k/8.0,u=1-t;add_flat(pts,u*u*u*cx+3*u*u*t*x1+3*u*t*t*x2+t*t*t*x,u*u*u*cy+3*u*u*t*y1+3*u*t*t*y2+t*t*t*y);}
+            px=x2;py=y2;cx=x;cy=y;prev=C;
+        } else if (C=='Q') {
+            double x1=q.n(),y1=q.n(),x=q.n(),y=q.n(); if(rel){x1+=cx;y1+=cy;x+=cx;y+=cy;}
+            for(int k=1;k<=8;++k){double t=k/8.0,u=1-t;add_flat(pts,u*u*cx+2*u*t*x1+t*t*x,u*u*cy+2*u*t*y1+t*t*y);}
+            px=x1;py=y1;cx=x;cy=y;prev=C;
+        } else if (C=='T') {
+            double x=q.n(),y=q.n(); if(rel){x+=cx;y+=cy;}
+            double x1=(prev=='Q'||prev=='T')?2*cx-px:cx, y1=(prev=='Q'||prev=='T')?2*cy-py:cy;
+            for(int k=1;k<=8;++k){double t=k/8.0,u=1-t;add_flat(pts,u*u*cx+2*u*t*x1+t*t*x,u*u*cy+2*u*t*y1+t*t*y);}
+            px=x1;py=y1;cx=x;cy=y;prev=C;
+        } else if (C=='A') {
+            double rx=q.n(), ry=q.n(), rot=q.n(), laf=q.n(), sf=q.n(), x=q.n(), y=q.n();
+            if(rel){x+=cx;y+=cy;}
+            rx=std::fabs(rx); ry=std::fabs(ry);
+            double phi=rot*3.14159265358979323846/180.0, cp=std::cos(phi), sp=std::sin(phi);
+            double dx=(cx-x)/2.0, dy=(cy-y)/2.0;
+            double x1=cp*dx+sp*dy, y1=-sp*dx+cp*dy;
+            if(rx>1e-9 && ry>1e-9){
+                double lam=(x1*x1)/(rx*rx)+(y1*y1)/(ry*ry);
+                if(lam>1){double z=std::sqrt(lam);rx*=z;ry*=z;}
+                double num=std::max(0.0,rx*rx*ry*ry-rx*rx*y1*y1-ry*ry*x1*x1);
+                double den=rx*rx*y1*y1+ry*ry*x1*x1;
+                double co=den>0?std::sqrt(num/den):0.0; if((laf!=0)==(sf!=0))co=-co;
+                double cxp=co*rx*y1/ry, cyp=-co*ry*x1/rx;
+                double ccx=cp*cxp-sp*cyp+(cx+x)/2.0, ccy=sp*cxp+cp*cyp+(cy+y)/2.0;
+                auto ang=[](double ux,double uy,double vx,double vy){return std::atan2(ux*vy-uy*vx,ux*vx+uy*vy);};
+                double t1=ang(1,0,(x1-cxp)/rx,(y1-cyp)/ry);
+                double dt=ang((x1-cxp)/rx,(y1-cyp)/ry,(-x1-cxp)/rx,(-y1-cyp)/ry);
+                if(sf==0 && dt>0)dt-=2*3.14159265358979323846;
+                else if(sf!=0 && dt<0)dt+=2*3.14159265358979323846;
+                for(int k=1;k<=16;++k){double t=t1+dt*k/16.0;add_flat(pts,ccx+rx*cp*std::cos(t)-ry*sp*std::sin(t),ccy+rx*sp*std::cos(t)+ry*cp*std::sin(t));}
+            } else add_flat(pts,x,y);
+            cx=x;cy=y;prev=C;
+        } else break;
+    }
+    if (offs.empty()) offs.push_back(0);
+    offs.push_back((uint32_t)(pts.size() / 2));
+}
+
+
 static std::vector<double> nums(const std::string& s);
 
 static std::vector<std::string> split_d_subpaths(const std::string& d) {
@@ -2069,41 +2152,20 @@ EXPORT unsigned char* psvg_parse_d_bin(const char* in, int n, int* out_len) {
 EXPORT unsigned char* psvg_parse_d_flat(const char* in, int n, int* out_len) {
     try {
         std::string d(in, (size_t)n);
-        std::vector<std::vector<double>> subs;
-        std::vector<std::string> parts = split_d_subpaths(d);
-        double basex = 0, basey = 0;
-        for (auto& part : parts) {
-            bool rel = !part.empty() && part[0] == 'm';
-            std::vector<double> xs, ys;
-            parse_d(part, xs, ys);
-            if (xs.size() < 2) continue;
-            std::vector<double> v;
-            v.reserve(xs.size() * 2);
-            for (size_t i = 0; i < xs.size(); ++i) {
-                v.push_back(xs[i] + (rel ? basex : 0.0));
-                v.push_back(ys[i] + (rel ? basey : 0.0));
-            }
-            basex = v[v.size() - 2];
-            basey = v[v.size() - 1];
-            subs.push_back(std::move(v));
-        }
-        uint32_t ns = (uint32_t)subs.size();
-        size_t total_pts = 0;
-        for (auto& v : subs) total_pts += v.size() / 2;
-        size_t total = 4 + (size_t)(ns + 1) * 4 + total_pts * 16;
+        std::vector<double> pts;
+        std::vector<uint32_t> offs;
+        parse_d_flat(d, pts, offs);
+        if (offs.empty()) offs.push_back(0);
+        uint32_t ns = (uint32_t)(offs.size() - 1);
+        size_t total = 4 + (size_t)(ns + 1) * 4 + pts.size() * 8;
         unsigned char* buf = (unsigned char*)std::malloc(total);
         if (!buf) return nullptr;
         unsigned char* p = buf;
         std::memcpy(p, &ns, 4); p += 4;
-        uint32_t acc = 0;
-        for (uint32_t i = 0; i < ns; ++i) {
-            std::memcpy(p, &acc, 4); p += 4;
-            acc += (uint32_t)(subs[i].size() / 2);
+        for (uint32_t i = 0; i <= ns; ++i) {
+            std::memcpy(p, &offs[i], 4); p += 4;
         }
-        std::memcpy(p, &acc, 4); p += 4;
-        for (auto& v : subs) {
-            if (!v.empty()) { std::memcpy(p, v.data(), v.size() * 8); p += v.size() * 8; }
-        }
+        if (!pts.empty()) { std::memcpy(p, pts.data(), pts.size() * 8); p += pts.size() * 8; }
         if (out_len) *out_len = (int)total;
         return buf;
     } catch (...) { return nullptr; }
