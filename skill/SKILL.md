@@ -1,15 +1,16 @@
 ---
 name: svg-rebuild-and-paint
 description: >-
-  Four runnable capabilities, all measured. (1) Bitmap -> true vector SVG: potrace curves per colour mask,
+  Five runnable capabilities, all measured. (1) Bitmap -> true vector SVG: potrace curves per colour mask,
   pure flat <path> (no <image>/base64/gradients), no staircase at any zoom, plus a per-pixel error
   report (mean / <=5 / <=10 / uncovered). (2) Deterministic thick-paint engine: scene-defined layered plans,
   brush-stamp rasterization (CPU + DirectCompute GPU). (3) Semantic ops layer, ZERO KEY: a plain natural-language
   instruction is compiled by the current multimodal model itself (it reads a plan summary + a live thumbnail)
   into ops JSON - recolour by layer or mask, resize, refine/detail, local repaint - which is validated and then
   applied; the same layer draws FROM SCRATCH with draw ops on a blank canvas - no reference image needed.
-  (4) Plan-driven 30fps process video, plan diff and tile incremental repaint. Everything is measured; the
-  skill ships no tuned thresholds. Triggers: 重绘/转SVG/矢量化, 按指令改图/改成蓝色/局部重画, 凭空画一张/从零画,
+  (4) Plan-driven 30fps process video, plan diff and tile incremental repaint. (5) Plan <-> SVG bidirectional
+  bridge with curve/subpath preservation. The process-replay surface (HTML/MP4) belongs to (1)/(4). Everything is
+  measured; the skill ships no tuned thresholds. Triggers: 重绘/转SVG/矢量化, 按指令改图/改成蓝色/局部重画, 凭空画一张/从零画,
   redraw as SVG, recolour this painting, edit artwork by instruction, paint from scratch.
 whenToUse: >-
   The default choice for image-to-SVG redraws - 重绘, 重绘这个, svg重绘, 矢量化, 转SVG, SVG 化,
@@ -26,14 +27,17 @@ whenToUse: >-
 
 # SVG 重建与厚涂绘画
 
-这个 skill 覆盖四条能力线，共用同一套确定性光栅器：
+这个 skill 覆盖五个功能，共用同一套确定性光栅器：
 
-- **矢量线**：位图 → 真矢量 `.svg`（纯 `<path>`，无 `<image>`/base64/渐变），可选单文件 HTML 过程播放器；用逐像素误差验收。
-- **绘画线**：plan（canvas + layers + strokes）→ 厚涂 PNG / 30fps 过程视频；用同 plan 复渲 maxdiff=0 验收。
-- **改画线**：一句指令 → ops JSON → 作用在已有 plan 上；不重画整张。
-- **视频线**：按 plan 的笔画顺序逐帧出片，30fps。
+| # | 功能 | 输入 | 输出 | 入口 |
+|---|---|---|---|---|
+| 1 | 图片 → SVG 重绘 | PNG/JPEG 位图 | 纯 `<path>` SVG + 误差报告 | `art_vectorize` / `auto.py` / `vectorize.py` |
+| 2 | 模拟重绘过程 | 位图 | 可播放 HTML，或 30fps MP4 | `paint_process.py` / `vectorize.py --process` / `paint_cli.py video` |
+| 3 | 光栅化引擎凭空画 | plan / 场景驱动 | 厚涂 PNG | `art_paint` / `render_plan.py` |
+| 4 | 改画 | plan + 指令 | 改后 PNG + ops | `art_edit_brief` → `art_apply_ops` |
+| 5 | Plan ⇄ SVG | plan 或 SVG | 互转后的 SVG / plan | `plan_to_svg.py` / `svg_to_plan.py` |
 
-这些线都不依赖模型权重；参考图只是可选 advisory，不写 plan。
+五条线都不依赖模型权重；参考图只是可选 advisory，不写 plan。过程输出必须标注「AI 生成 / 算法路径模拟」，不能包装成真人作画录像。
 
 ## 执行契约（先读这张）
 
@@ -46,7 +50,8 @@ whenToUse: >-
 | 位图 → 真矢量 SVG、放大不糊 | 矢量线 | `art_vectorize` / `python scripts/auto.py ref.png out.svg` | `.svg` + 误差报告 | `metric.py` 的 mean/uncovered 达标，且 SVG 无 `<image>`/base64/渐变 |
 | 凭空画一张、厚涂、从零起稿 | 绘画线 | 写 `plan.json` → `art_paint` / `render_plan.py` | `.png`（+ 可选 `.mp4`） | 主体/接地/单焦点/25% 可读；同 plan 复渲 `maxdiff=0` |
 | 一句话改色、调光、局部重画 | 改画线 | `art_edit_brief` → 写 ops → `art_apply_ops` | 改后 `.png` + `ops.json` | `validate` 通过；选区外像素不变；改后看图成立 |
-| 画的过程视频、30fps | 视频线 | `paint_cli.py video` / `paint_video.py` | `.mp4` | 帧率/帧数/时长对；末帧与同 plan 静帧一致 |
+| 模拟重绘过程、过程视频 | 过程线 | `paint_process.py` / `vectorize.py --process` / `paint_cli.py video` | `.html` / `.mp4` | 有「AI 生成 / 算法路径模拟」标注；末帧与同 plan 静帧一致 |
+| Plan ⇄ SVG 互转 | 转换线 | `plan_to_svg.py` / `svg_to_plan.py` | `.svg` / plan | 往返校验；曲线/子路径不丢 |
 | 验收“像不像 / 是否露底” | 取证 | `metric.py`；确定性用同 plan 复渲 | 报告 | 数字与目检都过，不只看一个指标 |
 
 ### 0.2 执行阶段
@@ -63,7 +68,7 @@ whenToUse: >-
 
 ### 0.3 两个入口
 
-能力是 A 矢量 / B 绘画 / C 改画 / D 视频；入口是 host `art_*` 工具和命令行脚本。二者是同一套代码，工具只是薄包装：当前会话有工具就用工具，没有就照命令敲。
+能力是 SVG 重绘 / 过程模拟 / 凭空画 / 改画 / Plan⇄SVG；入口是 host `art_*` 工具和命令行脚本。二者是同一套代码，工具只是薄包装：当前会话有工具就用工具，没有就照命令敲。
 
 ### 0.4 停止条件
 
@@ -84,11 +89,12 @@ whenToUse: >-
 
 | 文档 | 解决什么 |
 |---|---|
-| [docs/USAGE.md](docs/USAGE.md) | 操作手册主入口：四层能力、两个入口、五分钟跑通、调参、症状速查 |
+| [docs/USAGE.md](docs/USAGE.md) | 操作手册主入口：能力/入口、五分钟跑通、调参、症状速查 |
 | [docs/API.md](docs/API.md) | 21 个 ops 的完整参数、默认值、选区语义 |
 | [docs/SHAPE_API.md](docs/SHAPE_API.md) | `fill_polygon` / `tapered_stroke` / `ribbon` 的参数与边界 |
 | [docs/EXAMPLES.md](docs/EXAMPLES.md) | plan 字段样板、driver 骨架、最小调用 |
 | [docs/DRIVER.md](docs/DRIVER.md) | driver 契约：输入、输出、校验、可选模型 |
+| [docs/PLAN_SVG.md](docs/PLAN_SVG.md) | Plan ⇄ SVG 双向桥的保真边界、缓存与失败模式 |
 | [docs/VISUAL_HELPERS.md](docs/VISUAL_HELPERS.md) | advisory 参考图；不写 plan、不生成几何 |
 
 ## 30 秒自检（陌生环境先跑这个）
@@ -102,7 +108,7 @@ python scripts/selfcheck.py      # 三条主线各跑一次真实命令，打印
 
 ## 不会调？先看 docs/USAGE.md
 
-它是操作手册主入口：五分钟跑通、四层能力与两个入口、调参手册、症状速查都在那里。
+它是操作手册主入口：五分钟跑通、能力与入口、调参手册、症状速查都在那里。
 本文件只保留路由、契约和坑位；算子细节查 [API.md](docs/API.md)，形状参数查 [SHAPE_API.md](docs/SHAPE_API.md)。
 
 ## 交付要求
@@ -137,7 +143,7 @@ python scripts/auto.py ref.png out.svg       # 默认入口，不要先手调 K/
 - 静态交付输出 `.svg`；过程播放器 `.html` 只在用户明确要“过程/回放”时生成。
 - 验收：mean / ≤5 / ≤10 / uncovered；SVG 内不得出现 `<image>`、base64、渐变。
 
-### B. 绘画线：plan → PNG
+### B. 凭空画：plan → PNG
 
 ```text
 1. 写 build script：canvas + layers + strokes
@@ -151,7 +157,7 @@ python scripts/auto.py ref.png out.svg       # 默认入口，不要先手调 K/
 - `flat` 是平涂/建筑面；厚涂用 `bristle`/`round_soft`，低透明度多层叠加。
 - `draw_path` 是每条连续子路径一笔；毛发用大量短笔，不用几条长线。
 
-### C. 改画线：指令 → ops → 改后 PNG
+### C. 改画：指令 → ops → 改后 PNG
 
 ```text
 1. art_edit_brief(plan, instruction, out) 读 thumb + prompt
@@ -164,7 +170,7 @@ python scripts/auto.py ref.png out.svg       # 默认入口，不要先手调 K/
 - 局部改色用 raster mask + `--mask-mode all`，不要用颜色连通块外接矩形代替背景 mask。
 - 一次 edit 不要混用“带 layer 的算子”和全局算子；全局就单独 materialize。
 
-### D. 视频线：plan → 30fps 过程片
+### D. 过程视频：plan → 30fps 片
 
 ```powershell
 python scripts/paint_cli.py video plan.json --ops ops.json --out out.mp4 --frames 600
@@ -172,6 +178,17 @@ python scripts/paint_cli.py video plan.json --ops ops.json --out out.mp4 --frame
 
 - 先在静帧上过 B/C 验收，再出视频。
 - 末帧必须与同 plan 静帧一致；帧率固定 30fps，不丢帧。
+
+### E. Plan ⇄ SVG：双向转换
+
+```powershell
+python scripts/plan_to_svg.py plan.json out.svg
+python scripts/svg_to_plan.py out.svg back.plan.json
+```
+
+- 两个方向都保留 `path_d` 与按子路径拆分的 `path_d_parts`；未修改的子路径原样输出。
+- 往返后先比几何/哈希，再看文件大小；不要只凭“能打开”判断成功。
+- 保真边界、缓存和 native 快路径见 [PLAN_SVG.md](docs/PLAN_SVG.md)。
 
 ## ops 算子全表（21 个，确定性、可 diff、零随机）
 
