@@ -1825,7 +1825,12 @@ def _gradient_colors(root):
 
 def needs_python_parser(svg_text):
     if "<pattern" in svg_text:
-        return True
+        if re.search(r'<pattern\b[^>]*\bhref\s*=\s*["\']#', svg_text):
+            return True
+        if svg_text.count("<pattern") > 1:
+            return True
+        if "gradientTransform" in svg_text and any(t in svg_text for t in ("<text", "<use", "<image")):
+            return True
     if ("radialGradient" in svg_text or "linearGradient" in svg_text) and "<pattern" not in svg_text:
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
