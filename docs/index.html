@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>svg-rebuild-and-paint · 功能演示</title>
+<style>
+  :root{--bg:#0d0a08;--ink:#f4ecdf;--dim:#a89580;--gold:#e8b96a;--line:#33271d}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink)}
+  body{font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+  main{max-width:1180px;margin:0 auto;padding:48px 24px 64px}
+  h1{font-size:28px;line-height:1.2;margin:0 0 6px;letter-spacing:.01em}
+  .sub{color:var(--dim);margin:0 0 28px}
+  .frame{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#000;box-shadow:0 30px 80px #000a}
+  video{display:block;width:100%;height:auto;background:#000}
+  .meta{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-top:18px;color:var(--dim);font-size:13px}
+  a{color:var(--gold);text-decoration:none}
+  a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<main>
+  <h1>svg-rebuild-and-paint</h1>
+  <p class="sub">图片 → SVG 重绘 · 模拟重绘过程 · 凭空画 · 改画 · Plan ⇄ SVG</p>
+  <div class="frame">
+    <video controls playsinline preload="metadata" src="demo.mp4"></video>
+  </div>
+  <div class="meta">
+    <span>功能演示</span>
+    <span><a href="https://github.com/ggfgfgf-on/svg-rebuild-and-paint">GitHub 仓库</a></span>
+  </div>
+</main>
+</body>
+</html>

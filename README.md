@@ -18,6 +18,10 @@
   <sub>厚涂引擎输出：分层计划、逐笔 stamp 光栅化，确定性回放。</sub>
 </p>
 
+<p align="center">
+  <a href="https://ggfgfgf-on.github.io/svg-rebuild-and-paint/">功能演示</a>
+</p>
+
 仓库名沿用了历史名称，内容早已不止 SVG。现在它是一个 DSH Skill 仓库，五项功能都可运行、可验收：
 
 1. **真矢量 SVG 重绘** —— 任意位图（PNG/JPEG，≤2MP）→ potrace 逐色掩码曲线重建（2–3× 超采样）→ 单文件自包含 HTML，纯 `<path>` 平涂几何 + 离散步骤播放器；纯矢量，放大无台阶。
