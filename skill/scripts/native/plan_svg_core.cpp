@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <charconv>
 #include <fstream>
 #include <filesystem>
 #include <sstream>
@@ -44,12 +45,20 @@ static std::string hash_text(const std::string& s) {
     char b[32]; std::snprintf(b, sizeof(b), "%016llx", h); return std::string(b);
 }
 
+static void fmt_to(std::string& out, double v) {
+    char b[64];
+    auto r = std::to_chars(b, b + sizeof(b), v, std::chars_format::fixed, 3);
+    if (r.ec != std::errc()) { out += "0"; return; }
+    char* e = r.ptr;
+    while (e > b && e[-1] == '0') --e;
+    if (e > b && e[-1] == '.') --e;
+    if (e == b || (e == b + 2 && b[0] == '-' && b[1] == '0')) { out += "0"; return; }
+    out.append(b, e - b);
+}
+
 static std::string fmt(double v) {
-    char b[48]; std::snprintf(b, sizeof(b), "%.3f", v);
-    std::string s(b);
-    while (!s.empty() && s.back() == '0') s.pop_back();
-    if (!s.empty() && s.back() == '.') s.pop_back();
-    if (s.empty() || s == "-0") s = "0";
+    std::string s;
+    fmt_to(s, v);
     return s;
 }
 
@@ -115,12 +124,15 @@ static std::string color_text(const Value& c) {
 
 static std::string d_from(const Value& pts) {
     std::string d;
-    bool first = true;
     if (!pts.IsArray()) return "M 0 0";
+    d.reserve((size_t)pts.Size() * 22 + 8);
+    bool first = true;
     for (const auto& p : pts.GetArray()) {
         if (!p.IsArray() || p.Size() < 2) continue;
         d += first ? "M " : " L ";
-        d += fmt(p[0].GetDouble()) + " " + fmt(p[1].GetDouble());
+        fmt_to(d, p[0].GetDouble());
+        d += ' ';
+        fmt_to(d, p[1].GetDouble());
         first = false;
     }
     return d.empty() ? "M 0 0" : d;
@@ -129,10 +141,11 @@ static std::string d_from(const Value& pts) {
 static std::string p_from(const Value& pts) {
     std::string s;
     if (!pts.IsArray()) return "1";
+    s.reserve((size_t)pts.Size() * 6 + 4);
     for (const auto& p : pts.GetArray()) {
         if (!p.IsArray() || p.Size() < 2) continue;
-        if (!s.empty()) s += ",";
-        s += fmt(p.Size() > 2 ? p[2].GetDouble() : 1.0);
+        if (!s.empty()) s += ',';
+        fmt_to(s, p.Size() > 2 ? p[2].GetDouble() : 1.0);
     }
     return s.empty() ? "1" : s;
 }
