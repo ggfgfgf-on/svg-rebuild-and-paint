@@ -349,6 +349,24 @@ def test_pattern_gradient_tile():
     assert left[0] > left[2] and right[2] > right[0]
 
 
+def test_pattern_href_inherit():
+    import io
+    from PIL import Image
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>'
+           '<linearGradient id="g"><stop offset="0" stop-color="#f00"/>'
+           '<stop offset="1" stop-color="#00f"/></linearGradient>'
+           '<pattern id="base" width="10" height="10" patternUnits="userSpaceOnUse">'
+           '<rect width="10" height="10" fill="url(#g)"/></pattern>'
+           '<pattern id="p" href="#base"/></defs>'
+           '<rect width="100" height="100" fill="url(#p)"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    p = d["strokes"][0]["pattern"]
+    assert float(p["width"]) == 10 and float(p["height"]) == 10
+    im = Image.open(io.BytesIO(base64.b64decode(p["data"]))).convert("RGBA")
+    assert im.getpixel((1, 5))[0] > im.getpixel((1, 5))[2]
+    assert im.getpixel((8, 5))[2] > im.getpixel((8, 5))[0]
+
+
 def test_filter_rasterized():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
            '<defs><filter id="f"><feGaussianBlur stdDeviation="4"/></filter></defs>'

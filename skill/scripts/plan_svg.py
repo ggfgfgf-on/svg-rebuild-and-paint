@@ -1673,16 +1673,50 @@ def _pattern_tiles(root, w, h, base_dir=None):
             x = x.replace("ns0:", "").replace(' xmlns:ns0="http://www.w3.org/2000/svg"', "")
             defs_parts.append(x)
     defs_xml = "".join(defs_parts)
+    patterns = {n.get("id"): n for n in root.iter() if _local(n.tag) == "pattern" and n.get("id")}
+
+    def _href(p):
+        return p.get("href") or p.get("{http://www.w3.org/1999/xlink}href") or ""
+
+    def _pattr(pid, key, default=None):
+        seen = set()
+        while pid and pid not in seen:
+            seen.add(pid)
+            p = patterns.get(pid)
+            if p is None:
+                break
+            v = p.get(key)
+            if v is not None:
+                return v
+            href = _href(p)
+            pid = href[1:] if href.startswith("#") else ""
+        return default
+
+    def _pchildren(pid, seen=None):
+        seen = seen or set()
+        if not pid or pid in seen:
+            return []
+        seen.add(pid)
+        p = patterns.get(pid)
+        if p is None:
+            return []
+        kids = list(p)
+        if kids:
+            return kids
+        href = _href(p)
+        return _pchildren(href[1:] if href.startswith("#") else "", seen)
+
     for el in root.iter():
         if _local(el.tag) != "pattern" or not el.get("id"):
             continue
+        pid = el.get("id")
         def _len(v, d):
             try:
                 v = str(v)
                 return float(v[:-1]) / 100.0 * (w if v.endswith("%") else 1.0) if v.endswith("%") else float(v[:-2] if v.endswith("px") else v)
             except Exception:
                 return d
-        units = el.get("patternUnits", "objectBoundingBox")
+        units = _pattr(pid, "patternUnits", "objectBoundingBox")
         def _frac(v, d):
             try:
                 v = str(v)
@@ -1690,24 +1724,25 @@ def _pattern_tiles(root, w, h, base_dir=None):
             except Exception:
                 return d
         if units == "objectBoundingBox":
-            fw, fh = _frac(el.get("width", "0.1"), 0.1), _frac(el.get("height", "0.1"), 0.1)
+            fw, fh = _frac(_pattr(pid, "width", "0.1"), 0.1), _frac(_pattr(pid, "height", "0.1"), 0.1)
             pw, ph = max(8.0, fw * 256.0), max(8.0, fh * 256.0)
             stored_w, stored_h = fw, fh
         else:
-            pw, ph = _len(el.get("width", "32"), 32.0), _len(el.get("height", "32"), 32.0)
+            pw, ph = _len(_pattr(pid, "width", "32"), 32.0), _len(_pattr(pid, "height", "32"), 32.0)
             stored_w, stored_h = pw, ph
         if pw <= 0 or ph <= 0:
             continue
-        children = "".join(ET.tostring(ch, encoding="unicode") for ch in list(el))
+        children = "".join(ET.tostring(ch, encoding="unicode") for ch in _pchildren(pid))
         children = children.replace("ns0:", "").replace(' xmlns:ns0="http://www.w3.org/2000/svg"', "")
         if not children:
             continue
-        vb = el.get("viewBox")
-        content_units = el.get("patternContentUnits", "userSpaceOnUse")
+        vb = _pattr(pid, "viewBox")
+        content_units = _pattr(pid, "patternContentUnits", "userSpaceOnUse")
         if content_units == "objectBoundingBox" and not vb:
             children = ('<g transform="scale(%s %s)">%s</g>' % (pw, ph, children))
-        if el.get("patternTransform"):
-            children = ('<g transform="%s">%s</g>' % (el.get("patternTransform"), children))
+        ptrans = _pattr(pid, "patternTransform")
+        if ptrans:
+            children = ('<g transform="%s">%s</g>' % (ptrans, children))
         view_box = vb if vb else "0 0 %s %s" % (pw, ph)
         mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="%s" width="%s" height="%s">'
                 '<defs>%s</defs>%s</svg>' % (view_box, pw, ph, defs_xml, children))
@@ -1788,6 +1823,8 @@ def needs_python_parser(svg_text):
         if any(p not in ("GaussianBlur", "Offset") for p in prims):
             return True
     if "<style" in svg_text or "<link" in svg_text or re.search(r'href="[^"]+\.svg#', svg_text):
+        return True
+    if re.search(r'<pattern\b[^>]*\bhref\s*=\s*["\']#', svg_text):
         return True
     if 'fill-rule="evenodd"' in svg_text:
         return True
@@ -2193,6 +2230,8 @@ def _streamable_svg(svg_text):
     if "data-preset=" in s and re.search(r'data-preset="(?!fill")', s):
         return False
     if "<link" in s:
+        return False
+    if re.search(r'<pattern\b[^>]*\bhref\s*=\s*["\']#', s):
         return False
     return any(k in s for k in ("<path", "<rect", "<circle", "<ellipse", "<polygon", "<polyline", "<line"))
 
