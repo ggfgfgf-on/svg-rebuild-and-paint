@@ -395,6 +395,14 @@ def test_stream_evenodd_disjoint():
     assert not d["strokes"][0].get("holes")
 
 
+def test_stream_group_inheritance():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<g fill="#f00"><rect x="10" y="10" width="20" height="20"/></g></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert len(d["strokes"]) == 1
+    assert d["strokes"][0]["color"] == [255.0, 0.0, 0.0]
+
+
 def test_multi_subpath_roundtrip():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
            '<path fill="#0f0" fill-rule="evenodd" '

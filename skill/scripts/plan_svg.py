@@ -2126,9 +2126,9 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
 
 def _streamable_svg(svg_text):
     s = str(svg_text)
-    if any(k in s for k in ("<style", "<link", "<defs", "<use", "<mask", "<clipPath",
-                            "<pattern", "<filter", "<image", "<text",
-                            "clip-path=", "mask=\"url(", "<linearGradient", "<radialGradient")):
+    if any(k in s for k in ("<style", "<link", "<mask", "<clipPath", "<pattern", "<filter",
+                            "<image", "<text", "clip-path=", "mask=\"url(",
+                            "<linearGradient", "<radialGradient")):
         return False
     return any(k in s for k in ("<path", "<rect", "<circle", "<ellipse", "<polygon", "<polyline", "<line"))
 
