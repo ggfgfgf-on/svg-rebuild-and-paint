@@ -130,6 +130,34 @@ def _path_d_holes(points, holes):
     return d
 
 
+def _geom_sig_fast(st):
+    import hashlib
+    h = hashlib.blake2b(digest_size=16)
+    arrays = [st.get("points") or []]
+    arrays += list(st.get("subpaths") or [])
+    arrays += list(st.get("holes") or [])
+    import struct
+    for ai, arr in enumerate(arrays):
+        n = len(arr)
+        h.update(n.to_bytes(8, "little"))
+        if not n:
+            continue
+        if ai == 0:
+            step = max(1, n // 32)
+            idxs = {0, n - 1, *range(0, n, step)}
+        else:
+            idxs = {0, n - 1} if n > 1 else {0}
+        for i in idxs:
+            p = arr[i]
+            h.update(struct.pack("<dd", float(p[0]), float(p[1])))
+    h.update(str(st.get("fill_rule", "nonzero")).encode())
+    tr = st.get("transform")
+    if isinstance(tr, (list, tuple)):
+        for v in tr:
+            h.update(float(v).hex().encode())
+    return h.hexdigest()
+
+
 def _geom_sig(st):
     import hashlib
     import numpy as np
@@ -240,7 +268,7 @@ def _mask_def(m, gid, w, h):
             % (gid, units, w, h, _mask_png_b64(m), mx, my, mw, mh))
 
 
-def plan_to_svg(doc, *, filters=False, title=None, verify_path_d=True):
+def plan_to_svg(doc, *, filters=False, title=None, verify_path_d="auto"):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
             and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("runs") or x.get("subpaths") or x.get("holes") or x.get("path_d") for x in doc.get("strokes", []))
@@ -358,8 +386,12 @@ def plan_to_svg(doc, *, filters=False, title=None, verify_path_d=True):
             if preset == "fill":
                 subs = s.get("subpaths")
                 raw_d = s.get("path_d")
-                if raw_d and verify_path_d and s.get("path_d_sig") and _geom_sig(s) != s["path_d_sig"]:
-                    raw_d = None
+                if raw_d and verify_path_d is not False:
+                    if verify_path_d is True:
+                        if s.get("path_d_sig") and _geom_sig(s) != s["path_d_sig"]:
+                            raw_d = None
+                    elif s.get("path_d_fast") and _geom_sig_fast(s) != s["path_d_fast"]:
+                        raw_d = None
                 d = raw_d or (_path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or []))
                 out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
                            (d, paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),

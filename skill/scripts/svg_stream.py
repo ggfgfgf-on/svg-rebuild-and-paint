@@ -367,6 +367,7 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 if path_d:
                     st["path_d"] = path_d
                     st["path_d_sig"] = _ps._geom_sig(st)
+                    st["path_d_fast"] = _ps._geom_sig_fast(st)
                 strokes.append(st)
 
             for rm in re.finditer(br"<rect\b([^>]*)>", mm):
