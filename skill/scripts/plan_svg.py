@@ -1867,6 +1867,9 @@ def _gradient_colors(root):
 
 
 def needs_python_parser(svg_text):
+    if 'data-bridge="plan_svg"' in svg_text:
+        if not re.search(r"<(?:pattern|mask|clipPath|filter|style|link|text|image|use|linearGradient|radialGradient)\b", svg_text):
+            return False
     if "<foreignObject" in svg_text:
         return True
     if "<pattern" in svg_text:
