@@ -489,6 +489,7 @@ void cs_fill(uint3 dt : SV_DispatchThreadID) {
         ca = lerp(fillstops[k0*5+4], fillstops[k1*5+4], u);
     }
     float sa = fillmeta[7] * ca;
+    if (fillmeta[22] > 0.5f) sa *= maskbuf[idx];
     float4 d = layer[idx];
     float inv = 1.0f - sa;
     layer[idx] = float4(col * sa + d.rgb * inv, sa + d.a * inv);
@@ -1446,7 +1447,9 @@ EXPORT int pg_read_acc(void* p, float* out) {
 static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float* stops, int ns,
                            float x1, float y1, float x2, float y2, float a, int use_grad, int spread,
                            const float* hpts = nullptr, int hn = 0,
-                           const uint32_t* hoff = nullptr, int nh = 0) {
+                           const uint32_t* hoff = nullptr, int nh = 0,
+                           const unsigned char* mask = nullptr, int mw = 0, int mh = 0,
+                           int mx = 0, int my = 0) {
     if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillPts || !g->fillStops || !g->fillMeta) return 0;
     UINT npix = (UINT)g->W * (UINT)g->H;
     if (ns > 64) return 0;
@@ -1463,8 +1466,22 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
         g->ctx->UpdateSubresource(g->fillHolePts, 0, nullptr, hpts, 0, 0);
         g->ctx->UpdateSubresource(g->fillHoleOff, 0, nullptr, hoff, 0, 0);
     }
+    bool use_mask = mask && mw > 0 && mh > 0;
+    if (use_mask) {
+        std::vector<float> alpha((size_t)npix, 0.0f);
+        for (int y = 0; y < mh; ++y) {
+            int dy = y + my;
+            if (dy < 0 || dy >= (int)g->H) continue;
+            for (int x = 0; x < mw; ++x) {
+                int dx = x + mx;
+                if (dx < 0 || dx >= (int)g->W) continue;
+                alpha[(size_t)dy * g->W + dx] = mask[(size_t)y * mw + x] / 255.0f;
+            }
+        }
+        g->ctx->UpdateSubresource(g->maskBuf, 0, nullptr, alpha.data(), 0, 0);
+    }
     float meta[24] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread, 0,
-                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, (float)nh, 0, 0};
+                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, (float)nh, use_mask ? 1.0f : 0.0f, 0.0f};
     g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
     Params cp{}; cp.W = g->W; cp.H = g->H;
     cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
@@ -1475,6 +1492,8 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
                                           g->fillHolePtsSrv, g->fillHoleOffSrv };
     g->ctx->CSSetShader(g->cs_fill, nullptr, 0);
     g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
+    ID3D11ShaderResourceView* msrv = use_mask ? g->maskSrv : nullptr;
+    g->ctx->CSSetShaderResources(7, 1, &msrv);
     g->ctx->CSSetShaderResources(8, 5, srvs);
     g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
     g->ctx->Dispatch((npix + 255) / 256, 1, 1);
@@ -1482,6 +1501,7 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
     g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
     ID3D11ShaderResourceView* no[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
     g->ctx->CSSetShaderResources(8, 5, no);
+    g->ctx->CSSetShaderResources(7, 1, &no[0]);
     g->ctx->CSSetShader(nullptr, nullptr, 0);
     return 1;
 }
@@ -1616,14 +1636,19 @@ static int gpu_masked_fill(Gpu* g, int idx, const float* pts, int n,
 EXPORT int pg_fill_polygon_masked(void* p, int idx, const float* pts, int n,
                                    const unsigned char* mask, int mw, int mh, int mx, int my,
                                    float r, float g_, float b, float a) {
-    return gpu_masked_fill((Gpu*)p, idx, pts, n, nullptr, 0, nullptr, 0, mask, mw, mh, mx, my, r, g_, b, a);
+    float one[5] = {0, r, g_, b, 1};
+    return gpu_fill_shader((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0, 0,
+                           nullptr, 0, nullptr, 0, mask, mw, mh, mx, my);
 }
 
 EXPORT int pg_fill_polygon_masked_holes(void* p, int idx, const float* pts, int n,
                                          const float* holes, int hole_n, const int* hole_off, int nh,
                                          const unsigned char* mask, int mw, int mh, int mx, int my,
                                          float r, float g_, float b, float a) {
-    return gpu_masked_fill((Gpu*)p, idx, pts, n, holes, hole_n, hole_off, nh, mask, mw, mh, mx, my, r, g_, b, a);
+    float one[5] = {0, r, g_, b, 1};
+    return gpu_fill_shader((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0, 0,
+                           holes, hole_n, (const uint32_t*)hole_off, nh,
+                           mask, mw, mh, mx, my);
 }
 
 EXPORT int pg_fill_polygon(void* p, int idx, const float* pts, int n, float r, float g_, float b, float a) {
