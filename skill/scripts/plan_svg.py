@@ -2446,7 +2446,7 @@ def load_plan_svg(path, use_cache=True):
         doc = svg_to_plan(p.read_text(encoding="utf-8"))
     else:
         doc = load_svg_plan_stream(str(p))
-    if use_cache and not any(s.get("path_d_parts") for s in doc.get("strokes", [])):
+    if use_cache:
         try:
             import plan_svg_native as _n
             _cache_put(key, sig, _n.pack_plan(doc))
