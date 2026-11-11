@@ -130,6 +130,25 @@ def _path_d_holes(points, holes):
     return d
 
 
+def _geom_sig(st):
+    import hashlib
+    import numpy as np
+    h = hashlib.blake2b(digest_size=16)
+    arrays = [st.get("points") or []]
+    arrays += list(st.get("subpaths") or [])
+    arrays += list(st.get("holes") or [])
+    for arr in arrays:
+        if not arr:
+            continue
+        a = np.asarray([(float(p[0]), float(p[1])) for p in arr], dtype=np.float32)
+        h.update(np.ascontiguousarray(a).tobytes())
+    h.update(str(st.get("fill_rule", "nonzero")).encode())
+    tr = st.get("transform")
+    if isinstance(tr, (list, tuple)):
+        h.update(np.asarray(tr, dtype=np.float32).tobytes())
+    return h.hexdigest()
+
+
 def _path_d_multi(subpaths, holes):
     return " ".join(_path_d_compact(q, holes if i == 0 else None) for i, q in enumerate(subpaths))
 
@@ -336,7 +355,10 @@ def plan_to_svg(doc, *, filters=False, title=None):
                 continue
             if preset == "fill":
                 subs = s.get("subpaths")
-                d = s.get("path_d") or (_path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or []))
+                raw_d = s.get("path_d")
+                if raw_d and s.get("path_d_sig") and _geom_sig(s) != s["path_d_sig"]:
+                    raw_d = None
+                d = raw_d or (_path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or []))
                 out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
                            (d, paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
                             (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))

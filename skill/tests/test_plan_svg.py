@@ -549,6 +549,14 @@ def test_path_d_preserved(tmp_path):
     out = plan_svg.plan_to_svg(d)
     assert "C20 0 30 40 50 50" in out
 
+    d["strokes"][0]["points"][0][0] += 1.0
+    out2 = plan_svg.plan_to_svg(d)
+    assert "C20 0 30 40 50 50" not in out2
+
+    d = svg_stream.stream_svg_to_plan(str(p))
+    d["strokes"][0]["color"] = [0, 255, 0]
+    assert "C20 0 30 40 50 50" in plan_svg.plan_to_svg(d)
+
 
 def test_stream_file_incremental(tmp_path):
     import svg_stream
