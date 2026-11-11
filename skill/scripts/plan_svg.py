@@ -140,7 +140,9 @@ def _geom_sig(st):
     for arr in arrays:
         if not arr:
             continue
-        a = np.asarray([(float(p[0]), float(p[1])) for p in arr], dtype=np.float32)
+        a = np.asarray(arr, dtype=np.float32)
+        if a.ndim == 2 and a.shape[1] > 2:
+            a = a[:, :2]
         h.update(np.ascontiguousarray(a).tobytes())
     h.update(str(st.get("fill_rule", "nonzero")).encode())
     tr = st.get("transform")
