@@ -240,7 +240,7 @@ def _mask_def(m, gid, w, h):
             % (gid, units, w, h, _mask_png_b64(m), mx, my, mw, mh))
 
 
-def plan_to_svg(doc, *, filters=False, title=None):
+def plan_to_svg(doc, *, filters=False, title=None, verify_path_d=True):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
             and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("runs") or x.get("subpaths") or x.get("holes") or x.get("path_d") for x in doc.get("strokes", []))
@@ -358,7 +358,7 @@ def plan_to_svg(doc, *, filters=False, title=None):
             if preset == "fill":
                 subs = s.get("subpaths")
                 raw_d = s.get("path_d")
-                if raw_d and s.get("path_d_sig") and _geom_sig(s) != s["path_d_sig"]:
+                if raw_d and verify_path_d and s.get("path_d_sig") and _geom_sig(s) != s["path_d_sig"]:
                     raw_d = None
                 d = raw_d or (_path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or []))
                 out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
@@ -2174,7 +2174,7 @@ def load_plan_svg(path):
 def plan_to_svgz(doc, path, level=6):
     """Write the bridge SVG as gzip-compressed .svgz; returns raw/gz bytes."""
     import gzip
-    data = plan_to_svg(doc).encode("utf-8")
+    data = plan_to_svg(doc, verify_path_d=False).encode("utf-8")
     with gzip.open(path, "wb", compresslevel=level) as f:
         f.write(data)
     return {"path": str(path), "svg_bytes": len(data),
