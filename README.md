@@ -19,8 +19,7 @@
 </p>
 
 <p align="center">
-  ▶ <a href="https://github.com/ggfgfgf-on/svg-rebuild-and-paint/releases/download/v1.1.0/svg-rebuild-and-paint-promo-cases.mp4"><b>观看 69 秒案例版</b></a><br>
-  ▶ <a href="https://github.com/ggfgfgf-on/svg-rebuild-and-paint/releases/download/v1.1.0/svg-rebuild-and-paint-promo.mp4">观看 2 分 46 秒完整功能演示</a>
+  <a href="https://github.com/ggfgfgf-on/svg-rebuild-and-paint/releases/download/v1.1.0/svg-rebuild-and-paint-promo-cases.mp4">观看 69 秒功能演示</a>
 </p>
 
 仓库名沿用了历史名称，内容早已不止 SVG。现在它是一个 DSH Skill 仓库，三层都可运行、可验收：
