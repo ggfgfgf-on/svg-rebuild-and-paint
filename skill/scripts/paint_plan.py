@@ -212,10 +212,14 @@ def render_plan(plan, threads=8, brush=None, region=None):
                 holes = it.get("holes") or []
                 mask = it.get("mask")
                 if isinstance(mask, dict) and not isinstance(it.get("paint"), dict):
+                    hp = [[(float(q[0]), float(q[1])) for q in h] for h in holes]
                     for one in subs:
                         pts = [(float(q[0]), float(q[1])) for q in one]
                         if len(pts) >= 3:
-                            p.fill_polygon_masked(layer, pts, mask, it.get("color"), it.get("opacity", 1.0))
+                            if hp:
+                                p.fill_polygon_masked_holes(layer, pts, hp, mask, it.get("color"), it.get("opacity", 1.0))
+                            else:
+                                p.fill_polygon_masked(layer, pts, mask, it.get("color"), it.get("opacity", 1.0))
                     continue
                 if holes and not isinstance(it.get("paint"), dict):
                     pts = [(float(q[0]), float(q[1])) for q in (subs[0] if subs else [])]
