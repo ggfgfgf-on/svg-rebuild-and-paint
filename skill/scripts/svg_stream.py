@@ -715,6 +715,16 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     out.append(r)
         return out
 
+    def _mini_plan(xml):
+        if _native is not None and _native.available():
+            try:
+                d = _native.svg_to_plan(xml)
+                if d and d.get("strokes"):
+                    return d
+            except Exception:
+                pass
+        return _ps._svg_to_plan_py(xml)
+
     def emit_shape(tag, a):
         layer = layer_stack[-1] if layer_stack else "layer"
         add_layer(layer)
@@ -763,7 +773,7 @@ def stream_svg_to_plan(source, chunk_size=65536):
                 mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s"><defs>%s</defs>'
                         '<%s%s/></svg>' % (canvas[0], canvas[1], defs_xml, tag, attrs))
                 try:
-                    sub = _ps._svg_to_plan_py(mini)
+                    sub = _mini_plan(mini)
                     for sl in sub.get("layers", []):
                         if isinstance(sl.get("mask"), dict):
                             for L in layers:
@@ -967,7 +977,7 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s">'
                             '<image%s/></svg>' % (canvas[0], canvas[1], attrs))
                     try:
-                        sub = _ps._svg_to_plan_py(mini)
+                        sub = _mini_plan(mini)
                         for st in sub.get("strokes", []):
                             st["layer"] = layer_stack[-1] if layer_stack else "layer"
                             strokes.append(st)
@@ -1002,7 +1012,7 @@ def stream_svg_to_plan(source, chunk_size=65536):
                         mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s">%s</svg>'
                                 % (canvas[0], canvas[1], node_xml(node)))
                         try:
-                            sub = _ps._svg_to_plan_py(mini)
+                            sub = _mini_plan(mini)
                             for st in sub.get("strokes", []):
                                 st["layer"] = layer_stack[-1] if layer_stack else "layer"
                                 strokes.append(st)
