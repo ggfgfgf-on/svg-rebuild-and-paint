@@ -449,6 +449,37 @@ def test_stream_file_incremental(tmp_path):
     assert len(d["strokes"][0]["points"]) >= 3
 
 
+def test_native_relative_m():
+    import plan_svg_native as n
+    if not n.available():
+        return
+    subs = n.parse_d_subpaths("M0 0 L10 0 m5 5 l10 0")
+    assert subs[1][0] == [15.0, 5.0]
+    assert subs[1][1] == [25.0, 5.0]
+
+
+def test_stream_file_zorder_fallback(tmp_path):
+    import svg_stream
+    p = tmp_path / "z.svg"
+    p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+                 '<path fill="#f00" d="M0 0 L10 0 L10 10 Z"/>'
+                 '<rect x="0" y="0" width="20" height="20" fill="#00f"/></svg>', encoding="utf-8")
+    d = svg_stream.stream_svg_to_plan(str(p))
+    assert len(d["strokes"]) == 2
+    assert d["strokes"][0]["color"] == [255.0, 0.0, 0.0]
+    assert d["strokes"][1]["color"] == [0.0, 0.0, 255.0]
+
+
+def test_stream_file_transform_fallback(tmp_path):
+    import svg_stream
+    p = tmp_path / "t.svg"
+    p.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+                 '<path fill="#f00" transform="translate(10,20)" d="M0 0 L10 0 L10 10 Z"/></svg>',
+                 encoding="utf-8")
+    d = svg_stream.stream_svg_to_plan(str(p))
+    assert d["strokes"][0]["points"][0][:2] == [10.0, 20.0]
+
+
 def test_path_stream_parser_equivalence():
     import svg_stream
     d = ('M0 0 C10 0 10 10 20 10 Q30 10 30 20 L40 20 Z '

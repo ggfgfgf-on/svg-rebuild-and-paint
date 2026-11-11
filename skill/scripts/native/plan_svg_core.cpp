@@ -2032,13 +2032,20 @@ EXPORT unsigned char* psvg_parse_d_bin(const char* in, int n, int* out_len) {
         std::string d(in, (size_t)n);
         std::vector<std::vector<double>> subs;
         std::vector<std::string> parts = split_d_subpaths(d);
+        double basex = 0, basey = 0;
         for (auto& part : parts) {
+            bool rel = !part.empty() && part[0] == 'm';
             std::vector<double> xs, ys;
             parse_d(part, xs, ys);
             if (xs.size() < 2) continue;
             std::vector<double> v;
             v.reserve(xs.size() * 2);
-            for (size_t i = 0; i < xs.size(); ++i) { v.push_back(xs[i]); v.push_back(ys[i]); }
+            for (size_t i = 0; i < xs.size(); ++i) {
+                v.push_back(xs[i] + (rel ? basex : 0.0));
+                v.push_back(ys[i] + (rel ? basey : 0.0));
+            }
+            basex = v[v.size() - 2];
+            basey = v[v.size() - 1];
             subs.push_back(std::move(v));
         }
         size_t total = 4;

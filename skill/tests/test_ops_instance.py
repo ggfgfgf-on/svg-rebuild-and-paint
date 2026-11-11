@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 """算子层语义：掩膜/实例/多边形必须能直接写进 op 里，且验证不过就报错。"""
 import sys
 import tempfile
@@ -106,4 +110,5 @@ except Exception:
     check("空提示会报错", True)
 
 print("RESULT", "OK" if ok else "FAILED")
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)

@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 """三个"已知空白"的补齐断言：方向光 / 多边形吸附 / 按 tag 真删除。"""
 import sys
 import tempfile
@@ -89,4 +93,5 @@ check("按 tag 删除后回到原状", len(restored["strokes"]) == 1 and "tag" n
 check("按 tag 删除不影响原有笔触颜色", restored["strokes"][0]["color"] == base["strokes"][0]["color"])
 
 print("RESULT", "OK" if ok else "FAILED")
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)

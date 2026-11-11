@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 """视觉提示掩膜：性质断言（不锁像素数值）。
 
 - 种子点必须落在掩膜内
@@ -49,4 +53,5 @@ with tempfile.TemporaryDirectory() as td:
     check("area sane", 0.05 < res["share"] < 0.6, res["share"])
 
 print("RESULT", "OK" if ok else "FAILED")
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)

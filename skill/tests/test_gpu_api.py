@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 import sys
 sys.path.insert(0, r'D:\deepseek-harness-dsh-v0.2.1rc2\.dsh-home\skills\svg-rebuild-and-paint\scripts')
 import numpy as np, paint_native, paint_gpu_native as gpn
@@ -33,4 +37,5 @@ finally:
 ok = ok_api and fell_back
 print("fallback to CPU:", fell_back)
 print("RESULT " + ("OK" if ok else "FAILED"))
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)

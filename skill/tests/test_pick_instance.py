@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 """模型自选实例接口的性质断言：验证器该拦的都拦，该放的放。"""
 import sys
 from pathlib import Path
@@ -238,8 +242,8 @@ ok = test_attach_thin() and ok
 ok = test_refine_loop() and ok
 ok = test_implausible_guard() and ok
 print("RESULT", "OK" if ok else "FAILED")
-sys.exit(0 if ok else 1)
-
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)
 def test_segment_band(tmpdir=None):
     """segment 的属性：同色块 + 淡色背景，自动分割应恢复 >0.9 IoU（不许手画点）。"""
     import tempfile, os

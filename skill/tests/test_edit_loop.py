@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 """edit_loop 的性质断言（不锁像素数值）。
 
 - 受影响的层由 ops 推出来（layer=None 视为全部层）
@@ -40,4 +44,5 @@ m = __import__("masks").from_bool(b)
 check("full mask roundtrip", bool((EL._full_mask(m, 20, 30) == b).all()))
 
 print("RESULT", "OK" if ok else "FAILED")
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)

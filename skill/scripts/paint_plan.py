@@ -247,7 +247,8 @@ def render_plan(plan, threads=8, brush=None, region=None):
         tw = max(1, int(round(float(ptn.get("width", tile.width)))))
         th = max(1, int(round(float(ptn.get("height", tile.height)))))
         if ptn.get("units") == "objectBoundingBox":
-            q = [(float(a[0]), float(a[1])) for a in (s.get("points") or [])]
+            src = s.get("subpaths") or [s.get("points") or []]
+            q = [(float(a[0]), float(a[1])) for one in src for a in one]
             if len(q) >= 3:
                 bw = max(1e-6, max(a[0] for a in q) - min(a[0] for a in q))
                 bh = max(1e-6, max(a[1] for a in q) - min(a[1] for a in q))

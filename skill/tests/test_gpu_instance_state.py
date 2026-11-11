@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 """GPU 后端的动态参数必须是每实例状态。
 
 历史：pg_set_dynamics / pg_set_color_dynamics 曾写文件级 static 全局，
@@ -36,4 +40,5 @@ print("scatter0 vs scatter0.8 diff_px =", int((a0 != a1).any(axis=2).sum()))
 print("scatter0.8 alone vs after-other-reset diff_px =", int((a1 != a2).any(axis=2).sum()))
 ok = (a1 == a2).all() and (a0 != a1).any()
 print("RESULT " + ("OK" if ok else "FAIL"))
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)

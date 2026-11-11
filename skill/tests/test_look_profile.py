@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 import json, sys, tempfile
 from pathlib import Path
 
@@ -38,4 +42,5 @@ with tempfile.TemporaryDirectory() as td:
     check("repo default profile loads", d is not None and "tone" in d, d and d.get("_source"))
 
 print("RESULT", "OK" if ok else "FAILED")
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)

@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 """笔触权重/掩膜度量的性质断言（不锁像素数值）。
 
 - 折线加密：两点长笔触中间必须有点（否则"穿过掩膜"会被漏判）
@@ -43,4 +47,5 @@ full = EL._full_mask(cm, 10, 10, base)
 check("color mask -> pixel map", bool(full.all()))
 
 print("RESULT", "OK" if ok else "FAILED")
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)

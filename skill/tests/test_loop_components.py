@@ -1,3 +1,7 @@
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone acceptance script", allow_module_level=True)
+
 """新组件性质断言：区域重规划 / 验收门 / 谱系 / 掩膜注册表。
 
 全部只断言可迁移的性质，不锁像素数值。
@@ -101,4 +105,5 @@ with tempfile.TemporaryDirectory() as td:
     check("registry file copied", Path(e["path"]).exists())
 
 print("RESULT", "OK" if ok else "FAILED")
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)

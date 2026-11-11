@@ -337,6 +337,12 @@ def _stream_simple_file(path, chunk_size=1 << 20):
             if any(x in mm for x in (b"<defs", b"<g", b"<use", b"<mask", b"<clipPath",
                                       b"<pattern", b"<filter", b"<style", b"<image", b"<text")):
                 return None
+            if re.search(br"<(?:path|rect)\b[^>]*\btransform\s*=", mm):
+                return None
+            first_path = mm.find(b"<path")
+            first_rect = mm.find(b"<rect")
+            if first_path >= 0 and first_rect > first_path:
+                return None
             strokes = []
 
             def add_fill(attrs, subpaths):
@@ -812,7 +818,12 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     skip_tag = tag
                     continue
                 if tag in ("rect", "circle", "ellipse", "polygon", "polyline", "line", "path"):
-                    emit_shape(tag, apply_css(tag, a, inherit_attrs))
+                    mat_stack.append(_ps._mat_mul(mat_stack[-1], _ps._parse_transform(a.get("transform"))))
+                    try:
+                        emit_shape(tag, apply_css(tag, a, inherit_attrs))
+                    finally:
+                        if len(mat_stack) > 1:
+                            mat_stack.pop()
             elif kind == "end":
                 tag = ev[1]
                 if in_defs:

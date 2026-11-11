@@ -3,6 +3,10 @@ import sys, tempfile, os
 import numpy as np
 from pathlib import Path
 
+if __name__ != "__main__":
+    import pytest
+    pytest.skip("standalone brush_ext acceptance script", allow_module_level=True)
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import brush_ext as bx
 import export_layers as el
@@ -207,4 +211,5 @@ check("psd unicode name + group", gg[0]["name"] == nm_u and gg[0]["kind"] == "gr
       "kind=%s chars=%d" % (gg[0]["kind"], len(gg[0]["name"])))
 
 print("RESULT", "OK" if ok else "FAILED")
-sys.exit(0 if ok else 1)
+if __name__ == "__main__":
+    sys.exit(0 if ok else 1)
