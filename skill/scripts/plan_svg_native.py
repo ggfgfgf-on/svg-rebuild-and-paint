@@ -240,6 +240,12 @@ def unpack_plan(data: bytes):
         core = bytearray(core); core[4:8] = struct.pack("<I", 1); core = bytes(core)
     if _ext is not None:
         doc = _ext.unpack_plan(core)
+        if extra and set(extra) == {"stroke_region"}:
+            strokes = doc.get("strokes") or []
+            for i, rid in enumerate(extra["stroke_region"]):
+                if rid and i < len(strokes):
+                    strokes[i]["region_id"] = rid
+            return doc
         return _merge_extra(doc, extra) if extra else doc
     if _LIB is not None:
         n = ctypes.c_int(0)
