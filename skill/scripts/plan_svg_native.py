@@ -151,15 +151,32 @@ def _extra_blob(doc):
             ls.append({"i": i, "extra": e})
     if ls:
         extra["layers"] = ls
-    ss = []
-    for i, s in enumerate(doc.get("strokes") or []):
-        e = {k: v for k, v in s.items() if k not in _STROKE_KNOWN}
-        if e.get("region_id", None) == 0:
-            e.pop("region_id", None)
-        if e:
-            ss.append({"i": i, "extra": e})
-    if ss:
-        extra["strokes"] = ss
+    strokes = doc.get("strokes") or []
+    regions = [0] * len(strokes)
+    region_only = True
+    for i, s in enumerate(strokes):
+        for k in s:
+            if k in _STROKE_KNOWN:
+                continue
+            if k == "region_id":
+                regions[i] = s[k] or 0
+                continue
+            region_only = False
+            break
+        if not region_only:
+            break
+    if region_only and any(regions):
+        extra["stroke_region"] = regions
+    elif not region_only:
+        ss = []
+        for i, s in enumerate(strokes):
+            e = {k: v for k, v in s.items() if k not in _STROKE_KNOWN}
+            if e.get("region_id", None) == 0:
+                e.pop("region_id", None)
+            if e:
+                ss.append({"i": i, "extra": e})
+        if ss:
+            extra["strokes"] = ss
     return extra
 
 
@@ -174,6 +191,9 @@ def _merge_extra(doc, extra):
         i = e.get("i")
         if isinstance(i, int) and 0 <= i < len(doc.get("strokes") or []):
             doc["strokes"][i].update(e.get("extra") or {})
+    for i, rid in enumerate(extra.get("stroke_region") or []):
+        if rid and i < len(doc.get("strokes") or []):
+            doc["strokes"][i]["region_id"] = rid
     return doc
 
 
