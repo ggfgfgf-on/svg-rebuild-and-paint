@@ -29,7 +29,7 @@ def _load():
             f.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p]
         else:
             f.argtypes = [ctypes.c_char_p, ctypes.c_int]
-    for n in ("psvg_bin_to_svg", "psvg_svg_to_bin", "psvg_plan_json_to_bin", "psvg_bin_to_plan_json", "psvg_bin_to_svg_stamps", "psvg_parse_d_bin"):
+    for n in ("psvg_bin_to_svg", "psvg_svg_to_bin", "psvg_plan_json_to_bin", "psvg_bin_to_plan_json", "psvg_bin_to_svg_stamps", "psvg_parse_d_bin", "psvg_parse_d_flat"):
         f = getattr(lib, n)
         f.restype = ctypes.c_void_p
         f.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
@@ -421,6 +421,21 @@ def parse_d_subpaths_np(d: str):
         raise RuntimeError("plan_svg_core.dll not found")
     b = d.encode("ascii", "ignore")
     n = ctypes.c_int(0)
+    if hasattr(_LIB, "psvg_parse_d_flat"):
+        ptr = _LIB.psvg_parse_d_flat(ctypes.c_char_p(b), len(b), ctypes.byref(n))
+        if not ptr:
+            return []
+        try:
+            raw = ctypes.string_at(ptr, n.value)
+        finally:
+            _free(ptr)
+        if len(raw) < 8:
+            return []
+        ns = int(np.frombuffer(raw, dtype="<u4", count=1, offset=0)[0])
+        offs = np.frombuffer(raw, dtype="<u4", count=ns + 1, offset=4).astype(np.int64)
+        pts = np.frombuffer(raw, dtype="<f8", count=int(offs[-1]) * 2,
+                            offset=4 + (ns + 1) * 4).copy().reshape(-1, 2)
+        return [pts[int(offs[i]):int(offs[i + 1])] for i in range(ns)]
     ptr = _LIB.psvg_parse_d_bin(ctypes.c_char_p(b), len(b), ctypes.byref(n))
     if not ptr:
         return []

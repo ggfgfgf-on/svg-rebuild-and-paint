@@ -2066,4 +2066,48 @@ EXPORT unsigned char* psvg_parse_d_bin(const char* in, int n, int* out_len) {
 }
 
 
+EXPORT unsigned char* psvg_parse_d_flat(const char* in, int n, int* out_len) {
+    try {
+        std::string d(in, (size_t)n);
+        std::vector<std::vector<double>> subs;
+        std::vector<std::string> parts = split_d_subpaths(d);
+        double basex = 0, basey = 0;
+        for (auto& part : parts) {
+            bool rel = !part.empty() && part[0] == 'm';
+            std::vector<double> xs, ys;
+            parse_d(part, xs, ys);
+            if (xs.size() < 2) continue;
+            std::vector<double> v;
+            v.reserve(xs.size() * 2);
+            for (size_t i = 0; i < xs.size(); ++i) {
+                v.push_back(xs[i] + (rel ? basex : 0.0));
+                v.push_back(ys[i] + (rel ? basey : 0.0));
+            }
+            basex = v[v.size() - 2];
+            basey = v[v.size() - 1];
+            subs.push_back(std::move(v));
+        }
+        uint32_t ns = (uint32_t)subs.size();
+        size_t total_pts = 0;
+        for (auto& v : subs) total_pts += v.size() / 2;
+        size_t total = 4 + (size_t)(ns + 1) * 4 + total_pts * 16;
+        unsigned char* buf = (unsigned char*)std::malloc(total);
+        if (!buf) return nullptr;
+        unsigned char* p = buf;
+        std::memcpy(p, &ns, 4); p += 4;
+        uint32_t acc = 0;
+        for (uint32_t i = 0; i < ns; ++i) {
+            std::memcpy(p, &acc, 4); p += 4;
+            acc += (uint32_t)(subs[i].size() / 2);
+        }
+        std::memcpy(p, &acc, 4); p += 4;
+        for (auto& v : subs) {
+            if (!v.empty()) { std::memcpy(p, v.data(), v.size() * 8); p += v.size() * 8; }
+        }
+        if (out_len) *out_len = (int)total;
+        return buf;
+    } catch (...) { return nullptr; }
+}
+
+
 EXPORT void psvg_free(char* p){ std::free(p); }
