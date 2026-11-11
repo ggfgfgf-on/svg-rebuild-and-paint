@@ -168,7 +168,6 @@ def swap_brush(doc, layer, preset, guidance=1.0, selection=None, weights=None, s
 
 
 def densify(doc, layer, k, guidance=1.0, selection=None, weights=None, seed=0, **_):
-    _clear_path_d(doc)
     """在选中笔触旁追加子笔触（k>1；k=1 逐字节不变）。"""
     targets = list(_targets(doc, layer, selection, weights, guidance))
     if not targets:
@@ -527,7 +526,6 @@ def redraw(doc, fraction=1.0, jitter=0.15, layer=None, guidance=1.0, order="rand
 
     fraction=0 逐字节不变；fraction=1 选中笔触全部重抽；被改笔触数 = round(fraction·N)。
     """
-    _clear_path_d(doc)
     targets = list(_targets(doc, layer, selection, weights, guidance))
     if not targets:
         return doc
@@ -1914,8 +1912,6 @@ def apply(doc, specs, selection=None, weights=None, seed=0):
         clean.setdefault("weights", wts)
         clean.setdefault("seed", seed)
         out = OPS[name](out, **clean)
-        if name in ("densify", "redraw", "erase"):
-            _clear_path_d(out)
     out["count"] = len(out["strokes"])
     return out
 

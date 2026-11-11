@@ -151,10 +151,6 @@ def _geom_sig_fast(st):
             p = arr[i]
             h.update(struct.pack("<dd", float(p[0]), float(p[1])))
     h.update(str(st.get("fill_rule", "nonzero")).encode())
-    tr = st.get("transform")
-    if isinstance(tr, (list, tuple)):
-        for v in tr:
-            h.update(float(v).hex().encode())
     return h.hexdigest()
 
 
@@ -190,9 +186,6 @@ def _geom_sig(st):
                 a = a[:, :2]
             h.update(np.ascontiguousarray(a).tobytes())
     h.update(str(st.get("fill_rule", "nonzero")).encode())
-    tr = st.get("transform")
-    if isinstance(tr, (list, tuple)):
-        h.update(np.asarray(tr, dtype=np.float32).tobytes())
     return h.hexdigest()
 
 
@@ -410,9 +403,11 @@ def plan_to_svg(doc, *, filters=False, title=None, verify_path_d="auto"):
                     elif s.get("path_d_sig") and _geom_sig(s) != s["path_d_sig"]:
                         raw_d = None
                 d = raw_d or (_path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or []))
-                out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
+                tr = s.get("transform")
+                trs = (' transform="matrix(%s)"' % " ".join(_f(float(v)) for v in tr)) if raw_d and isinstance(tr, (list, tuple)) and len(tr) == 6 else ""
+                out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s%s/>' %
                            (d, paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
-                            (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))
+                            trs, (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))
                 continue
             cap = "butt" if preset in ("flat", "bristle") else "round"
             attrs = ['d="%s"' % _path_d(pts),
