@@ -1541,6 +1541,91 @@ static int gpu_fill_common(Gpu* g, int idx, const float* pts, int n, const float
     return 1;
 }
 
+static int gpu_masked_fill(Gpu* g, int idx, const float* pts, int n,
+                          const float* holes, int hole_n, const int* hole_off, int nh,
+                          const unsigned char* mask, int mw, int mh, int mx, int my,
+                          float r, float g_, float b, float a) {
+    if (!g || !pts || n < 3 || !mask || mw <= 0 || mh <= 0) return 0;
+    if (idx < 0 || idx >= (int)g->layers.size()) return 0;
+    float al = a < 0 ? 0 : (a > 1 ? 1 : a);
+    if (al <= 0) return 0;
+    UINT npix = (UINT)g->W * (UINT)g->H;
+    std::vector<float> px((size_t)npix * 4);
+    ID3D11Buffer* rb = make_buf(g->dev, npix * 16, 16, 0, 0, D3D11_CPU_ACCESS_READ);
+    if (!rb) return 0;
+    g->ctx->CopyResource(rb, g->layers[idx].buf);
+    D3D11_MAPPED_SUBRESOURCE ms{};
+    if (FAILED(g->ctx->Map(rb, 0, D3D11_MAP_READ, 0, &ms))) { rb->Release(); return 0; }
+    memcpy(px.data(), ms.pData, (size_t)npix * 16);
+    g->ctx->Unmap(rb, 0);
+    rb->Release();
+
+    float ymin = 1e30f, ymax = -1e30f;
+    for (int i = 0; i < n; ++i) { float y = pts[i*2+1]; ymin = std::min(ymin, y); ymax = std::max(ymax, y); }
+    if (holes && hole_off) for (int h = 0; h < nh; ++h) {
+        for (int i = hole_off[h]; i < hole_off[h+1]; ++i) {
+            float y = holes[i*2+1]; ymin = std::min(ymin, y); ymax = std::max(ymax, y);
+        }
+    }
+    int y0 = std::max(0, (int)std::floor(ymin));
+    int y1 = std::min((int)g->H - 1, (int)std::ceil(ymax));
+    std::vector<float> xs;
+    for (int y = y0; y <= y1; ++y) {
+        float yy = y + 0.5f; xs.clear();
+        for (int i = 0; i < n; ++i) {
+            int j = (i + 1) % n;
+            float ax = pts[i*2], ay = pts[i*2+1];
+            float bx = pts[j*2], by = pts[j*2+1];
+            if ((ay <= yy && by > yy) || (by <= yy && ay > yy))
+                xs.push_back(ax + (yy - ay) * (bx - ax) / (by - ay));
+        }
+        if (holes && hole_off) for (int h = 0; h < nh; ++h) {
+            int a0 = hole_off[h], a1 = hole_off[h+1], m = a1 - a0;
+            for (int i = 0; i < m; ++i) {
+                int j = (i + 1) % m;
+                float ax = holes[(a0+i)*2], ay = holes[(a0+i)*2+1];
+                float bx = holes[(a0+j)*2], by = holes[(a0+j)*2+1];
+                if ((ay <= yy && by > yy) || (by <= yy && ay > yy))
+                    xs.push_back(ax + (yy - ay) * (bx - ax) / (by - ay));
+            }
+        }
+        std::sort(xs.begin(), xs.end());
+        int myi = y - my;
+        if (myi < 0 || myi >= mh) continue;
+        for (size_t k = 0; k + 1 < xs.size(); k += 2) {
+            int xa = std::max(0, (int)std::ceil(xs[k] - 0.5f));
+            int xb = std::min((int)g->W - 1, (int)std::floor(xs[k+1] - 0.5f));
+            for (int x = xa; x <= xb; ++x) {
+                int mxi = x - mx;
+                if (mxi < 0 || mxi >= mw) continue;
+                float sa = al * (mask[(size_t)myi * mw + mxi] / 255.0f);
+                if (sa <= 0) continue;
+                float* d = px.data() + ((size_t)y * g->W + x) * 4;
+                float inv = 1.0f - sa;
+                d[0] = r * sa + d[0] * inv;
+                d[1] = g_ * sa + d[1] * inv;
+                d[2] = b * sa + d[2] * inv;
+                d[3] = sa + d[3] * inv;
+            }
+        }
+    }
+    g->ctx->UpdateSubresource(g->layers[idx].buf, 0, nullptr, px.data(), 0, 0);
+    return 1;
+}
+
+EXPORT int pg_fill_polygon_masked(void* p, int idx, const float* pts, int n,
+                                   const unsigned char* mask, int mw, int mh, int mx, int my,
+                                   float r, float g_, float b, float a) {
+    return gpu_masked_fill((Gpu*)p, idx, pts, n, nullptr, 0, nullptr, 0, mask, mw, mh, mx, my, r, g_, b, a);
+}
+
+EXPORT int pg_fill_polygon_masked_holes(void* p, int idx, const float* pts, int n,
+                                         const float* holes, int hole_n, const int* hole_off, int nh,
+                                         const unsigned char* mask, int mw, int mh, int mx, int my,
+                                         float r, float g_, float b, float a) {
+    return gpu_masked_fill((Gpu*)p, idx, pts, n, holes, hole_n, hole_off, nh, mask, mw, mh, mx, my, r, g_, b, a);
+}
+
 EXPORT int pg_fill_polygon(void* p, int idx, const float* pts, int n, float r, float g_, float b, float a) {
     float one[5] = {0, r, g_, b, 1};
     return gpu_fill_shader((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0, 0);

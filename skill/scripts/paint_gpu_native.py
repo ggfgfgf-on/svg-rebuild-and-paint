@@ -1,7 +1,9 @@
 """paint_gpu.dll 的 Python 封装：API 与 paint_native.Painter 对齐，可互换使用。"""
+import base64
 import ctypes
 import os
 import time
+import zlib
 import numpy as np
 from gradient_xform import apply_linear as _grad_xform, radial_matrix as _radial_matrix
 
@@ -40,6 +42,14 @@ def load():
     lib.pg_fill_polygon_holes.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
                                           ctypes.POINTER(ctypes.c_float), ctypes.c_int,
                                           ctypes.POINTER(ctypes.c_int), ctypes.c_int] + [ctypes.c_float] * 4
+    lib.pg_fill_polygon_masked.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
+                                           ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int,
+                                           ctypes.c_int, ctypes.c_int] + [ctypes.c_float] * 4
+    lib.pg_fill_polygon_masked_holes.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
+                                                 ctypes.POINTER(ctypes.c_float), ctypes.c_int,
+                                                 ctypes.POINTER(ctypes.c_int), ctypes.c_int,
+                                                 ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int,
+                                                 ctypes.c_int, ctypes.c_int] + [ctypes.c_float] * 4
     lib.pg_fill_gradient_polygon.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5
     lib.pg_fill_gradient_polygon_spread.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5 + [ctypes.c_int]
     lib.pg_fill_radial_polygon_spread.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 6 + [ctypes.c_int]
@@ -267,6 +277,46 @@ class GpuPainter:
             self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
             flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(flat),
             offs.ctypes.data_as(ctypes.POINTER(ctypes.c_int)), len(hs),
+            r / 255.0, g / 255.0, b / 255.0, float(opacity))
+
+    def _mask_bytes(self, mask):
+        mw, mh = int(mask.get("width", 0)), int(mask.get("height", 0))
+        if mw <= 0 or mh <= 0:
+            return None, 0, 0
+        raw = zlib.decompress(base64.b64decode(mask.get("data", "")))
+        return np.frombuffer(raw, np.uint8).reshape(mh, mw), mw, mh
+
+    def fill_polygon_masked(self, idx, pts, mask, rgb, opacity=1.0):
+        pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 2))
+        arr, mw, mh = self._mask_bytes(mask)
+        if arr is None:
+            return 0
+        r, g, b = rgb
+        return self._lib.pg_fill_polygon_masked(
+            self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+            arr.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)), mw, mh,
+            int(mask.get("x", 0)), int(mask.get("y", 0)),
+            r / 255.0, g / 255.0, b / 255.0, float(opacity))
+
+    def fill_polygon_masked_holes(self, idx, pts, holes, mask, rgb, opacity=1.0):
+        pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 2))
+        arr, mw, mh = self._mask_bytes(mask)
+        if arr is None:
+            return 0
+        hs = [np.asarray(h, np.float32).reshape(-1, 2) for h in (holes or []) if len(h) >= 3]
+        if not hs:
+            return self.fill_polygon_masked(idx, pts, mask, rgb, opacity)
+        flat = np.ascontiguousarray(np.concatenate(hs, axis=0), np.float32)
+        offs = np.zeros(len(hs) + 1, np.int32)
+        for i, h in enumerate(hs):
+            offs[i + 1] = offs[i] + len(h)
+        r, g, b = rgb
+        return self._lib.pg_fill_polygon_masked_holes(
+            self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+            flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(flat),
+            offs.ctypes.data_as(ctypes.POINTER(ctypes.c_int)), len(hs),
+            arr.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)), mw, mh,
+            int(mask.get("x", 0)), int(mask.get("y", 0)),
             r / 255.0, g / 255.0, b / 255.0, float(opacity))
 
     def fill_gradient(self, idx, pts, paint, opacity=1.0):
