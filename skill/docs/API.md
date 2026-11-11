@@ -393,6 +393,6 @@ Generate one advisory 512px image with SDXS-512-DreamShaper.
 
 ### `status`()
 
-### `text_reference`(prompt, out_png, *, model_path=None, size=(768, 768), steps=1, seed=0, device='auto', offload=True, guidance_scale=0.0, backend='sana-sprint')
+### `text_reference`(prompt, out_png, *, model_path=None, size=(512, 512), steps=1, seed=0, device='auto', offload=True, guidance_scale=0.0, backend='sdxs')
 
-Generate one advisory text-to-image thumbnail with Sana-Sprint.
+Generate one advisory text-to-image thumbnail with SDXS.

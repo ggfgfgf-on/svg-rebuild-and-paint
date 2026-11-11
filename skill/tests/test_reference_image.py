@@ -6,7 +6,7 @@ import reference_image as R
 
 def test_status():
     s = R.status()
-    assert "sana-sprint" in s and "imagenet" in s
+    assert "sdxs" in s and "imagenet" in s
     assert s["imagenet"]["available"] is False
     print("PASS reference_image status")
 
@@ -25,7 +25,7 @@ def test_image_reference_validation(tmp_path):
     p.write_bytes(b"not-a-real-png")
     bad = [
         lambda: R.image_reference("", str(p), "x.png"),
-        lambda: R.image_reference("fox", str(p), "x.png", backend="sana-sprint"),
+        lambda: R.image_reference("fox", str(p), "x.png", backend="other"),
         lambda: R.image_reference("fox", str(p), "x.png", strength=0.0),
         lambda: R.image_reference("fox", str(p), "x.png", steps=0),
         lambda: R.image_reference("fox", str(p), "x.png", strength=0.2, steps=2),

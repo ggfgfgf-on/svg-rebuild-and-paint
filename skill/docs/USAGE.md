@@ -400,7 +400,7 @@ frame = p.composite()                                    # (H, W, 4) uint8
 
 写 build script：用 `plan_io` 攒 plan，`scripts/render_plan.py` 出图。场景、层、part、pass 由你决定；函数接口见 [SHAPE_API.md](SHAPE_API.md)，示例见 [EXAMPLES.md](EXAMPLES.md)。
 
-默认 driver 不调用任何视觉模型。确实需要参考图时，只有 SDXS img2img 一条可用路径（`reference_image.py img2img`）；它只产 advisory 图，不写 plan、不生成几何，不能替代 driver 里的形状/接地判断。Sana-Sprint 没有 img2img pipeline。详见 [VISUAL_HELPERS.md](VISUAL_HELPERS.md)。
+默认 driver 不调用任何视觉模型。确实需要参考图时，只有 SDXS img2img 一条可用路径（`reference_image.py img2img`）；它只产 advisory 图，不写 plan、不生成几何，不能替代 driver 里的形状/接地判断。Sana-Sprint 已移除（未安装、无 img2img pipeline）。详见 [VISUAL_HELPERS.md](VISUAL_HELPERS.md)。
 
 ### 6.2 交付清单
 

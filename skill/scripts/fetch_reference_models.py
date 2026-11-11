@@ -5,7 +5,6 @@ Weights are NOT redistributed by this repository.  This script only calls the
 official Hugging Face repos; review each license before downloading/using.
 
     python scripts/fetch_reference_models.py --list
-    python scripts/fetch_reference_models.py --download sana --dest models/Sana_Sprint_0.6B_1024px_diffusers
     python scripts/fetch_reference_models.py --download imf-b2 --dest models/imf
 """
 from __future__ import annotations
@@ -23,15 +22,7 @@ MODELS = {
         "size_gb": 2.1,
         "license": "OpenRAIL++",
         "redistribute": False,
-        "note": "512px one-step; much smaller than full Sana-Sprint.",
-    },
-    "sana": {
-        "repo": "Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers",
-        "kind": "snapshot",
-        "size_gb": 7.7,
-        "license": "Apache-2.0 (Sana); text encoder Gemma-2-2B is subject to Gemma Terms",
-        "redistribute": False,
-        "note": "Includes transformer + VAE + Gemma text encoder; download from official repo.",
+        "note": "512px one-step; small local text/image prior.",
     },
     "imf-b2": {
         "repo": "Lyy0725/iMF",

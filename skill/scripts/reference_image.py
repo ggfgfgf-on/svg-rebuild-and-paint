@@ -8,9 +8,9 @@ geometry.
 
 Backends
 --------
-sana-sprint
-    Text-to-image, one/few steps.  Requires a local Diffusers model directory
-    (env DSH_SANA_SPRINT_PATH or --model-path).
+sdxs
+    Text-to-image and reference-image img2img, one/few steps.  Requires a
+    local Diffusers model directory (env DSH_SDXS_PATH or --model-path).
 
 imagenet
     Class-conditional MeanFlow/iMF checkpoints are JAX/Flax research artifacts;
@@ -32,17 +32,8 @@ def _has(name):
 
 
 def status():
-    sana_path = os.environ.get("DSH_SANA_SPRINT_PATH", "").strip() or None
     sdxs_path = os.environ.get("DSH_SDXS_PATH", "").strip() or None
     return {
-        "sana-sprint": {
-            "installed": all(_has(m) for m in ("torch", "diffusers", "transformers")),
-            "torch": _has("torch"),
-            "diffusers": _has("diffusers"),
-            "transformers": _has("transformers"),
-            "model_path": sana_path,
-            "available": bool(sana_path) and all(_has(m) for m in ("torch", "diffusers", "transformers")),
-        },
         "sdxs": {
             "installed": all(_has(m) for m in ("torch", "diffusers", "transformers")),
             "model_path": sdxs_path,
@@ -69,89 +60,19 @@ def _pick_device(torch, device):
     return device
 
 
-def text_reference(prompt, out_png, *, model_path=None, size=(768, 768),
+def text_reference(prompt, out_png, *, model_path=None, size=(512, 512),
                    steps=1, seed=0, device="auto", offload=True,
-                   guidance_scale=0.0, backend="sana-sprint"):
-    """Generate one advisory text-to-image thumbnail with Sana-Sprint.
+                   guidance_scale=0.0, backend="sdxs"):
+    """Generate one advisory text-to-image thumbnail with SDXS.
 
     Returns a metadata dict.  The caller remains responsible for looking at the
     image and writing geometric plan data; this helper does not create a plan.
     """
-    if backend == "sdxs":
-        return sdxs_reference(prompt, out_png, model_path=model_path, size=size,
-                              steps=steps, seed=seed, device=device,
-                              offload=offload, guidance_scale=guidance_scale)
-    if backend != "sana-sprint":
-        raise ValueError("backend must be 'sana-sprint' or 'sdxs'")
-
-    prompt = str(prompt or "").strip()
-    if not prompt:
-        raise ValueError("prompt must be non-empty")
-    w, h = int(size[0]), int(size[1])
-    if w <= 0 or h <= 0 or w % 32 or h % 32:
-        raise ValueError("size must be positive multiples of 32")
-    steps = int(steps)
-    if steps < 1 or steps > 8:
-        raise ValueError("steps must be 1..8")
-
-    torch = _torch()
-    if not _has("diffusers"):
-        raise RuntimeError("diffusers is not installed; pip install diffusers transformers accelerate")
-    if not _has("transformers"):
-        raise RuntimeError("transformers is not installed; pip install diffusers transformers accelerate")
-    if not model_path:
-        model_path = os.environ.get("DSH_SANA_SPRINT_PATH", "").strip()
-    if not model_path:
-        raise ValueError("set DSH_SANA_SPRINT_PATH or pass model_path (nothing is downloaded automatically)")
-    model_dir = Path(model_path)
-    if not model_dir.is_dir():
-        raise FileNotFoundError("Sana-Sprint model directory not found: %s" % model_dir)
-
-    import diffusers
-
-    cls = getattr(diffusers, "SanaSprintPipeline", None) or getattr(diffusers, "SanaPipeline", None)
-    if cls is None:
-        raise RuntimeError("this diffusers build has no SanaSprintPipeline/SanaPipeline; upgrade diffusers")
-
-    dev = _pick_device(torch, device)
-    dtype = torch.float16 if dev == "cuda" else torch.float32
-    pipe = cls.from_pretrained(str(model_dir), torch_dtype=dtype, local_files_only=True)
-    if offload and dev == "cuda" and hasattr(pipe, "enable_model_cpu_offload"):
-        try:
-            pipe.enable_model_cpu_offload()
-        except Exception:
-            pipe.to(dev)
-    else:
-        pipe.to(dev)
-
-    gen = torch.Generator(device="cpu").manual_seed(int(seed))
-    kwargs = {
-        "prompt": prompt,
-        "width": w,
-        "height": h,
-        "num_inference_steps": steps,
-        "generator": gen,
-        "guidance_scale": float(guidance_scale),
-    }
-    accepted = set(inspect.signature(pipe.__call__).parameters)
-    kwargs = {k: v for k, v in kwargs.items() if k in accepted}
-    result = pipe(**kwargs)
-    image = result.images[0]
-
-    out = Path(out_png)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    image.save(out)
-    return {
-        "image": str(out),
-        "backend": "sana-sprint",
-        "model": str(model_dir),
-        "seed": int(seed),
-        "size": [w, h],
-        "steps": steps,
-        "advisory": True,
-    }
-
-
+    if backend != "sdxs":
+        raise ValueError("backend must be 'sdxs'")
+    return sdxs_reference(prompt, out_png, model_path=model_path, size=size,
+                          steps=steps, seed=seed, device=device,
+                          offload=offload, guidance_scale=guidance_scale)
 def sdxs_reference(prompt, out_png, *, model_path=None, size=(512, 512),
                     steps=1, seed=0, device="auto", offload=True,
                     guidance_scale=0.0):
@@ -224,17 +145,13 @@ def image_reference(prompt, init_image, out_png, *, model_path=None, size=None,
     painting.  strength controls how far the result may move from the
     reference (0.05 = close, 0.95 = loose).
 
-    Supported backends:
-      * sdxs: Stable Diffusion img2img, verified with the local 512px model.
-      * sana-sprint: not supported for image input.  The Sana-Sprint pipeline
-        has no image argument; use the sdxs backend or a dedicated
-        image-conditioned Sana checkpoint.
+    Backend: sdxs (Stable Diffusion img2img), verified with the local 512px model.
     """
     prompt = str(prompt or "").strip()
     if not prompt:
         raise ValueError("prompt must be non-empty")
     if backend != "sdxs":
-        raise ValueError("backend 'sana-sprint' has no image-to-image pipeline; use backend='sdxs'")
+        raise ValueError("image_reference currently supports backend='sdxs' only")
     strength = float(strength)
     if not 0.05 <= strength <= 0.95:
         raise ValueError("strength must be in [0.05, 0.95]")
@@ -350,7 +267,7 @@ def main(argv=None):
         ap.add_argument("prompt")
         ap.add_argument("out")
         ap.add_argument("--model-path", default=None)
-        ap.add_argument("--backend", choices=["sdxs", "sana-sprint"], default="sdxs")
+        ap.add_argument("--backend", choices=["sdxs"], default="sdxs")
         ap.add_argument("--size", type=int, nargs=2, default=None)
         ap.add_argument("--strength", type=float, default=0.55)
         ap.add_argument("--steps", type=int, default=4)
@@ -362,24 +279,24 @@ def main(argv=None):
                                          seed=a.seed, device=a.device, backend=a.backend),
                          ensure_ascii=False, indent=2))
         return 0
-    if argv[0] == "sana":
+    if argv[0] == "text":
         import argparse
         ap = argparse.ArgumentParser()
         ap.add_argument("prompt")
         ap.add_argument("out")
         ap.add_argument("--model-path", default=None)
-        ap.add_argument("--size", type=int, nargs=2, default=(768, 768))
+        ap.add_argument("--size", type=int, nargs=2, default=(512, 512))
         ap.add_argument("--steps", type=int, default=1)
         ap.add_argument("--seed", type=int, default=0)
         ap.add_argument("--device", default="auto")
-        ap.add_argument("--backend", choices=["sana-sprint", "sdxs"], default="sana-sprint")
+        ap.add_argument("--backend", choices=["sdxs"], default="sdxs")
         a = ap.parse_args(argv[1:])
         print(json.dumps(text_reference(a.prompt, a.out, model_path=a.model_path,
                                         size=a.size, steps=a.steps, seed=a.seed,
                                         device=a.device, backend=a.backend),
                          ensure_ascii=False, indent=2))
         return 0
-    print("usage: reference_image.py [status | img2img IMAGE PROMPT OUT | sana PROMPT OUT ...]", file=sys.stderr)
+    print("usage: reference_image.py [status | img2img IMAGE PROMPT OUT | text PROMPT OUT ...]", file=sys.stderr)
     return 2
 
 
