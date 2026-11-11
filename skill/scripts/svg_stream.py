@@ -361,7 +361,7 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 arr_mode = hasattr(good[0], "shape")
                 st = {"layer": "layer", "preset": "fill", "opacity": op,
                       "color": color,
-                      "points": good[0].astype(_np.float64) if arr_mode else [[float(p[0]), float(p[1]), 1.0] for p in good[0]],
+                      "points": good[0] if arr_mode else [[float(p[0]), float(p[1]), 1.0] for p in good[0]],
                       "fill_rule": rule}
                 if len(good) > 1:
                     st["subpaths"] = good if arr_mode else [[[float(p[0]), float(p[1]), 1.0] for p in q] for q in good]

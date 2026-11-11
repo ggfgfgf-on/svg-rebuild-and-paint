@@ -165,13 +165,30 @@ def _geom_sig(st):
     arrays = [st.get("points") if st.get("points") is not None else []]
     arrays += list(st.get("subpaths") if st.get("subpaths") is not None else [])
     arrays += list(st.get("holes") if st.get("holes") is not None else [])
-    for arr in arrays:
-        if len(arr) == 0:
-            continue
-        a = np.asarray(arr, dtype=np.float32)
-        if a.ndim == 2 and a.shape[1] > 2:
-            a = a[:, :2]
-        h.update(np.ascontiguousarray(a).tobytes())
+    base = None
+    shared = len(arrays) > 1
+    if shared:
+        for arr in arrays:
+            if not isinstance(arr, np.ndarray) or arr.base is None:
+                shared = False
+                break
+            if base is None:
+                base = arr.base
+            elif arr.base is not base:
+                shared = False
+                break
+    if shared and base is not None:
+        h.update(np.ascontiguousarray(base, dtype=np.float32).tobytes())
+        for arr in arrays:
+            h.update(len(arr).to_bytes(8, "little"))
+    else:
+        for arr in arrays:
+            if len(arr) == 0:
+                continue
+            a = np.asarray(arr, dtype=np.float32)
+            if a.ndim == 2 and a.shape[1] > 2:
+                a = a[:, :2]
+            h.update(np.ascontiguousarray(a).tobytes())
     h.update(str(st.get("fill_rule", "nonzero")).encode())
     tr = st.get("transform")
     if isinstance(tr, (list, tuple)):
