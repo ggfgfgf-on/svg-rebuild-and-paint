@@ -374,8 +374,13 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                             st["subpaths"] = [_np.asarray(q, dtype=_np.float64) for q in st["subpaths"]]
                         if st.get("holes"):
                             st["holes"] = [_np.asarray(h, dtype=_np.float64) for h in st["holes"]]
-                    st["path_d"] = path_d
-                    st["path_d_sig"] = _ps._geom_sig(st)
+                    parts = re.findall(r"[Mm][^Mm]*", path_d)
+                    if total > 10000 and len(parts) == len(good):
+                        st["path_d_parts"] = parts
+                        st["path_part_sig"] = [_ps._geom_sig_part(q) for q in good]
+                    else:
+                        st["path_d"] = path_d
+                        st["path_d_sig"] = _ps._geom_sig(st)
                 strokes.append(st)
 
             for rm in re.finditer(br"<rect\b([^>]*)>", mm):

@@ -652,6 +652,23 @@ def test_path_d_transform_and_revert(tmp_path):
     assert "C20 0 30 40 50 50" in out and "matrix(1 0 0 1 10 20)" in out
 
 
+def test_path_d_parts_partial_edit():
+    q0 = [[0, 0], [10, 0], [10, 10], [0, 10]]
+    q1 = [[20, 20], [30, 20], [30, 30], [20, 30]]
+    d = {"canvas": [100, 100], "layers": [{"name": "l"}],
+         "strokes": [{"layer": "l", "preset": "fill", "opacity": 1.0, "color": [255, 0, 0],
+                      "points": q0, "subpaths": [q0, q1],
+                      "path_d_parts": ["M0 0 C1 1 2 2 3 3 Z", "M20 20 C21 21 22 22 23 23 Z"],
+                      "path_part_sig": [plan_svg._geom_sig_part(q0), plan_svg._geom_sig_part(q1)]}]}
+    ref = plan_svg.plan_to_svg(d)
+    assert "M0 0 C1 1 2 2 3 3 Z" in ref
+    assert "M20 20 C21 21 22 22 23 23 Z" in ref
+    d["strokes"][0]["subpaths"][1][0][0] += 1
+    out = plan_svg.plan_to_svg(d)
+    assert "M0 0 C1 1 2 2 3 3 Z" in out
+    assert "M20 20 C21 21 22 22 23 23 Z" not in out
+
+
 def test_stream_file_incremental(tmp_path):
     import svg_stream
     p = tmp_path / "big.svg"

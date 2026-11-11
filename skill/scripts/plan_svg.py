@@ -154,6 +154,17 @@ def _geom_sig_fast(st):
     return h.hexdigest()
 
 
+def _geom_sig_part(arr):
+    import hashlib
+    import numpy as np
+    h = hashlib.blake2b(digest_size=12)
+    a = np.asarray(arr, dtype=np.float32)
+    if a.ndim == 2 and a.shape[1] > 2:
+        a = a[:, :2]
+    h.update(np.ascontiguousarray(a).tobytes())
+    return h.hexdigest()
+
+
 def _geom_sig(st):
     import hashlib
     import numpy as np
@@ -395,6 +406,30 @@ def plan_to_svg(doc, *, filters=False, title=None, verify_path_d="auto"):
                 continue
             if preset == "fill":
                 subs = s.get("subpaths")
+                parts = s.get("path_d_parts")
+                if parts and subs and len(parts) == len(subs):
+                    psigs = s.get("path_part_sig") or []
+                    tr = s.get("transform")
+                    use_tr = isinstance(tr, (list, tuple)) and len(tr) == 6
+                    chunks = []
+                    changed = False
+                    for i, q in enumerate(subs):
+                        keep = verify_path_d is False or (i < len(psigs) and _geom_sig_part(q) == psigs[i])
+                        if keep:
+                            chunks.append(parts[i])
+                        else:
+                            chunks.append(_path_d_compact(q))
+                            changed = True
+                    if use_tr and changed:
+                        d = _path_d_multi(subs, s.get("holes") or [])
+                        trs = ""
+                    else:
+                        d = " ".join(chunks)
+                        trs = (' transform="matrix(%s)"' % " ".join(_f(float(v)) for v in tr)) if use_tr else ""
+                    out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s%s/>' %
+                               (d, paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
+                                trs, (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))
+                    continue
                 raw_d = s.get("path_d")
                 if raw_d and verify_path_d is not False:
                     if verify_path_d is True:
