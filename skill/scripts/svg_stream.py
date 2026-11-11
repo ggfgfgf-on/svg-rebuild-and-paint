@@ -715,8 +715,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     out.append(r)
         return out
 
-    def _mini_plan(xml):
-        if _native is not None and _native.available():
+    def _mini_plan(xml, force_py=False):
+        if not force_py and _native is not None and _native.available():
             try:
                 d = _native.svg_to_plan(xml)
                 if d and d.get("strokes"):
@@ -768,12 +768,13 @@ def stream_svg_to_plan(source, chunk_size=65536):
         if clip_refs:
             refs = [defs_map[r] for r in clip_refs if r in defs_map]
             if refs:
-                defs_xml = "".join(node_xml(n) for n in refs)
+                allrefs = list({id(n): n for n in list(refs) + list(defs_map.values())}.values())
+                defs_xml = "".join(node_xml(n) for n in allrefs)
                 attrs = "".join(' %s="%s"' % (k, html.escape(str(v), quote=True)) for k, v in a.items())
                 mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s"><defs>%s</defs>'
                         '<%s%s/></svg>' % (canvas[0], canvas[1], defs_xml, tag, attrs))
                 try:
-                    sub = _mini_plan(mini)
+                    sub = _mini_plan(mini, force_py=any(n.get("tag") == "mask" for n in refs))
                     for sl in sub.get("layers", []):
                         if isinstance(sl.get("mask"), dict):
                             for L in layers:

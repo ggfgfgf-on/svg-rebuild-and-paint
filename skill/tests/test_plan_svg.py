@@ -419,6 +419,22 @@ def test_mixed_fill_stroke_roundtrip():
     assert back["strokes"][1]["preset"] == "dry"
 
 
+def test_mask_gradient_raster():
+    import paint_plan
+    import numpy as np
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<defs><linearGradient id="g"><stop offset="0" stop-color="#fff"/>'
+           '<stop offset="1" stop-color="#000"/></linearGradient>'
+           '<mask id="m"><rect width="100" height="100" fill="url(#g)"/></mask></defs>'
+           '<rect width="100" height="100" fill="#f00" mask="url(#m)"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    m = d["layers"][0].get("mask")
+    assert isinstance(m, dict)
+    img, _ = paint_plan.render_plan(d)
+    a = np.asarray(img)
+    assert int(a[50, 5, 3]) > int(a[50, 95, 3])
+
+
 def test_plan_render_shape_mask():
     import paint_plan
     import numpy as np
