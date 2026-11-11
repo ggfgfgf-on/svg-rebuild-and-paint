@@ -47,16 +47,3 @@ driver 输出 manifest，声明自己要检查什么：
 ## 5. 经验数据（不参与门）
 
 旧 driver 的 known_issues 是检索数据；新 driver 可以读，但不把其中条目当规则。
-
-## 6. 标准语义门（通用，不是画法）
-
-以下四项是通用交付门，driver 可以声明并自行参数化；不规定题材、层、笔刷。
-
-| id | 用什么 kind 组合 | 要回答的问题 |
-|---|---|---|
-| subject | region_contrast + 主体 mask | 主体区域是否存在且可读 |
-| support | mask_overlap + custom | 主体/脚/塔基是否有承托面，接触点是否成立 |
-| focus | region_contrast | 最亮/最暗焦点是否唯一，主体是否被抢 |
-| legibility_25 | 25% 缩略图 + custom/视觉复核 | 缩到 25% 还能读出主体和场景吗 |
-
-这些只是默认建议；driver 可以换参数、加自己的 checks。
