@@ -11,38 +11,51 @@
 
 这些 helper 只有在用户明确允许外部视觉辅助时才调用。它们只返回 advisory 图片/元数据，不写 plan、不渲染 plan、不能描图或 vectorize。
 
+**参考图只有 SDXS img2img 一条**：输入图 + 提示词 → advisory 图，仍然不是 plan。Sana-Sprint 的 pipeline 没有 `image` 入口，不能假装支持。
+
 ## 这些函数是干嘛的
 
 | 函数 | 输入 | 输出 | 用途 |
 |---|---|---|---|
 | text_reference | 一句英文/中文场景描述 | advisory PNG + 元数据 | 生成构图/氛围缩略图，给模型看一眼 |
+| image_reference | 参考图 + 一句提示词 | advisory PNG + 元数据 | SDXS img2img，按参考图生成变体 |
 | class_reference | ImageNet class_id（0–999） | 多张类别图 + 元数据 | 对象先验，例如狐狸长什么样 |
 | imf_runner.generate | class_id + repo/ckpt | 256px 类别图 | class_reference 的实际 iMF runner |
 | status | — | 依赖/模型路径状态 | 判断能不能用，不加载模型 |
 
 它们**不负责**：写 plan、生成几何、分层、接地、审美判断。输出不能描图，也不能直接 vectorize 成 plan。
 
+| 后端 | 文生图 | 参考图 img2img | 本机状态 |
+|---|---|---|---|
+| SDXS-512 | 支持 | 支持 | 已实测 |
+| Sana-Sprint | 支持 | 不支持 | 未装权重 |
+| iMF-B/2 | 类别先验 | 不支持 | 已实测 |
+
+
+
 ## 职责边界
 
-- 这是**可选视觉辅助**，不是参考图输入；
+- 这是**可选视觉辅助**，不是 plan 输入；
+- SDXS 可用参考图做 img2img，但输出仍只是 advisory 图；
 - 只生成 advisory 图片/元数据，不写 plan、不生成几何、不判断接地；
 - 默认无参考凭空画不 import、不下载、不读取；
 - 只有用户明确允许外部视觉辅助时才调用；
 - 失败/缺少权重不阻断主绘画流程。
 
-## 0. 本机实测状态（2026-11-08）
+## 0.1 本机实测状态
 
 - CUDA PyTorch `2.11.0+cu128`，`diffusers 0.42.1`，已装；
 - **SDXS-512** 已下载（2.1GB），512×512、1 step 实测：首次含加载约 20s，第二次生成约 1.0s；
+- **SDXS img2img** 已实测：512×512 / strength 0.45 / 4 steps，参考图变体生成正常；steps * strength 必须 >= 1；
 - **Sana-Sprint** 未安装：完整 Diffusers 目录约 7.7GB，本机下载过慢，接口保留但未实测；
 - **iMF-B/2** 已下载 PyTorch `.pth`（约 356MB），用官方 torch 分支 + `imf_runner.py` **实测可跑**（256px，class 277，生成约 0.9s；首次加载约 20s）。
 
-这一页是**可选视觉辅助（advisory prior）**，不是参考图输入，也不进入默认凭空画流程。
-它只生成一张给模型“看一眼”的辅助图；不能描图，不能直接 vectorize 成 plan。
+这一页是**可选视觉辅助（advisory prior）**，不进入默认凭空画流程。
+它只生成给模型“看一眼”的辅助图；不能描图，不能直接 vectorize 成 plan。
 
 ## 1. 环境
 
-本机是 RTX 5070 Laptop 8GB，但 PyTorch 当前是 CPU 版。先装 CUDA 版：
+本机是 RTX 5070 Laptop 8GB，PyTorch 为 CUDA 版（2.11.0+cu128）。如果换机器且只有 CPU 版，先装 CUDA 版：
 
 ~~~powershell
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
@@ -97,6 +110,28 @@ meta = text_reference("...", "out/ref.png", size=(768, 768), steps=1, seed=0)
 - OOM 就降 size，不要把模型硬塞进显存；
 - 生成失败返回错误，不阻断主绘画流程。
 
+## 2.1 参考图 img2img（只有 SDXS）
+
+参考图不是 plan，也不是“描图输入”。它只帮模型先看一张构图/质感变体；最终几何仍要自己写。
+
+~~~powershell
+python scripts/reference_image.py img2img in/ref.png "same subject, oil painting" out/ref_i2i.png \
+  --backend sdxs --model-path D:\DSHwork\flower\_models\sdxs-512-dreamshaper \
+  --strength 0.45 --steps 4 --seed 0
+~~~
+
+| 参数 | 含义 |
+|---|---|
+| strength | 0.05 贴近参考图，0.95 更自由；默认 0.55 |
+| steps | 1–8；steps * strength 必须 >= 1，否则没有有效去噪步 |
+| size | 默认按参考图取 32 的倍数；显式给 512 512 等 |
+
+实测：512×512 / strength 0.45 / 4 steps 可跑；低步数会明显发糊，做质感变体建议 4–8 步。
+
+不支持 Sana-Sprint：它的 pipeline 没有 image 参数，硬接只能自己写 latents 和 SCM 噪声调度，当前没有可靠实现。需要参考图就用 SDXS，或换一个真正支持 img2img 的 Sana checkpoint。
+
+SDXS img2img 也是 advisory：输出不能直接 vectorize 成 plan，也不替代几何/接地判断。
+
 ## 3. ImageNet / iMF 类别先验
 
 iMF 现在用官方 **PyTorch 推理分支** + `scripts/imf_runner.py`，不需要 JAX。
@@ -146,6 +181,9 @@ status() -> dict
 text_reference(prompt, out_png, *, model_path=None, size=(768, 768),
               steps=1, seed=0, device="auto", offload=True,
               guidance_scale=0.0) -> dict
+image_reference(prompt, init_image, out_png, *, model_path=None, size=None,
+                strength=0.55, steps=4, seed=0, device="auto",
+                offload=True, guidance_scale=0.0, backend="sdxs") -> dict
 class_reference(class_id, out_dir, *, n=1, seed=0, runner=None) -> dict
 ~~~
 

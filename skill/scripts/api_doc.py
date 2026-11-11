@@ -38,6 +38,7 @@ def build():
     import ops
     import pick_instance as PI
     import masks
+    import reference_image as RI
     L = []
     A = L.append
     A("# 接口清单（自动生成，勿手改）")
@@ -86,7 +87,7 @@ def build():
         optional = sorted(k for k in ops.ALLOWED.get(name, []) if k not in req)  # ALLOWED 若为 set，必须排序，否则每进程顺序不同
         A("- 可选：" + (", ".join(c(k) for k in optional) or "（无）"))
         A("")
-    for mod_name, mod in (("pick_instance", PI), ("masks", masks)):
+    for mod_name, mod in (("pick_instance", PI), ("masks", masks), ("reference_image", RI)):
         A("## " + c(mod_name) + "（辅助函数）")
         A("")
         for nm, obj in sorted(vars(mod).items()):

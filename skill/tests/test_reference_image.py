@@ -20,6 +20,26 @@ def test_validation():
             raise AssertionError("invalid input was accepted")
     print("PASS reference_image validation")
 
+def test_image_reference_validation(tmp_path):
+    p = tmp_path / "ref.png"
+    p.write_bytes(b"not-a-real-png")
+    bad = [
+        lambda: R.image_reference("", str(p), "x.png"),
+        lambda: R.image_reference("fox", str(p), "x.png", backend="sana-sprint"),
+        lambda: R.image_reference("fox", str(p), "x.png", strength=0.0),
+        lambda: R.image_reference("fox", str(p), "x.png", steps=0),
+        lambda: R.image_reference("fox", str(p), "x.png", strength=0.2, steps=2),
+        lambda: R.image_reference("fox", str(tmp_path / "missing.png"), "x.png"),
+    ]
+    for fn in bad:
+        try:
+            fn()
+        except Exception:
+            pass
+        else:
+            raise AssertionError("invalid image_reference input was accepted")
+
+
 def test_class_runner():
     import tempfile
     from pathlib import Path

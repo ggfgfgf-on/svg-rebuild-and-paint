@@ -374,3 +374,25 @@ mask, mask_file, all, polygon, instance, tiles, cells, prompt, segment, include,
 ### `weights`(doc, mask, feather=0.0, layer=None, mode='any')
 
 返回 (selection, weights)：全局笔触下标 + 对应 0..1 权重。mode 见 stroke_weight。
+
+## `reference_image`（辅助函数）
+
+### `class_reference`(class_id, out_dir, *, n=1, seed=0, runner=None)
+
+Optional ImageNet/iMF class prior.
+
+### `image_reference`(prompt, init_image, out_png, *, model_path=None, size=None, strength=0.55, steps=4, seed=0, device='auto', offload=True, guidance_scale=0.0, backend='sdxs')
+
+Generate an advisory image-to-image result from a reference image.
+
+### `main`(argv=None)
+
+### `sdxs_reference`(prompt, out_png, *, model_path=None, size=(512, 512), steps=1, seed=0, device='auto', offload=True, guidance_scale=0.0)
+
+Generate one advisory 512px image with SDXS-512-DreamShaper.
+
+### `status`()
+
+### `text_reference`(prompt, out_png, *, model_path=None, size=(768, 768), steps=1, seed=0, device='auto', offload=True, guidance_scale=0.0, backend='sana-sprint')
+
+Generate one advisory text-to-image thumbnail with Sana-Sprint.

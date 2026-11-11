@@ -944,7 +944,10 @@ python scripts/paint_cli.py eval plan.json examples/batch/expected_hard.json exa
 用途只有三类：
 
 - text_reference：用 SDXS / Sana-Sprint 生成一张 advisory 缩略图；
+- image_reference：用 SDXS img2img 从参考图生成一张 advisory 变体；
 - class_reference + imf_runner：生成 ImageNet 类别先验（例如 277 = red fox）；
 - status：检查依赖、本地模型路径是否可用。
+
+参考图只支持 SDXS img2img；Sana-Sprint 的 pipeline 没有 image 入口，不要假装支持。输出仍只是 advisory 图，不是 plan。
 
 它们只返回图片/元数据：不写 plan、不生成几何、不判断接地；不能描图或 vectorize。
