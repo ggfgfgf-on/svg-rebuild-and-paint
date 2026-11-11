@@ -33,6 +33,10 @@ def _load():
         f = getattr(lib, n)
         f.restype = ctypes.c_void_p
         f.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+    lib.psvg_hash_parts.restype = None
+    lib.psvg_hash_parts.argtypes = [ctypes.POINTER(ctypes.c_double), ctypes.c_int,
+                                    ctypes.POINTER(ctypes.c_uint32), ctypes.c_int,
+                                    ctypes.POINTER(ctypes.c_uint64)]
     lib.psvg_free.argtypes = [ctypes.c_void_p]
     lib.psvg_free.restype = None
     lib.psvg_clip_polygons.restype = ctypes.c_void_p
@@ -409,6 +413,32 @@ def plan_to_svg_stamps(doc) -> str:
     if raw.startswith(b"ERR:"):
         raise ValueError(raw[4:].decode("utf-8", "replace"))
     return raw.decode("utf-8")
+
+def hash_parts(parts) -> list:
+    if _LIB is None or not parts:
+        return []
+    arrs = []
+    for a in parts:
+        x = np.asarray(a, dtype=np.float64)
+        if x.ndim == 2 and x.shape[1] > 2:
+            x = x[:, :2]
+        if x.size:
+            arrs.append(x.reshape(-1))
+    if not arrs:
+        return ["0" * 16 for _ in parts]
+    flat = np.ascontiguousarray(np.concatenate(arrs), dtype=np.float64)
+    offs = np.zeros(len(parts) + 1, dtype=np.uint32)
+    k = 0
+    for i, a in enumerate(parts):
+        k += len(a)
+        offs[i + 1] = k
+    out = (ctypes.c_uint64 * len(parts))()
+    _LIB.psvg_hash_parts(flat.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+                         len(flat) // 2,
+                         offs.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
+                         len(parts), out)
+    return ["%016x" % int(v) for v in out]
+
 
 def parse_d_subpaths(d: str):
     """C++ path command state machine -> [[x,y],...] per subpath."""

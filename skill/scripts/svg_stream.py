@@ -377,7 +377,7 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                     parts = re.findall(r"[Mm][^Mm]*", path_d)
                     if total > 10000 and len(parts) == len(good):
                         st["path_d_parts"] = parts
-                        st["path_part_sig"] = [_ps._geom_sig_part(q) for q in good]
+                        st["path_part_sig"] = _ps._part_hashes(good)
                     else:
                         st["path_d"] = path_d
                         st["path_d_sig"] = _ps._geom_sig(st)

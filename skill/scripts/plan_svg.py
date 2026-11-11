@@ -155,14 +155,23 @@ def _geom_sig_fast(st):
 
 
 def _geom_sig_part(arr):
-    import hashlib
     import numpy as np
-    h = hashlib.blake2b(digest_size=12)
     a = np.asarray(arr, dtype=np.float32)
     if a.ndim == 2 and a.shape[1] > 2:
         a = a[:, :2]
-    h.update(np.ascontiguousarray(a).tobytes())
-    return h.hexdigest()
+    h = 1469598103934665603
+    for b in np.ascontiguousarray(a).tobytes():
+        h = ((h ^ b) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    return "%016x" % h
+
+
+def _part_hashes(parts):
+    if _native is not None and _native.available() and hasattr(_native, "hash_parts"):
+        try:
+            return _native.hash_parts(parts)
+        except Exception:
+            pass
+    return [_geom_sig_part(q) for q in parts]
 
 
 def _geom_sig(st):
@@ -413,8 +422,9 @@ def plan_to_svg(doc, *, filters=False, title=None, verify_path_d="auto"):
                     use_tr = isinstance(tr, (list, tuple)) and len(tr) == 6
                     chunks = []
                     changed = False
+                    cur_sigs = None if verify_path_d is False else _part_hashes(subs)
                     for i, q in enumerate(subs):
-                        keep = verify_path_d is False or (i < len(psigs) and _geom_sig_part(q) == psigs[i])
+                        keep = verify_path_d is False or (cur_sigs is not None and i < len(psigs) and cur_sigs[i] == psigs[i])
                         if keep:
                             chunks.append(parts[i])
                         else:

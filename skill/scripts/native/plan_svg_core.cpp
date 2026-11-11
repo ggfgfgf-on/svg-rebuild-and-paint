@@ -2185,4 +2185,23 @@ EXPORT unsigned char* psvg_parse_d_flat(const char* in, int n, int* out_len) {
 }
 
 
+EXPORT void psvg_hash_parts(const double* pts, int n, const uint32_t* off, int parts,
+                                uint64_t* out) {
+    const uint64_t FNV_OFF = 1469598103934665603ULL;
+    const uint64_t FNV_PRIME = 1099511628211ULL;
+    for (int p = 0; p < parts; ++p) {
+        uint64_t h = FNV_OFF;
+        int a = (int)off[p], b = (int)off[p + 1];
+        for (int i = a; i < b; ++i) {
+            float x = (float)pts[i * 2], y = (float)pts[i * 2 + 1];
+            unsigned char bx[4], by[4];
+            std::memcpy(bx, &x, 4); std::memcpy(by, &y, 4);
+            for (int k = 0; k < 4; ++k) { h ^= bx[k]; h *= FNV_PRIME; }
+            for (int k = 0; k < 4; ++k) { h ^= by[k]; h *= FNV_PRIME; }
+        }
+        out[p] = h;
+    }
+}
+
+
 EXPORT void psvg_free(char* p){ std::free(p); }
