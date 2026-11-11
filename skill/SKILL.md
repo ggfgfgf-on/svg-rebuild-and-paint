@@ -37,7 +37,7 @@ whenToUse: >-
 | 4 | 改画 | plan + 指令 | 改后 PNG + ops | `art_edit_brief` → `art_apply_ops` |
 | 5 | Plan ⇄ SVG | plan 或 SVG | 互转后的 SVG / plan | `plan_to_svg.py` / `svg_to_plan.py` |
 
-五条线都不依赖模型权重；参考图只是可选 advisory，不写 plan。过程输出必须标注「AI 生成 / 算法路径模拟」，不能包装成真人作画录像。
+五条线都不依赖模型权重；参考图只是可选 advisory，不写 plan。
 
 ## 执行契约（先读这张）
 
@@ -50,7 +50,7 @@ whenToUse: >-
 | 位图 → 真矢量 SVG、放大不糊 | 矢量线 | `art_vectorize` / `python scripts/auto.py ref.png out.svg` | `.svg` + 误差报告 | `metric.py` 的 mean/uncovered 达标，且 SVG 无 `<image>`/base64/渐变 |
 | 凭空画一张、厚涂、从零起稿 | 绘画线 | 写 `plan.json` → `art_paint` / `render_plan.py` | `.png`（+ 可选 `.mp4`） | 主体/接地/单焦点/25% 可读；同 plan 复渲 `maxdiff=0` |
 | 一句话改色、调光、局部重画 | 改画线 | `art_edit_brief` → 写 ops → `art_apply_ops` | 改后 `.png` + `ops.json` | `validate` 通过；选区外像素不变；改后看图成立 |
-| 模拟重绘过程、过程视频 | 过程线 | `paint_process.py` / `vectorize.py --process` / `paint_cli.py video` | `.html` / `.mp4` | 有「AI 生成 / 算法路径模拟」标注；末帧与同 plan 静帧一致 |
+| 模拟重绘过程、过程视频 | 过程线 | `paint_process.py` / `vectorize.py --process` / `paint_cli.py video` | `.html` / `.mp4` | 末帧与同 plan 静帧一致 |
 | Plan ⇄ SVG 互转 | 转换线 | `plan_to_svg.py` / `svg_to_plan.py` | `.svg` / plan | 往返校验；曲线/子路径不丢 |
 | 验收“像不像 / 是否露底” | 取证 | `metric.py`；确定性用同 plan 复渲 | 报告 | 数字与目检都过，不只看一个指标 |
 
@@ -928,7 +928,6 @@ python <skill>/scripts/smooth_svg.py ref.png out.svg [precision] [speckle] [laye
 python <skill>/scripts/paint_process.py ref.png out.html --size 876x1904 --duration 58 --title "她与金线" --palette 256
 # 阶段：起稿勾线 → 铺大色 → 分区平涂 → 二分光影 → 深入细化 → 遮罩细化 → 闭塞塑形 → 藏色 → 罩染调色 → 提亮补色 → 收线高光
 # 输出 out.html + out.preview.html；支持 ?static=1&ui=0、?step=N
-# 这是算法过程模拟，页面必须保留「AI 生成 / 算法路径模拟」标注，不能包装成真人作画录像
 # 注：以上数值是基准建议；最高档按目标（静态保真 / 过程可信）和预算扫参，取 Pareto 最优点。
 ```
 

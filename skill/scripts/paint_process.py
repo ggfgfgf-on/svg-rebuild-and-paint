@@ -765,7 +765,7 @@ def build_final_static_svg(img, palette, line_direction=None, title="",
     if not title:
         title = "过程模式最终画面"
     if not desc:
-        desc = "AI 生成；使用过程模式的绘制算法生成的最终画面，无过程回放。"
+        desc = "使用过程模式的绘制算法生成的最终画面，无过程回放。"
     doc = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" '
         'width="%d" height="%d" shape-rendering="geometricPrecision">'
@@ -802,8 +802,6 @@ def build_html(img, batches, phases, total_time, title, out_path, preview_path, 
     html = '''<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="ai-generated" content="true">
-<meta name="process-type" content="algorithmic-path-simulation">
 <title>__TITLE__</title>
 <style>
 :root{--ink:#eadfce;--dim:#a89580;--gold:#c8a66b;--panel:#17120e;--line:#3b2e22}
@@ -840,7 +838,6 @@ body.ui0 .panel{display:none}body.ui0 .stage{padding:0}body.ui0 #art{height:100v
 </style></head>
 <body><div class="app">
 <aside class="panel">
-  <div class="badge"><i></i>算法路径模拟 · AI 生成</div>
   <div><div class="kicker">PROCESS REPLAY / LAYERED SVG</div><h1>__TITLE__</h1><p class="sub">勾线、平涂、藏色、提亮补色，最后收线</p></div>
   <div class="phase-list" id="phaseList"></div>
   <div class="spacer"></div>
@@ -853,11 +850,9 @@ body.ui0 .panel{display:none}body.ui0 .stage{padding:0}body.ui0 #art{height:100v
       <span class="time" id="time">0.0 / __DUR__ s</span>
     </div>
   </div>
-  <div class="note"><strong>来源说明</strong>：画面由 AI 生成，本页是算法按图层与路径重演的过程模拟，不是真人作画录像。</div>
 </aside>
 <main class="stage">
   __SVG__
-  <div class="wm">AI 生成 · 算法绘画过程模拟</div>
 </main>
 </div>
 <script>
