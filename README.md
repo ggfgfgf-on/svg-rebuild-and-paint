@@ -45,11 +45,11 @@ Skill id 也一并改成了 **`svg-rebuild-and-paint`**（安装目录 `$DSH_HOM
 左：320×200 位图直接按最近邻放大 4×，斜边是阶梯。  
 右：同一张图经 `vectorize.py` 重建为纯 `<path>` 曲线，再放大 4×，边界仍是连续曲线。
 
-### 2. 程序化厚涂：计划 → 像素
+### 2. 程序化厚涂：8 层计划 → 像素
 
-![8 层厚涂玫瑰](skill/docs/images/painting-rose.png)
+![8 层计划与最终渲染对比](skill/docs/images/painting-plan-vs-render.png)
 
-每根笔触带位置、压力、颜色、硬度和纹理；同一份 plan 重复渲染逐位相同，也支持 GPU、差量和 tile 增量。
+左：8 层 plan 的分层预览（57,812 笔）；右：同一计划的最终渲染。层、笔触和颜色都可继续编辑；同一份 plan 重复渲染逐位相同。
 
 ### 3. 计划空间改画：红玫瑰 → 白玫瑰
 
