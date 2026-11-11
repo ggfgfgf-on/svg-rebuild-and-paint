@@ -1561,24 +1561,25 @@ EXPORT int pg_fill_radial_polygon_spread(void* p, int idx, const float* pts, int
     if (!ensure_struct(g->dev, g->fillStops, g->fillStopsSrv, g->fillStopsCap, (UINT)(ns * 5), 4)) return 0;
     g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
-    float meta[21] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 1.0f, cx, cy, r, fx, fy,
-                      0, 0, 0, 0, 0, 0};
+    float meta[24] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 1.0f, cx, cy, r, fx, fy,
+                      0, 0, 0, 0, 0, 0, 0, 0, 0};
     g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
     Params cp{}; cp.W = g->W; cp.H = g->H;
     cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
     cp.opacity = a;
     g->ctx->UpdateSubresource(g->cb, 0, nullptr, &cp, 0, 0);
     ID3D11UnorderedAccessView* uav = g->layers[idx].uav;
-    ID3D11ShaderResourceView* srvs[3] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv };
+    ID3D11ShaderResourceView* srvs[5] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv,
+                                          g->fillHolePtsSrv, g->fillHoleOffSrv };
     g->ctx->CSSetShader(g->cs_fill, nullptr, 0);
     g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
-    g->ctx->CSSetShaderResources(8, 3, srvs);
+    g->ctx->CSSetShaderResources(8, 5, srvs);
     g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
     g->ctx->Dispatch((npix + 255) / 256, 1, 1);
     ID3D11UnorderedAccessView* none = nullptr;
     g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
-    ID3D11ShaderResourceView* no[3] = { nullptr, nullptr, nullptr };
-    g->ctx->CSSetShaderResources(8, 3, no);
+    ID3D11ShaderResourceView* no[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
+    g->ctx->CSSetShaderResources(8, 5, no);
     g->ctx->CSSetShader(nullptr, nullptr, 0);
     return 1;
 }
@@ -1595,24 +1596,25 @@ EXPORT int pg_fill_radial_xform(void* p, int idx, const float* pts, int n,
     if (!ensure_struct(g->dev, g->fillStops, g->fillStopsSrv, g->fillStopsCap, (UINT)(ns * 5), 4)) return 0;
     g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
-    float meta[21] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 2.0f,
-                      cx, cy, r, fx, fy, ma, mb, mc, md, me, mf};
+    float meta[24] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 2.0f,
+                      cx, cy, r, fx, fy, ma, mb, mc, md, me, mf, 0, 0, 0};
     g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
     Params cp{}; cp.W = g->W; cp.H = g->H;
     cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
     cp.opacity = a;
     g->ctx->UpdateSubresource(g->cb, 0, nullptr, &cp, 0, 0);
     ID3D11UnorderedAccessView* uav = g->layers[idx].uav;
-    ID3D11ShaderResourceView* srvs[3] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv };
+    ID3D11ShaderResourceView* srvs[5] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv,
+                                          g->fillHolePtsSrv, g->fillHoleOffSrv };
     g->ctx->CSSetShader(g->cs_fill, nullptr, 0);
     g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
-    g->ctx->CSSetShaderResources(8, 3, srvs);
+    g->ctx->CSSetShaderResources(8, 5, srvs);
     g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
     g->ctx->Dispatch((npix + 255) / 256, 1, 1);
     ID3D11UnorderedAccessView* none = nullptr;
     g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
-    ID3D11ShaderResourceView* no[3] = { nullptr, nullptr, nullptr };
-    g->ctx->CSSetShaderResources(8, 3, no);
+    ID3D11ShaderResourceView* no[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
+    g->ctx->CSSetShaderResources(8, 5, no);
     g->ctx->CSSetShader(nullptr, nullptr, 0);
     return 1;
 }
