@@ -35,6 +35,9 @@ def load():
     lib.pg_read_acc.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float)]
     lib.pg_read_layer.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float)]
     lib.pg_fill_polygon.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 4
+    lib.pg_fill_polygon_holes.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
+                                          ctypes.POINTER(ctypes.c_float), ctypes.c_int,
+                                          ctypes.POINTER(ctypes.c_int), ctypes.c_int] + [ctypes.c_float] * 4
     lib.pg_fill_gradient_polygon.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5
     lib.pg_fill_gradient_polygon_spread.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 5 + [ctypes.c_int]
     lib.pg_fill_radial_polygon_spread.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.POINTER(ctypes.c_float), ctypes.c_int] + [ctypes.c_float] * 6 + [ctypes.c_int]
@@ -244,6 +247,22 @@ class GpuPainter:
         r, g, b = rgb
         return self._lib.pg_fill_polygon(self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
                                          r / 255.0, g / 255.0, b / 255.0, float(opacity))
+
+    def fill_polygon_holes(self, idx, pts, holes, rgb, opacity=1.0):
+        pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 2))
+        hs = [np.asarray(h, np.float32).reshape(-1, 2) for h in (holes or []) if len(h) >= 3]
+        if not hs:
+            return self.fill_polygon(idx, pts, rgb, opacity)
+        flat = np.ascontiguousarray(np.concatenate(hs, axis=0), np.float32)
+        offs = np.zeros(len(hs) + 1, np.int32)
+        for i, h in enumerate(hs):
+            offs[i + 1] = offs[i] + len(h)
+        r, g, b = rgb
+        return self._lib.pg_fill_polygon_holes(
+            self._ctx, int(idx), pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(pts),
+            flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), len(flat),
+            offs.ctypes.data_as(ctypes.POINTER(ctypes.c_int)), len(hs),
+            r / 255.0, g / 255.0, b / 255.0, float(opacity))
 
     def fill_gradient(self, idx, pts, paint, opacity=1.0):
         pts = np.ascontiguousarray(np.asarray(pts, np.float32).reshape(-1, 2))

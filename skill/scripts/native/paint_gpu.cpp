@@ -64,6 +64,8 @@ StructuredBuffer<float> maskbuf : register(t7);
 StructuredBuffer<float2> fillpts : register(t8);
 StructuredBuffer<float> fillstops : register(t9);
 StructuredBuffer<float> fillmeta : register(t10);
+StructuredBuffer<float2> fillholes : register(t11);
+StructuredBuffer<uint> fillholeoff : register(t12);
 StructuredBuffer<float> gradstops : register(t11);
 StructuredBuffer<float> gradmeta : register(t12);
 
@@ -426,6 +428,22 @@ void cs_fill(uint3 dt : SV_DispatchThreadID) {
         if (((a.y > q.y) != (b.y > q.y)) && (q.x < (b.x - a.x) * (q.y - a.y) / max(1e-9f, b.y - a.y) + a.x))
             inside = !inside;
     }
+    uint nh = (uint)fillmeta[21];
+    if (inside && nh > 0) {
+        for (uint h = 0; h < nh; ++h) {
+            uint a0 = fillholeoff[h], a1 = fillholeoff[h + 1];
+            bool hin = false;
+            if (a1 > a0 + 2) {
+                uint hn = a1 - a0;
+                for (uint i = 0, j = hn - 1; i < hn; j = i++) {
+                    float2 a = fillholes[a0 + i], b = fillholes[a0 + j];
+                    if (((a.y > q.y) != (b.y > q.y)) && (q.x < (b.x - a.x) * (q.y - a.y) / max(1e-9f, b.y - a.y) + a.x))
+                        hin = !hin;
+                }
+                if (hin) inside = !inside;
+            }
+        }
+    }
     if (!inside) return;
     float3 col = p.color.rgb;
     float ca = 1.0f;
@@ -555,6 +573,10 @@ struct Gpu {
     ID3D11ShaderResourceView* fillStopsSrv = nullptr;
     ID3D11Buffer* fillMeta = nullptr;
     ID3D11ShaderResourceView* fillMetaSrv = nullptr;
+    ID3D11Buffer* fillHolePts = nullptr;
+    ID3D11ShaderResourceView* fillHolePtsSrv = nullptr;
+    ID3D11Buffer* fillHoleOff = nullptr;
+    ID3D11ShaderResourceView* fillHoleOffSrv = nullptr;
     ID3D11Buffer* gradStops = nullptr;
     ID3D11ShaderResourceView* gradStopsSrv = nullptr;
     ID3D11Buffer* gradMeta = nullptr;
@@ -709,6 +731,18 @@ EXPORT void* pg_create(int w, int h) {
         D3D11_SHADER_RESOURCE_VIEW_DESC ms{};
         ms.Format = DXGI_FORMAT_UNKNOWN; ms.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ms.Buffer.NumElements = 24;
         g->dev->CreateShaderResourceView(g->fillMeta, &ms, &g->fillMetaSrv);
+    }
+    g->fillHolePts = make_buf(g->dev, npix * 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillHoleOff = make_buf(g->dev, 4096 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    if (g->fillHolePts) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC hs{};
+        hs.Format = DXGI_FORMAT_UNKNOWN; hs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; hs.Buffer.NumElements = npix;
+        g->dev->CreateShaderResourceView(g->fillHolePts, &hs, &g->fillHolePtsSrv);
+    }
+    if (g->fillHoleOff) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC os{};
+        os.Format = DXGI_FORMAT_UNKNOWN; os.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; os.Buffer.NumElements = 4096;
+        g->dev->CreateShaderResourceView(g->fillHoleOff, &os, &g->fillHoleOffSrv);
     }
     if (g->gradStops) {
         D3D11_SHADER_RESOURCE_VIEW_DESC gs{};
@@ -1371,32 +1405,40 @@ EXPORT int pg_read_acc(void* p, float* out) {
 
 
 static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float* stops, int ns,
-                           float x1, float y1, float x2, float y2, float a, int use_grad, int spread) {
+                           float x1, float y1, float x2, float y2, float a, int use_grad, int spread,
+                           const float* hpts = nullptr, int hn = 0,
+                           const uint32_t* hoff = nullptr, int nh = 0) {
     if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillPts || !g->fillStops || !g->fillMeta) return 0;
     UINT npix = (UINT)g->W * (UINT)g->H;
     if ((UINT)n > npix || ns > 64) return 0;
+    if (nh > 0 && (!hpts || !hoff || !g->fillHolePts || !g->fillHoleOff)) return 0;
     g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
     float one[5] = {0, 0, 0, 0, 1};
     if (!stops || ns < 1) { stops = one; ns = 1; }
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
-    float meta[21] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread, 0,
-                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    if (nh > 0) {
+        g->ctx->UpdateSubresource(g->fillHolePts, 0, nullptr, hpts, 0, 0);
+        g->ctx->UpdateSubresource(g->fillHoleOff, 0, nullptr, hoff, 0, 0);
+    }
+    float meta[24] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread, 0,
+                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, (float)nh, 0, 0};
     g->ctx->UpdateSubresource(g->fillMeta, 0, nullptr, meta, 0, 0);
     Params cp{}; cp.W = g->W; cp.H = g->H;
     cp.color[0] = stops[1]; cp.color[1] = stops[2]; cp.color[2] = stops[3]; cp.color[3] = 1.0f;
     cp.opacity = a;
     g->ctx->UpdateSubresource(g->cb, 0, nullptr, &cp, 0, 0);
     ID3D11UnorderedAccessView* uav = g->layers[idx].uav;
-    ID3D11ShaderResourceView* srvs[3] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv };
+    ID3D11ShaderResourceView* srvs[5] = { g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv,
+                                          g->fillHolePtsSrv, g->fillHoleOffSrv };
     g->ctx->CSSetShader(g->cs_fill, nullptr, 0);
     g->ctx->CSSetUnorderedAccessViews(1, 1, &uav, nullptr);
-    g->ctx->CSSetShaderResources(8, 3, srvs);
+    g->ctx->CSSetShaderResources(8, 5, srvs);
     g->ctx->CSSetConstantBuffers(0, 1, &g->cb);
     g->ctx->Dispatch((npix + 255) / 256, 1, 1);
     ID3D11UnorderedAccessView* none = nullptr;
     g->ctx->CSSetUnorderedAccessViews(1, 1, &none, nullptr);
-    ID3D11ShaderResourceView* no[3] = { nullptr, nullptr, nullptr };
-    g->ctx->CSSetShaderResources(8, 3, no);
+    ID3D11ShaderResourceView* no[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
+    g->ctx->CSSetShaderResources(8, 5, no);
     g->ctx->CSSetShader(nullptr, nullptr, 0);
     return 1;
 }
@@ -1459,6 +1501,15 @@ static int gpu_fill_common(Gpu* g, int idx, const float* pts, int n, const float
 EXPORT int pg_fill_polygon(void* p, int idx, const float* pts, int n, float r, float g_, float b, float a) {
     float one[5] = {0, r, g_, b, 1};
     return gpu_fill_shader((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0, 0);
+}
+
+EXPORT int pg_fill_polygon_holes(void* p, int idx, const float* pts, int n,
+                                  const float* holes, int hole_n,
+                                  const int* hole_off, int nh,
+                                  float r, float g_, float b, float a) {
+    float one[5] = {0, r, g_, b, 1};
+    return gpu_fill_shader((Gpu*)p, idx, pts, n, one, 2, 0, 0, 1, 0, a, 0, 0,
+                           holes, hole_n, (const uint32_t*)hole_off, nh);
 }
 
 EXPORT int pg_fill_radial_polygon_spread(void* p, int idx, const float* pts, int n,
