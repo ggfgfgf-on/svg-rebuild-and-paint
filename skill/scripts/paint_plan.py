@@ -195,6 +195,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
             "paint": s.get("paint"),
             "pattern": s.get("pattern"),
             "subpaths": s.get("subpaths"),
+            "holes": s.get("holes"),
         })
     # 分层按笔触所属层提交，保证层内顺序 = plan 顺序
     for layer in sorted(grouped):
@@ -207,6 +208,25 @@ def render_plan(plan, threads=8, brush=None, region=None):
                     p.stroke_batch(layer, buf, nthreads=threads)
                     buf = []
                 subs = it.get("subpaths") or [it.get("points") or []]
+                holes = it.get("holes") or []
+                if holes and not isinstance(it.get("paint"), dict):
+                    pts = [(float(q[0]), float(q[1])) for q in (subs[0] if subs else [])]
+                    if len(pts) >= 3:
+                        mask = Image.new("L", (w, h), 0)
+                        md = ImageDraw.Draw(mask)
+                        md.polygon(pts, fill=255)
+                        for hole in holes:
+                            hp = [(float(q[0]), float(q[1])) for q in hole]
+                            if len(hp) >= 3:
+                                md.polygon(hp, fill=0)
+                        base = p.layer_rgba(layer).astype(np.float32)
+                        a = (np.asarray(mask, dtype=np.float32) / 255.0 * float(it.get("opacity", 1.0)))[..., None]
+                        col = np.asarray(it.get("color") or (0, 0, 0), dtype=np.float32)[:3]
+                        rgb = col * a + base[..., :3] * (1.0 - a)
+                        alpha = a * 255.0 + base[..., 3:4] * (1.0 - a)
+                        out = np.dstack([rgb, alpha]).clip(0, 255).astype(np.uint8)
+                        p.set_layer_rgba(layer, out)
+                    continue
                 for one in subs:
                     pts = [(float(q[0]), float(q[1])) for q in one]
                     if len(pts) < 3:

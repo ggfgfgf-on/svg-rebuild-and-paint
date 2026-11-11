@@ -408,6 +408,19 @@ def test_mixed_fill_stroke_roundtrip():
     assert back["strokes"][1]["preset"] == "dry"
 
 
+def test_plan_render_holes():
+    import paint_plan
+    import numpy as np
+    doc = {"canvas": [100, 100], "layers": [{"name": "layer", "blend": "normal"}],
+           "strokes": [{"layer": "layer", "preset": "fill", "opacity": 1.0,
+                        "fill_rule": "evenodd", "color": [255, 0, 0],
+                        "points": [[0, 0, 1], [100, 0, 1], [100, 100, 1], [0, 100, 1]],
+                        "holes": [[[25, 25, 1], [75, 25, 1], [75, 75, 1], [25, 75, 1]]]}]}
+    img, _ = paint_plan.render_plan(doc)
+    assert int(np.asarray(img)[50, 50, 3]) == 0
+    assert int(np.asarray(img)[5, 50, 0]) == 255
+
+
 def test_stream_group_inheritance():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
            '<g fill="#f00"><rect x="10" y="10" width="20" height="20"/></g></svg>')

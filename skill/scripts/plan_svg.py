@@ -2126,7 +2126,7 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
 
 def _streamable_svg(svg_text):
     s = str(svg_text)
-    if re.search(r'data-preset="(?!fill")', s):
+    if "data-preset=" in s and re.search(r'data-preset="(?!fill")', s):
         return False
     if any(k in s for k in ("<link", "<image", "<text")):
         return False
