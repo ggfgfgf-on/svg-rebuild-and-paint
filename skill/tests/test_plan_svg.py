@@ -395,6 +395,19 @@ def test_stream_evenodd_disjoint():
     assert not d["strokes"][0].get("holes")
 
 
+def test_mixed_fill_stroke_roundtrip():
+    doc = {"canvas": [100, 100], "layers": [{"name": "ink", "blend": "normal"}],
+           "strokes": [
+               {"layer": "ink", "preset": "fill", "opacity": 1.0, "color": [255, 0, 0],
+                "points": [[0, 0, 1], [50, 0, 1], [50, 50, 1], [0, 50, 1]]},
+               {"layer": "ink", "preset": "dry", "size": 4, "opacity": 1.0,
+                "color": [0, 255, 0], "points": [[10, 10, 1], [80, 10, 1]]}]}
+    back = plan_svg.svg_to_plan(plan_svg.plan_to_svg(doc))
+    assert len(back["strokes"]) == 2
+    assert back["strokes"][0]["preset"] == "fill"
+    assert back["strokes"][1]["preset"] == "dry"
+
+
 def test_stream_group_inheritance():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
            '<g fill="#f00"><rect x="10" y="10" width="20" height="20"/></g></svg>')

@@ -376,14 +376,12 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 tag_end = mm.find(b">", start)
                 if tag_end < 0:
                     continue
-                dpos = mm.find(b'd="', start, tag_end)
-                q = b'"'
-                if dpos < 0:
-                    dpos = mm.find(b"d='", start, tag_end)
-                    q = b"'"
-                if dpos < 0:
+                head = mm[start:tag_end]
+                dm = re.search(br'(?:^|\s)d\s*=\s*(["\'])', head)
+                if not dm:
                     continue
-                qstart = dpos + 3
+                q = dm.group(1)
+                qstart = start + dm.end()
                 qend = mm.find(q, qstart, tag_end)
                 if qend < 0:
                     continue
