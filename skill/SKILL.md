@@ -53,7 +53,7 @@ whenToUse: >-
 | 输入 | 意图 / 场景 / 已有 plan |
 | 输出 | plan（layers + strokes）+ PNG |
 | 固定 | plan_io / render_plan / 确定性 / 平台门 |
-| 验收 | 平台门 + driver 自声明 checks；协议见 docs/CHECKS.md |
+| 验收 | 平台门 + 标准语义门（CHECKS §6）+ driver 自声明 checks |
 | 不固定 | 层数、层名、笔刷、遍数、风格、构图；全部由 driver 决定 |
 | 边界 | SKILL 不提供默认画法；示例只作接口，不作模板 |
 
