@@ -194,7 +194,7 @@ def test_mask_layer_alpha():
            '<rect x="0" y="0" width="100" height="50" fill="#ff0000" mask="url(#m)"/></svg>')
     d = plan_svg.svg_to_plan(svg)
     assert any(isinstance(x.get("mask"), dict) and x["mask"].get("encoding") in ("png-base64", "zlib-base64")
-               for x in d["layers"])
+               for x in d["strokes"])
 
 
 
@@ -266,7 +266,7 @@ def test_mask_type_alpha():
            '<rect width="50" height="50" fill="#ff0000"/></mask></defs>'
            '<rect width="100" height="50" fill="#0000ff" mask="url(#m)"/></svg>')
     d = plan_svg.svg_to_plan(svg)
-    m = d["layers"][0]["mask"]
+    m = d["strokes"][0]["mask"]
     raw = zlib.decompress(base64.b64decode(m["data"]))
     assert raw[20 * m["width"] + 20] == 255
 

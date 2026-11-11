@@ -569,14 +569,17 @@ struct Gpu {
     ID3D11ComputeShader* cs_fill = nullptr;
     ID3D11Buffer* fillPts = nullptr;
     ID3D11ShaderResourceView* fillPtsSrv = nullptr;
+    UINT fillPtsCap = 0;
     ID3D11Buffer* fillStops = nullptr;
     ID3D11ShaderResourceView* fillStopsSrv = nullptr;
     ID3D11Buffer* fillMeta = nullptr;
     ID3D11ShaderResourceView* fillMetaSrv = nullptr;
     ID3D11Buffer* fillHolePts = nullptr;
     ID3D11ShaderResourceView* fillHolePtsSrv = nullptr;
+    UINT fillHolePtsCap = 0;
     ID3D11Buffer* fillHoleOff = nullptr;
     ID3D11ShaderResourceView* fillHoleOffSrv = nullptr;
+    UINT fillHoleOffCap = 0;
     ID3D11Buffer* gradStops = nullptr;
     ID3D11ShaderResourceView* gradStopsSrv = nullptr;
     ID3D11Buffer* gradMeta = nullptr;
@@ -643,6 +646,25 @@ static ID3D11Buffer* make_buf(ID3D11Device* dev, UINT bytes, UINT stride, UINT b
     dev->CreateBuffer(&bd, nullptr, &b);
     return b;
 }
+
+static bool ensure_struct(ID3D11Device* dev, ID3D11Buffer*& buf, ID3D11ShaderResourceView*& srv,
+                             UINT& cap, UINT need, UINT stride) {
+    if (buf && srv && cap >= need && need > 0) return true;
+    if (srv) { srv->Release(); srv = nullptr; }
+    if (buf) { buf->Release(); buf = nullptr; }
+    cap = 0;
+    if (need < 1) need = 1;
+    buf = make_buf(dev, need * stride, stride, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    if (!buf) return false;
+    D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+    sd.Format = DXGI_FORMAT_UNKNOWN;
+    sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+    sd.Buffer.NumElements = need;
+    if (FAILED(dev->CreateShaderResourceView(buf, &sd, &srv))) { buf->Release(); buf = nullptr; return false; }
+    cap = need;
+    return true;
+}
+
 
 EXPORT void* pg_create(int w, int h) {
     Gpu* g = new Gpu();
@@ -718,6 +740,7 @@ EXPORT void* pg_create(int w, int h) {
         g->dev->CreateShaderResourceView(g->maskBuf, &msd, &g->maskSrv);
     }
     g->fillPts = make_buf(g->dev, npix * 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillPtsCap = npix;
     g->fillStops = make_buf(g->dev, 320 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->fillMeta = make_buf(g->dev, 24 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->gradStops = make_buf(g->dev, 64 * 5 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
@@ -738,7 +761,9 @@ EXPORT void* pg_create(int w, int h) {
         g->dev->CreateShaderResourceView(g->fillMeta, &ms, &g->fillMetaSrv);
     }
     g->fillHolePts = make_buf(g->dev, npix * 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillHolePtsCap = npix;
     g->fillHoleOff = make_buf(g->dev, 4096 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillHoleOffCap = 4096;
     if (g->fillHolePts) {
         D3D11_SHADER_RESOURCE_VIEW_DESC hs{};
         hs.Format = DXGI_FORMAT_UNKNOWN; hs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; hs.Buffer.NumElements = npix;
@@ -807,9 +832,11 @@ EXPORT void pg_destroy(void* p) {
     if (g->snap) g->snap->Release();
     for (auto* b : { g->acc, g->base, g->acc8 }) if (b) b->Release();
     if (g->scratchUav) g->scratchUav->Release();
-    for (auto* v : { g->stampsSrv, g->regionSrv, g->dummySrv, g->tipSrv, g->lutSrv, g->cosSrv })
+    for (auto* v : { g->stampsSrv, g->regionSrv, g->dummySrv, g->tipSrv, g->lutSrv, g->cosSrv,
+                     g->fillPtsSrv, g->fillStopsSrv, g->fillMetaSrv, g->fillHolePtsSrv, g->fillHoleOffSrv })
         if (v) v->Release();
-    for (auto* b : { g->scratch, g->stamps, g->regionBuf, g->dummy, g->cb, g->lutb, g->tipbuf, g->cosb })
+    for (auto* b : { g->scratch, g->stamps, g->regionBuf, g->dummy, g->cb, g->lutb, g->tipbuf, g->cosb,
+                     g->fillPts, g->fillStops, g->fillMeta, g->fillHolePts, g->fillHoleOff })
         if (b) b->Release();
     if (g->cs_splat) g->cs_splat->Release();
     if (g->cs_over) g->cs_over->Release();
@@ -1415,19 +1442,18 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
                            const uint32_t* hoff = nullptr, int nh = 0) {
     if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillPts || !g->fillStops || !g->fillMeta) return 0;
     UINT npix = (UINT)g->W * (UINT)g->H;
-    if ((UINT)n > npix || ns > 64) return 0;
-    if (nh > 0 && (!hpts || !hoff || !g->fillHolePts || !g->fillHoleOff)) return 0;
+    if (ns > 64) return 0;
+    if (!ensure_struct(g->dev, g->fillPts, g->fillPtsSrv, g->fillPtsCap, (UINT)n, 8)) return 0;
     g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
     float one[5] = {0, 0, 0, 0, 1};
     if (!stops || ns < 1) { stops = one; ns = 1; }
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
     if (nh > 0) {
-        std::vector<float> hp((size_t)npix * 2, 0.0f);
-        std::memcpy(hp.data(), hpts, (size_t)hn * 2 * sizeof(float));
-        std::vector<uint32_t> ho(4096, 0);
-        std::memcpy(ho.data(), hoff, (size_t)(nh + 1) * sizeof(uint32_t));
-        g->ctx->UpdateSubresource(g->fillHolePts, 0, nullptr, hp.data(), 0, 0);
-        g->ctx->UpdateSubresource(g->fillHoleOff, 0, nullptr, ho.data(), 0, 0);
+        if (!hpts || !hoff) return 0;
+        if (!ensure_struct(g->dev, g->fillHolePts, g->fillHolePtsSrv, g->fillHolePtsCap, (UINT)hn, 8)) return 0;
+        if (!ensure_struct(g->dev, g->fillHoleOff, g->fillHoleOffSrv, g->fillHoleOffCap, (UINT)(nh + 1), 4)) return 0;
+        g->ctx->UpdateSubresource(g->fillHolePts, 0, nullptr, hpts, 0, 0);
+        g->ctx->UpdateSubresource(g->fillHoleOff, 0, nullptr, hoff, 0, 0);
     }
     float meta[24] = {(float)n, (float)ns, (float)use_grad, x1, y1, x2, y2, a, (float)spread, 0,
                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, (float)nh, 0, 0};

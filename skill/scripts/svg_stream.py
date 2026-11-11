@@ -639,6 +639,66 @@ def stream_svg_to_plan(source, chunk_size=65536):
                 continue
         return polys
 
+    def _mask_alpha(node):
+        try:
+            from PIL import Image, ImageDraw
+        except Exception:
+            return None
+        w, h = int(canvas[0]), int(canvas[1])
+        im = Image.new("L", (w, h), 0)
+        dr = ImageDraw.Draw(im)
+        alpha_mode = str(node.get("attrs", {}).get("mask-type", "")).lower() == "alpha"
+        drew = [False]
+
+        def paint_shape(tag, ca):
+            fill = ca.get("fill", "#fff")
+            if fill == "none":
+                return
+            if "url(" in str(fill):
+                raise ValueError("gradient/pattern mask unsupported")
+            if tag == "path":
+                subs = _ps._parse_d_subpaths(ca.get("d", ""))
+            elif tag in ("rect", "circle", "ellipse", "polygon", "polyline"):
+                q = _ps._shape_points(tag, ca)
+                subs = [q] if q else []
+            else:
+                return
+            try:
+                op = float(ca.get("fill-opacity", ca.get("opacity", 1.0)) or 1.0)
+            except Exception:
+                op = 1.0
+            rgb = _ps._color(fill, (255, 255, 255))
+            if alpha_mode:
+                v = 255
+            else:
+                v = int(0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2])
+            v = max(0, min(255, int(v * op)))
+            if v <= 0:
+                return
+            m = _ps._parse_transform(ca.get("transform"))
+            for q in subs:
+                if len(q) < 3:
+                    continue
+                pts = [_ps._mat_apply(m, float(p[0]), float(p[1])) for p in q]
+                dr.polygon(pts, fill=v)
+                drew[0] = True
+
+        def walk(n):
+            if n.get("tag") == "g":
+                for ch in n.get("children", []):
+                    walk(ch)
+            elif n.get("tag") in ("rect", "circle", "ellipse", "polygon", "polyline", "path"):
+                paint_shape(n["tag"], n.get("attrs", {}))
+
+        try:
+            for ch in node.get("children", []):
+                walk(ch)
+        except Exception:
+            return None
+        if not drew[0]:
+            return None
+        return _ps._mask_png(im)
+
     def _clip_subs(subs, polys, evenodd):
         if _ps._native is None or not _ps._native.available():
             return None
@@ -665,7 +725,12 @@ def stream_svg_to_plan(source, chunk_size=65536):
             return
         clip_ref = re.match(r"url\(#([^)]+)\)", str(a.get("clip-path", "")))
         mask_ref = re.match(r"url\(#([^)]+)\)", str(a.get("mask", "")))
-        if clip_ref and not mask_ref:
+        mask_data = None
+        if mask_ref:
+            mn = defs_map.get(mask_ref.group(1))
+            if mn and mn.get("tag") == "mask":
+                mask_data = _mask_alpha(mn)
+        if clip_ref:
             node = defs_map.get(clip_ref.group(1))
             if node and node["tag"] == "clipPath":
                 polys = _clip_polys(node)
@@ -687,6 +752,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
                         if evenodd:
                             a["fill-rule"] = "evenodd"
                         tag = "path"
+        if mask_data:
+            a = dict(a); a.pop("mask", None)
         clip_refs = re.findall(r"url\(#([^)]+)\)", str(a.get("clip-path", "")) + " " + str(a.get("mask", "")))
         if clip_refs:
             refs = [defs_map[r] for r in clip_refs if r in defs_map]
@@ -756,6 +823,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     st["paint"] = pt
                 if pat:
                     st["pattern"] = pat
+                if mask_data:
+                    st["mask"] = mask_data
                 strokes.append(st)
                 return
             for q in subs:
@@ -769,6 +838,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     st["paint"] = pt
                 if pat:
                     st["pattern"] = pat
+                if mask_data:
+                    st["mask"] = mask_data
                 strokes.append(st)
             return
         if tag == "path":
@@ -790,6 +861,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
                 st["paint"] = pt
             if a.get("data-tag"):
                 st["tag"] = a["data-tag"]
+            if mask_data:
+                st["mask"] = mask_data
             strokes.append(st)
 
     defs_stack = []
