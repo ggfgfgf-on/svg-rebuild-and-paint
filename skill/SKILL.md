@@ -52,7 +52,8 @@ whenToUse: >-
 |---|---|
 | 输入 | 意图 / 场景 / 已有 plan |
 | 输出 | plan（layers + strokes）+ PNG |
-| 固定 | plan_io / render_plan / 确定性 / 语义验收门 |
+| 固定 | plan_io / render_plan / 确定性 / 平台门 |
+| 验收 | 平台门 + driver 自声明 checks；协议见 docs/CHECKS.md |
 | 不固定 | 层数、层名、笔刷、遍数、风格、构图；全部由 driver 决定 |
 | 边界 | SKILL 不提供默认画法；示例只作接口，不作模板 |
 
@@ -95,6 +96,7 @@ whenToUse: >-
 | docs/DRIVER.md | driver 契约 |
 | docs/PLAN_SVG.md | Plan ⇄ SVG 的保真边界、缓存、失败模式 |
 | docs/VISUAL_HELPERS.md | advisory 参考图，不写 plan |
+| docs/CHECKS.md | 画面验收协议：平台门 + driver 自声明 checks |
 | docs/COMPOSITION.md | 可选构图观察清单，不是流程/合格线 |
 | SKILL_REFERENCE.md | 完整细节快照：算法、坑位、历史参数 |
 
