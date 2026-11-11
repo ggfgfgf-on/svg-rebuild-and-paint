@@ -2398,7 +2398,28 @@ def load_svg_plan_stream(path, chunk_size=65536):
 
 
 _SVG_PLAN_CACHE = {}
+_SVG_PLAN_CACHE_BYTES = 0
 _SVG_PLAN_CACHE_MAX = 2
+_SVG_PLAN_CACHE_BUDGET = 256 * 1024 * 1024
+
+
+def _cache_drop(key):
+    global _SVG_PLAN_CACHE_BYTES
+    ent = _SVG_PLAN_CACHE.pop(key, None)
+    if ent is not None:
+        _SVG_PLAN_CACHE_BYTES -= len(ent[1])
+
+
+def _cache_put(key, sig, data):
+    global _SVG_PLAN_CACHE_BYTES
+    if len(data) > _SVG_PLAN_CACHE_BUDGET:
+        return
+    _cache_drop(key)
+    while _SVG_PLAN_CACHE and (len(_SVG_PLAN_CACHE) >= _SVG_PLAN_CACHE_MAX or
+                               _SVG_PLAN_CACHE_BYTES + len(data) > _SVG_PLAN_CACHE_BUDGET):
+        _cache_drop(next(iter(_SVG_PLAN_CACHE)))
+    _SVG_PLAN_CACHE[key] = (sig, data)
+    _SVG_PLAN_CACHE_BYTES += len(data)
 
 
 def load_plan_svg(path, use_cache=True):
@@ -2411,9 +2432,12 @@ def load_plan_svg(path, use_cache=True):
         if ent and ent[0] == sig:
             try:
                 import plan_svg_native as _n
-                return _n.unpack_plan(ent[1])
+                doc = _n.unpack_plan(ent[1])
+                _SVG_PLAN_CACHE.pop(key)
+                _SVG_PLAN_CACHE[key] = ent
+                return doc
             except Exception:
-                _SVG_PLAN_CACHE.pop(key, None)
+                _cache_drop(key)
     try:
         head = p.open("r", encoding="utf-8").read(4096)
     except Exception:
@@ -2422,14 +2446,10 @@ def load_plan_svg(path, use_cache=True):
         doc = svg_to_plan(p.read_text(encoding="utf-8"))
     else:
         doc = load_svg_plan_stream(str(p))
-    if use_cache and len(_SVG_PLAN_CACHE) >= _SVG_PLAN_CACHE_MAX:
-        _SVG_PLAN_CACHE.pop(next(iter(_SVG_PLAN_CACHE)), None)
     if use_cache and not any(s.get("path_d_parts") for s in doc.get("strokes", [])):
         try:
             import plan_svg_native as _n
-            data = _n.pack_plan(doc)
-            if len(data) <= 128 * 1024 * 1024:
-                _SVG_PLAN_CACHE[key] = (sig, data)
+            _cache_put(key, sig, _n.pack_plan(doc))
         except Exception:
             pass
     return doc
