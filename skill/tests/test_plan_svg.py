@@ -321,6 +321,17 @@ def test_pattern_roundtrip():
 
 
 
+def test_stream_image():
+    png = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
+           "/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=")
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+           '<image href="data:image/png;base64,%s" x="2" y="3" width="4" height="4"/>'
+           '</svg>' % png)
+    d = plan_svg.svg_to_plan(svg)
+    assert len(d["strokes"]) == 1
+    assert d["strokes"][0]["preset"] == "image"
+
+
 def test_filter_rasterized():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
            '<defs><filter id="f"><feGaussianBlur stdDeviation="4"/></filter></defs>'

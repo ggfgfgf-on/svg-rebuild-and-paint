@@ -2128,7 +2128,7 @@ def _streamable_svg(svg_text):
     s = str(svg_text)
     if "data-preset=" in s and re.search(r'data-preset="(?!fill")', s):
         return False
-    if any(k in s for k in ("<link", "<image", "<text")):
+    if "<link" in s:
         return False
     return any(k in s for k in ("<path", "<rect", "<circle", "<ellipse", "<polygon", "<polyline", "<line"))
 

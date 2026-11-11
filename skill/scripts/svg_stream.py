@@ -489,6 +489,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
 
     def node_xml(node):
         tag = node["tag"]
+        if tag == "#text":
+            return html.escape(str(node.get("text", "")), quote=False)
         attrs = "".join(' %s="%s"' % (k, html.escape(str(v), quote=True)) for k, v in node["attrs"].items())
         kids = "".join(node_xml(ch) for ch in node.get("children", []))
         return "<%s%s>%s</%s>" % (tag, attrs, kids, tag)
@@ -731,6 +733,7 @@ def stream_svg_to_plan(source, chunk_size=65536):
 
     defs_stack = []
     defs_map = {}
+    text_stack = []
     use_node = None
 
     def emit_node(node):
@@ -763,6 +766,8 @@ def stream_svg_to_plan(source, chunk_size=65536):
             if kind == "text":
                 if in_style:
                     style_buf.append(ev[1])
+                elif text_stack:
+                    text_stack[-1].setdefault("children", []).append({"tag": "#text", "text": ev[1]})
                 continue
             if kind == "start":
                 _, tag, a = ev
@@ -801,6 +806,12 @@ def stream_svg_to_plan(source, chunk_size=65536):
                             inherit_attrs[k] = ga[k]
                     mat_stack.append(_ps._mat_mul(mat_stack[-1], _ps._parse_transform(a.get("transform"))))
                     continue
+                if tag == "text" or (tag == "tspan" and text_stack):
+                    node = {"tag": tag, "attrs": a, "children": []}
+                    if text_stack:
+                        text_stack[-1].setdefault("children", []).append(node)
+                    text_stack.append(node)
+                    continue
                 if tag == "style":
                     in_style = True
                     style_buf = []
@@ -816,6 +827,18 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     continue
                 if tag in ("defs", "clipPath", "mask", "linearGradient", "radialGradient", "pattern", "filter", "symbol"):
                     skip_tag = tag
+                    continue
+                if tag == "image":
+                    attrs = "".join(' %s="%s"' % (k, html.escape(str(v), quote=True)) for k, v in a.items())
+                    mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s">'
+                            '<image%s/></svg>' % (canvas[0], canvas[1], attrs))
+                    try:
+                        sub = _ps._svg_to_plan_py(mini)
+                        for st in sub.get("strokes", []):
+                            st["layer"] = layer_stack[-1] if layer_stack else "layer"
+                            strokes.append(st)
+                    except Exception:
+                        pass
                     continue
                 if tag in ("rect", "circle", "ellipse", "polygon", "polyline", "line", "path"):
                     mat_stack.append(_ps._mat_mul(mat_stack[-1], _ps._parse_transform(a.get("transform"))))
@@ -838,6 +861,19 @@ def stream_svg_to_plan(source, chunk_size=65536):
                         parse_css("".join(style_buf))
                         in_style = False
                     skip_tag = None
+                    continue
+                if text_stack and text_stack[-1]["tag"] == tag:
+                    node = text_stack.pop()
+                    if tag == "text":
+                        mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %s %s">%s</svg>'
+                                % (canvas[0], canvas[1], node_xml(node)))
+                        try:
+                            sub = _ps._svg_to_plan_py(mini)
+                            for st in sub.get("strokes", []):
+                                st["layer"] = layer_stack[-1] if layer_stack else "layer"
+                                strokes.append(st)
+                        except Exception:
+                            pass
                     continue
                 if tag == "g" and layer_stack:
                     layer_stack.pop()
