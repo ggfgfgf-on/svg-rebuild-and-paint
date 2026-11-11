@@ -396,11 +396,19 @@ frame = p.composite()                                    # (H, W, 4) uint8
 
 这一节给的是**关注点顺序**和检查表，不是算子配方。阶段内用什么层、什么笔刷、什么算子，由题材决定。
 
-### 6.1 驱动接口
+### 6.1 driver 契约
 
-写 build script：用 `plan_io` 攒 plan，`scripts/render_plan.py` 出图。场景、层、part、pass 由你决定；函数接口见 [SHAPE_API.md](SHAPE_API.md)，示例见 [EXAMPLES.md](EXAMPLES.md)。
-
-默认 driver 只做 plan → render，不需要任何模型权重。需要视觉参考时，显式调用 `reference_image.py img2img`；它返回 advisory 图，不写 plan、不生成几何，参考图支持仅 SDXS，不能替代 driver 里的形状/接地判断。详见 [VISUAL_HELPERS.md](VISUAL_HELPERS.md)。
+| 项 | 契约 |
+|---|---|
+| 输入 | plan：canvas / layers / strokes |
+| 输出 | PNG，由 render_plan.py 生成 |
+| 必需 | plan_io、render_plan |
+| 可选旁路 | reference_image.py img2img，仅 SDXS，显式调用 |
+| 旁路输出 | advisory 图；不写 plan、不生成几何 |
+| 隐式依赖 | 无；不自动加载模型权重 |
+| 校验 | plan_io check；同 plan 重渲 maxdiff = 0 |
+| 接口 | [SHAPE_API.md](SHAPE_API.md) / [EXAMPLES.md](EXAMPLES.md) |
+| 视觉辅助 | [VISUAL_HELPERS.md](VISUAL_HELPERS.md) |
 
 ### 6.2 交付清单
 
