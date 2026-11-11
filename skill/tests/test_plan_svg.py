@@ -586,6 +586,8 @@ def test_native_parse_d_subpaths():
     subs = n.parse_d_subpaths("M0 0 L10 0 L10 10 Z M20 20 L30 20 L30 30 Z")
     assert len(subs) == 2
     assert subs[0][0] == [0.0, 0.0]
+    arrs = n.parse_d_subpaths_np("M0 0 L10 0 L10 10 Z M20 20 L30 20 L30 30 Z")
+    assert len(arrs) == 2 and arrs[0].shape[1] == 2
 
 
 def test_path_d_preserved(tmp_path):

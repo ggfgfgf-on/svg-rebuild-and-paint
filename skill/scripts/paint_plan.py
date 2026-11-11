@@ -123,7 +123,7 @@ def _paint_color(paint, x, y, bbox):
 
 
 def _expand_paint(it):
-    pts = it.get("points") or []
+    pts = it.get("points") if it.get("points") is not None else []
     if len(pts) < 2 or not isinstance(it.get("paint"), dict):
         return [it]
     xs = [float(p[0]) for p in pts]; ys = [float(p[1]) for p in pts]
@@ -207,7 +207,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
         if isinstance(li, str):
             li = layer_index.get(li, 0)
         grouped.setdefault(int(li), []).append({
-            "points": s.get("points") or s.get("pts"),
+            "points": s.get("points") if s.get("points") is not None else s.get("pts"),
             "size": s.get("size", 8.0),
             "opacity": s.get("opacity", 1.0),
             "color": _color(s.get("color")),
@@ -231,7 +231,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
                 if buf:
                     p.stroke_batch(layer, buf, nthreads=threads)
                     buf = []
-                subs = it.get("subpaths") or [it.get("points") or []]
+                subs = it.get("subpaths") if it.get("subpaths") is not None else [it.get("points") if it.get("points") is not None else []]
                 holes = it.get("holes") or []
                 mask = it.get("mask")
                 if isinstance(mask, dict) and not isinstance(it.get("paint"), dict):
@@ -262,7 +262,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
                 if buf:
                     p.stroke_batch(layer, buf, nthreads=threads)
                     buf = []
-                pts = np.asarray(it.get("points") or [], dtype=np.float32)
+                pts = np.asarray(it.get("points") if it.get("points") is not None else [], dtype=np.float32)
                 if len(pts) >= 2:
                     p.stroke_gradient(layer, pts, it.get("size", 8.0), it.get("opacity", 1.0),
                                       it["paint"], it.get("preset", "round_soft"), it.get("hardness", 0.55))
@@ -286,7 +286,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
         tile = None
         tw = th = 256
         if ptn.get("units") == "objectBoundingBox":
-            src = s.get("subpaths") or [s.get("points") or []]
+            src = s.get("subpaths") if s.get("subpaths") is not None else [s.get("points") if s.get("points") is not None else []]
             q = [(float(a[0]), float(a[1])) for one in src for a in one]
             if len(q) >= 3:
                 bw = max(1e-6, max(a[0] for a in q) - min(a[0] for a in q))
@@ -313,7 +313,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
             for x in range(0, base.width, tw):
                 canvas.alpha_composite(tile, (x, y))
         mask = Image.new("L", base.size, 0)
-        pts = [(float(q[0]), float(q[1])) for q in (s.get("points") or [])]
+        pts = [(float(q[0]), float(q[1])) for q in (s.get("points") if s.get("points") is not None else [])]
         if len(pts) >= 3:
             ImageDraw.Draw(mask).polygon(pts, fill=255)
         a = max(0.0, min(1.0, float(s.get("opacity", 1.0))))

@@ -357,16 +357,18 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 good = [q for q in subpaths if len(q) >= 3]
                 if not good:
                     return
+                import numpy as _np
+                arr_mode = hasattr(good[0], "shape")
                 st = {"layer": "layer", "preset": "fill", "opacity": op,
                       "color": color,
-                      "points": [[float(p[0]), float(p[1]), 1.0] for p in good[0]],
+                      "points": good[0].astype(_np.float64) if arr_mode else [[float(p[0]), float(p[1]), 1.0] for p in good[0]],
                       "fill_rule": rule}
                 if len(good) > 1:
-                    st["subpaths"] = [[[float(p[0]), float(p[1]), 1.0] for p in q] for q in good]
+                    st["subpaths"] = good if arr_mode else [[[float(p[0]), float(p[1]), 1.0] for p in q] for q in good]
                 if path_d:
-                    import numpy as _np
-                    total = len(st.get("points") or []) + sum(len(q) for q in (st.get("subpaths") or [])) + sum(len(h) for h in (st.get("holes") or []))
-                    if total > 10000:
+                    _p = st.get("points"); _s = st.get("subpaths"); _h = st.get("holes")
+                    total = (len(_p) if _p is not None else 0) + sum(len(q) for q in (_s if _s is not None else [])) + sum(len(h) for h in (_h if _h is not None else []))
+                    if total > 10000 and not arr_mode:
                         st["points"] = _np.asarray(st.get("points") or [], dtype=_np.float64)
                         if st.get("subpaths"):
                             st["subpaths"] = [_np.asarray(q, dtype=_np.float64) for q in st["subpaths"]]
@@ -408,7 +410,10 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                 subs = None
                 if _native is not None and _native.available():
                     try:
-                        subs = _native.parse_d_subpaths(raw_d)
+                        if len(mm) > 2_000_000 and hasattr(_native, "parse_d_subpaths_np"):
+                            subs = _native.parse_d_subpaths_np(raw_d)
+                        else:
+                            subs = _native.parse_d_subpaths(raw_d)
                     except Exception:
                         subs = None
                 if subs is None:

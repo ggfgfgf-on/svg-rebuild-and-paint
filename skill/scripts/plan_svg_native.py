@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import json
 import struct
+import numpy as np
 from pathlib import Path
 
 try:
@@ -408,8 +409,34 @@ def parse_d_subpaths(d: str):
     ns = struct.unpack_from("<I", raw, off)[0]; off += 4
     out = []
     for _ in range(ns):
-        np = struct.unpack_from("<I", raw, off)[0]; off += 4
-        vals = struct.unpack_from("<%dd" % (np * 2), raw, off); off += np * 16
+        npts = struct.unpack_from("<I", raw, off)[0]; off += 4
+        vals = struct.unpack_from("<%dd" % (npts * 2), raw, off); off += npts * 16
         out.append([[vals[i], vals[i + 1]] for i in range(0, len(vals), 2)])
+    return out
+
+
+def parse_d_subpaths_np(d: str):
+    """C++ path parser -> one float64 (N,2) ndarray per subpath."""
+    if _LIB is None:
+        raise RuntimeError("plan_svg_core.dll not found")
+    b = d.encode("ascii", "ignore")
+    n = ctypes.c_int(0)
+    ptr = _LIB.psvg_parse_d_bin(ctypes.c_char_p(b), len(b), ctypes.byref(n))
+    if not ptr:
+        return []
+    try:
+        raw = ctypes.string_at(ptr, n.value)
+    finally:
+        _free(ptr)
+    if len(raw) < 4:
+        return []
+    off = 0
+    ns = struct.unpack_from("<I", raw, off)[0]; off += 4
+    out = []
+    for _ in range(ns):
+        npts = struct.unpack_from("<I", raw, off)[0]; off += 4
+        arr = np.frombuffer(raw, dtype="<f8", count=npts * 2, offset=off).reshape(-1, 2).copy()
+        off += npts * 16
+        out.append(arr)
     return out
 
