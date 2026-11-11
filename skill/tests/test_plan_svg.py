@@ -435,6 +435,31 @@ def test_mask_gradient_raster():
     assert int(a[50, 5, 3]) > int(a[50, 95, 3])
 
 
+def test_mask_filter_and_pattern():
+    import paint_plan
+    import numpy as np
+    filt = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+            '<defs><filter id="f"><feGaussianBlur stdDeviation="4"/></filter>'
+            '<mask id="m"><rect width="50" height="100" fill="#fff" filter="url(#f)"/></mask></defs>'
+            '<rect width="100" height="100" fill="#f00" mask="url(#m)"/></svg>')
+    d = plan_svg.svg_to_plan(filt)
+    assert isinstance(d["strokes"][0].get("mask"), dict)
+    img, _ = paint_plan.render_plan(d)
+    a = np.asarray(img)
+    assert int(a[50, 5, 3]) > int(a[50, 95, 3])
+
+    pat = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<defs><pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse">'
+           '<rect width="10" height="10" fill="#fff"/></pattern>'
+           '<mask id="m"><rect width="50" height="100" fill="url(#p)"/></mask></defs>'
+           '<rect width="100" height="100" fill="#f00" mask="url(#m)"/></svg>')
+    d = plan_svg.svg_to_plan(pat)
+    assert isinstance(d["layers"][0].get("mask"), dict)
+    img, _ = paint_plan.render_plan(d)
+    a = np.asarray(img)
+    assert int(a[50, 5, 3]) > int(a[50, 95, 3])
+
+
 def test_plan_render_shape_mask():
     import paint_plan
     import numpy as np
