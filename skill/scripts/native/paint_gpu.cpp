@@ -572,6 +572,7 @@ struct Gpu {
     UINT fillPtsCap = 0;
     ID3D11Buffer* fillStops = nullptr;
     ID3D11ShaderResourceView* fillStopsSrv = nullptr;
+    UINT fillStopsCap = 0;
     ID3D11Buffer* fillMeta = nullptr;
     ID3D11ShaderResourceView* fillMetaSrv = nullptr;
     ID3D11Buffer* fillHolePts = nullptr;
@@ -739,20 +740,21 @@ EXPORT void* pg_create(int w, int h) {
         msd.Buffer.NumElements = npix;
         g->dev->CreateShaderResourceView(g->maskBuf, &msd, &g->maskSrv);
     }
-    g->fillPts = make_buf(g->dev, npix * 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
-    g->fillPtsCap = npix;
-    g->fillStops = make_buf(g->dev, 320 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillPts = make_buf(g->dev, 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillPtsCap = 1;
+    g->fillStops = make_buf(g->dev, 20, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillStopsCap = 1;
     g->fillMeta = make_buf(g->dev, 24 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->gradStops = make_buf(g->dev, 64 * 5 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     g->gradMeta = make_buf(g->dev, 24 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
     if (g->fillPts) {
         D3D11_SHADER_RESOURCE_VIEW_DESC fs{};
-        fs.Format = DXGI_FORMAT_UNKNOWN; fs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; fs.Buffer.NumElements = npix;
+        fs.Format = DXGI_FORMAT_UNKNOWN; fs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; fs.Buffer.NumElements = 1;
         g->dev->CreateShaderResourceView(g->fillPts, &fs, &g->fillPtsSrv);
     }
     if (g->fillStops) {
         D3D11_SHADER_RESOURCE_VIEW_DESC ss{};
-        ss.Format = DXGI_FORMAT_UNKNOWN; ss.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ss.Buffer.NumElements = 320;
+        ss.Format = DXGI_FORMAT_UNKNOWN; ss.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ss.Buffer.NumElements = 1;
         g->dev->CreateShaderResourceView(g->fillStops, &ss, &g->fillStopsSrv);
     }
     if (g->fillMeta) {
@@ -760,18 +762,18 @@ EXPORT void* pg_create(int w, int h) {
         ms.Format = DXGI_FORMAT_UNKNOWN; ms.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; ms.Buffer.NumElements = 24;
         g->dev->CreateShaderResourceView(g->fillMeta, &ms, &g->fillMetaSrv);
     }
-    g->fillHolePts = make_buf(g->dev, npix * 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
-    g->fillHolePtsCap = npix;
-    g->fillHoleOff = make_buf(g->dev, 4096 * 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
-    g->fillHoleOffCap = 4096;
+    g->fillHolePts = make_buf(g->dev, 8, 8, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillHolePtsCap = 1;
+    g->fillHoleOff = make_buf(g->dev, 4, 4, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0);
+    g->fillHoleOffCap = 1;
     if (g->fillHolePts) {
         D3D11_SHADER_RESOURCE_VIEW_DESC hs{};
-        hs.Format = DXGI_FORMAT_UNKNOWN; hs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; hs.Buffer.NumElements = npix;
+        hs.Format = DXGI_FORMAT_UNKNOWN; hs.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; hs.Buffer.NumElements = 1;
         g->dev->CreateShaderResourceView(g->fillHolePts, &hs, &g->fillHolePtsSrv);
     }
     if (g->fillHoleOff) {
         D3D11_SHADER_RESOURCE_VIEW_DESC os{};
-        os.Format = DXGI_FORMAT_UNKNOWN; os.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; os.Buffer.NumElements = 4096;
+        os.Format = DXGI_FORMAT_UNKNOWN; os.ViewDimension = D3D11_SRV_DIMENSION_BUFFER; os.Buffer.NumElements = 1;
         g->dev->CreateShaderResourceView(g->fillHoleOff, &os, &g->fillHoleOffSrv);
     }
     if (g->gradStops) {
@@ -1447,6 +1449,7 @@ static int gpu_fill_shader(Gpu* g, int idx, const float* pts, int n, const float
     g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
     float one[5] = {0, 0, 0, 0, 1};
     if (!stops || ns < 1) { stops = one; ns = 1; }
+    if (!ensure_struct(g->dev, g->fillStops, g->fillStopsSrv, g->fillStopsCap, (UINT)(ns * 5), 4)) return 0;
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
     if (nh > 0) {
         if (!hpts || !hoff) return 0;
@@ -1551,9 +1554,11 @@ EXPORT int pg_fill_radial_polygon_spread(void* p, int idx, const float* pts, int
                                             const float* stops, int ns, float cx, float cy, float r,
                                             float fx, float fy, float a, int spread) {
     Gpu* g = (Gpu*)p;
-    if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillPts || !g->fillStops || !g->fillMeta) return 0;
+    if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillMeta) return 0;
     UINT npix = (UINT)g->W * (UINT)g->H;
-    if ((UINT)n > npix || ns > 64) return 0;
+    if (ns > 64) return 0;
+    if (!ensure_struct(g->dev, g->fillPts, g->fillPtsSrv, g->fillPtsCap, (UINT)n, 8)) return 0;
+    if (!ensure_struct(g->dev, g->fillStops, g->fillStopsSrv, g->fillStopsCap, (UINT)(ns * 5), 4)) return 0;
     g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
     float meta[21] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 1.0f, cx, cy, r, fx, fy,
@@ -1583,9 +1588,11 @@ EXPORT int pg_fill_radial_xform(void* p, int idx, const float* pts, int n,
                                   float fx, float fy, float ma, float mb, float mc, float md,
                                   float me, float mf, float a, int spread) {
     Gpu* g = (Gpu*)p;
-    if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillPts || !g->fillStops || !g->fillMeta) return 0;
+    if (!g || !pts || n < 3 || idx < 0 || idx >= (int)g->layers.size() || !g->fillMeta) return 0;
     UINT npix = (UINT)g->W * (UINT)g->H;
-    if ((UINT)n > npix || ns > 64) return 0;
+    if (ns > 64) return 0;
+    if (!ensure_struct(g->dev, g->fillPts, g->fillPtsSrv, g->fillPtsCap, (UINT)n, 8)) return 0;
+    if (!ensure_struct(g->dev, g->fillStops, g->fillStopsSrv, g->fillStopsCap, (UINT)(ns * 5), 4)) return 0;
     g->ctx->UpdateSubresource(g->fillPts, 0, nullptr, pts, 0, 0);
     g->ctx->UpdateSubresource(g->fillStops, 0, nullptr, stops, 0, 0);
     float meta[21] = {(float)n, (float)ns, 1.0f, 0, 0, 0, 0, a, (float)spread, 2.0f,
