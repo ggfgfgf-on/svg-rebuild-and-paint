@@ -589,6 +589,7 @@ struct Gpu {
     ID3D11ShaderResourceView* maskSrv = nullptr;
     ID3D11Buffer* snap = nullptr;
     ID3D11ShaderResourceView* snapSrv = nullptr;
+    int driver_type = 0;  // 1=HARDWARE, 2=WARP
     float wet = 0.0f;
     // 每实例动态参数（此前是文件级 static，多个 painter 会互相覆盖）
     float color_dyn = 0.0f;
@@ -673,9 +674,11 @@ EXPORT void* pg_create(int w, int h) {
     D3D_FEATURE_LEVEL fl;
     HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0,
                                    D3D11_SDK_VERSION, &g->dev, &fl, &g->ctx);
+    if (SUCCEEDED(hr)) g->driver_type = 1;
     if (FAILED(hr)) {
         hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0,
                                D3D11_SDK_VERSION, &g->dev, &fl, &g->ctx);
+        if (SUCCEEDED(hr)) g->driver_type = 2;
     }
     if (FAILED(hr)) {
         delete g;
@@ -879,6 +882,8 @@ EXPORT int pg_add_layer(void* p) {
     g->layers.push_back(l);
     return (int)g->layers.size() - 1;
 }
+
+EXPORT int pg_driver_type(void* p) { return p ? ((Gpu*)p)->driver_type : 0; }
 
 EXPORT int pg_layer_count(void* p) { Gpu* g = (Gpu*)p; return g ? (int)g->layers.size() : 0; }
 

@@ -22,6 +22,8 @@ def load():
     lib.pg_add_layer.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.pg_layer_count.restype = ctypes.c_int
     lib.pg_layer_count.argtypes = [ctypes.c_void_p]
+    lib.pg_driver_type.restype = ctypes.c_int
+    lib.pg_driver_type.argtypes = [ctypes.c_void_p]
     lib.pg_clear_layer.argtypes = [ctypes.c_void_p, ctypes.c_int] + [ctypes.c_float] * 4
     lib.pg_set_region.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int), ctypes.c_int]
     lib.pg_add_tip.restype = ctypes.c_int
@@ -120,6 +122,9 @@ class GpuPainter:
 
     def layer_count(self):
         return self._lib.pg_layer_count(self._ctx)
+
+    def driver_type(self):
+        return {1: "hardware", 2: "warp"}.get(self._lib.pg_driver_type(self._ctx), "unknown")
 
     def clear_layer(self, idx, rgb=(0, 0, 0), a=1.0):
         r, g, b = rgb
