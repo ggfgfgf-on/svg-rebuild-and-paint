@@ -349,11 +349,16 @@ def _stream_simple_file(path, chunk_size=1 << 20):
                     op = 1.0
                 rule = attrs.get("fill-rule", "nonzero")
                 color = _ps._color(fill, (0, 0, 0))
-                for q in subpaths:
-                    strokes.append({"layer": "layer", "preset": "fill", "opacity": op,
-                                    "color": color,
-                                    "points": [[float(p[0]), float(p[1]), 1.0] for p in q],
-                                    "fill_rule": rule})
+                good = [q for q in subpaths if len(q) >= 3]
+                if not good:
+                    return
+                st = {"layer": "layer", "preset": "fill", "opacity": op,
+                      "color": color,
+                      "points": [[float(p[0]), float(p[1]), 1.0] for p in good[0]],
+                      "fill_rule": rule}
+                if len(good) > 1:
+                    st["subpaths"] = [[[float(p[0]), float(p[1]), 1.0] for p in q] for q in good]
+                strokes.append(st)
 
             for rm in re.finditer(br"<rect\b([^>]*)>", mm):
                 raw = rm.group(1).decode("utf-8", "replace")
@@ -643,12 +648,25 @@ def stream_svg_to_plan(source, chunk_size=65536):
                     subs = [outer]
             pt = paint_for(fill)
             pat = pattern_for(fill)
+            op = float(a.get("fill-opacity", a.get("opacity", 1.0)) or 1.0)
+            rule = a.get("fill-rule", "nonzero")
+            color = _ps._color(fill, (0, 0, 0))
+            if not holes and len(subs) > 1:
+                st = {"layer": layer, "preset": "fill", "opacity": op, "color": color,
+                      "points": [[float(p[0]), float(p[1]), 1.0] for p in subs[0]],
+                      "fill_rule": rule,
+                      "subpaths": [[[float(p[0]), float(p[1]), 1.0] for p in q] for q in subs]}
+                if pt:
+                    st["paint"] = pt
+                if pat:
+                    st["pattern"] = pat
+                strokes.append(st)
+                return
             for q in subs:
                 st = {"layer": layer, "preset": "fill",
-                      "opacity": float(a.get("fill-opacity", a.get("opacity", 1.0)) or 1.0),
-                      "color": _ps._color(fill, (0, 0, 0)),
+                      "opacity": op, "color": color,
                       "points": [[float(p[0]), float(p[1]), 1.0] for p in q],
-                      "fill_rule": a.get("fill-rule", "nonzero")}
+                      "fill_rule": rule}
                 if holes:
                     st["holes"] = [[[float(p[0]), float(p[1]), 1.0] for p in h] for h in holes]
                 if pt:

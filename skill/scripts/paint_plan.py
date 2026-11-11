@@ -194,6 +194,7 @@ def render_plan(plan, threads=8, brush=None, region=None):
             "region_id": int(s.get("region_id", 0)),
             "paint": s.get("paint"),
             "pattern": s.get("pattern"),
+            "subpaths": s.get("subpaths"),
         })
     # 分层按笔触所属层提交，保证层内顺序 = plan 顺序
     for layer in sorted(grouped):
@@ -205,8 +206,11 @@ def render_plan(plan, threads=8, brush=None, region=None):
                 if buf:
                     p.stroke_batch(layer, buf, nthreads=threads)
                     buf = []
-                pts = [(float(q[0]), float(q[1])) for q in (it.get("points") or [])]
-                if len(pts) >= 3:
+                subs = it.get("subpaths") or [it.get("points") or []]
+                for one in subs:
+                    pts = [(float(q[0]), float(q[1])) for q in one]
+                    if len(pts) < 3:
+                        continue
                     if isinstance(it.get("paint"), dict):
                         p.fill_gradient(layer, pts, it["paint"], it.get("opacity", 1.0))
                     else:

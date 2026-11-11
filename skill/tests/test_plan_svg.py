@@ -390,8 +390,21 @@ def test_stream_evenodd_disjoint():
            '<path fill="#0f0" fill-rule="evenodd" '
            'd="M0 0 L40 0 L40 40 L0 40 Z M60 60 L100 60 L100 100 L60 100 Z"/></svg>')
     d = plan_svg.svg_to_plan(svg)
-    assert len(d["strokes"]) == 2
-    assert all(not st.get("holes") for st in d["strokes"])
+    assert len(d["strokes"]) == 1
+    assert len(d["strokes"][0]["subpaths"]) == 2
+    assert not d["strokes"][0].get("holes")
+
+
+def test_multi_subpath_roundtrip():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<path fill="#0f0" fill-rule="evenodd" '
+           'd="M0 0 L40 0 L40 40 L0 40 Z M60 60 L100 60 L100 100 L60 100 Z"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    out = plan_svg.plan_to_svg(d)
+    assert out.count("<path") == 1
+    d2 = plan_svg.svg_to_plan(out)
+    assert len(d2["strokes"]) == 1
+    assert len(d2["strokes"][0]["subpaths"]) == 2
 
 
 def test_native_parse_d_subpaths():
@@ -410,7 +423,8 @@ def test_stream_file_incremental(tmp_path):
                  '<path fill="#f00" d="M0 0 L10 0 L10 10 Z M20 20 L30 20 L30 30 Z"/>'
                  '</svg>', encoding="utf-8")
     d = svg_stream.stream_svg_to_plan(str(p))
-    assert len(d["strokes"]) == 2
+    assert len(d["strokes"]) == 1
+    assert len(d["strokes"][0]["subpaths"]) == 2
     assert len(d["strokes"][0]["points"]) >= 3
 
 

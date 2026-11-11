@@ -130,6 +130,10 @@ def _path_d_holes(points, holes):
     return d
 
 
+def _path_d_multi(subpaths, holes):
+    return " ".join(_path_d_compact(q, holes if i == 0 else None) for i, q in enumerate(subpaths))
+
+
 def _p_text(points):
     return ",".join(_f(p[2] if len(p) > 2 else 1.0) for p in points)
 
@@ -218,7 +222,7 @@ def _mask_def(m, gid, w, h):
 def plan_to_svg(doc, *, filters=False, title=None):
     """Return an SVG string. One <path> per stroke, one <g> per layer."""
     if (_native is not None and _native.available() and not filters
-            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("runs") or x.get("runs") for x in doc.get("strokes", []))
+            and not any(isinstance(x.get("paint"), dict) or isinstance(x.get("mask"), dict) or x.get("runs") or x.get("subpaths") for x in doc.get("strokes", []))
             and not any(isinstance(x.get("mask"), dict) for x in doc.get("layers", []))):
         return _native.plan_to_svg(doc)
     w, h = [int(v) for v in doc["canvas"]]
@@ -331,8 +335,10 @@ def plan_to_svg(doc, *, filters=False, title=None):
                     _f(s.get("width", 1)), _f(s.get("height", 1)), _f(s.get("opacity", 1.0))))
                 continue
             if preset == "fill":
+                subs = s.get("subpaths")
+                d = _path_d_multi(subs, s.get("holes") or []) if subs else _path_d_holes(pts, s.get("holes") or [])
                 out.append('<path d="%s" fill="%s" fill-opacity="%s" fill-rule="%s" data-layer="%s" data-preset="fill" data-color="%s"%s/>' %
-                           (_path_d_holes(pts, s.get("holes") or []), paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
+                           (d, paint_ref, _f(op), _esc(s.get("fill_rule", "nonzero")), _esc(name), _rgb_text(s.get("color")),
                             (' data-tag="%s"' % _esc(s["tag"])) if s.get("tag") else ""))
                 continue
             cap = "butt" if preset in ("flat", "bristle") else "round"
