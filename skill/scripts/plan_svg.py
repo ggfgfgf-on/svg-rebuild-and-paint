@@ -1841,6 +1841,8 @@ def _gradient_colors(root):
 
 
 def needs_python_parser(svg_text):
+    if "<foreignObject" in svg_text:
+        return True
     if "<pattern" in svg_text:
         if re.search(r'<pattern\b[^>]*\bhref\s*=\s*["\']#', svg_text):
             return True
@@ -2005,11 +2007,66 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
                                                                     [seg[1][0], seg[1][1], pts[i][2] if len(pts[i]) > 2 else 1.0]]))
 
     canvas_w, canvas_h = w, h
+    def _foreign_object(ch, a, inherited_layer):
+        name = a.get("data-layer") or inherited_layer or "layer"
+        add_layer(name, "normal")
+        x0 = float(a.get("x", 0) or 0)
+        y0 = float(a.get("y", 0) or 0)
+
+        def style_of(el):
+            d = {}
+            for part in str(el.get("style", "") or "").split(";"):
+                if ":" in part:
+                    k, v = part.split(":", 1)
+                    d[k.strip().lower()] = v.strip()
+            return d
+
+        def check(el):
+            tag = _local(el.tag)
+            if tag in ("table", "img", "image", "svg", "video", "input", "button", "textarea", "select"):
+                raise ValueError("unsupported foreignObject element: %s" % tag)
+            st = style_of(el)
+            disp = st.get("display", "").lower()
+            if disp in ("flex", "grid", "table", "none") or st.get("position", "").lower() in ("absolute", "fixed"):
+                raise ValueError("unsupported foreignObject layout: %s" % (disp or st.get("position")))
+            for child in list(el):
+                check(child)
+
+        def css_num(v, default):
+            try:
+                v = str(v).strip()
+                return float(v[:-2]) if v.endswith("px") else float(v)
+            except Exception:
+                return float(default)
+
+        check(ch)
+        cy = y0
+        for block in list(ch):
+            txt = "".join(block.itertext()).strip()
+            if not txt:
+                continue
+            st = style_of(block)
+            fs = css_num(st.get("font-size", block.get("font-size", 16)), 16)
+            color = st.get("color", block.get("color", "#000"))
+            fam = st.get("font-family", block.get("font-family", "Arial"))
+            fam = str(fam).split(",")[0].strip().strip("'\"")
+            cy += fs
+            out = {"layer": name, "preset": "text", "text": txt,
+                   "x": x0, "y": cy, "font_family": fam, "font_size": fs,
+                   "color": _color(color, (0, 0, 0)), "opacity": 1.0}
+            if st.get("font-weight"):
+                out["font_weight"] = st.get("font-weight")
+            strokes.append(out)
+            cy += fs * 0.3
+
     def visit(ch, inherited_layer=None, parent=(1, 0, 0, 1, 0, 0), active=None, inh=None):
         active = active or set()
         inh = inh or {}
         tag = _local(ch.tag)
         a = _resolved_attrs(ch, css, grads, paints, inh, pseudo_mode)
+        if tag == "foreignObject":
+            _foreign_object(ch, a, inherited_layer)
+            return
         if tag == "use":
             href = a.get("{http://www.w3.org/1999/xlink}href") or a.get("href") or ""
             if href.startswith("#"):
@@ -2268,6 +2325,8 @@ def _svg_to_plan_py(svg_text, base_dir=None, pseudo_mode="ignore", allow_externa
 
 def _streamable_svg(svg_text):
     s = str(svg_text)
+    if "<foreignObject" in s:
+        return False
     if "data-preset=" in s and re.search(r'data-preset="(?!fill")', s):
         return False
     if "<link" in s:

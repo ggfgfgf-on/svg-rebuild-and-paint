@@ -382,6 +382,26 @@ def test_pattern_nested():
     assert im.getpixel((5, 5))[0] > 200
 
 
+def test_foreign_object_subset():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">'
+           '<foreignObject x="10" y="10" width="80" height="30">'
+           '<div xmlns="http://www.w3.org/1999/xhtml" style="font-size:20px;color:red">Hi</div>'
+           '</foreignObject></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    assert len(d["strokes"]) == 1
+    st = d["strokes"][0]
+    assert st["preset"] == "text" and st["text"] == "Hi"
+    assert st["color"] == [255, 0, 0] and st["font_size"] == 20
+    bad = svg.replace('<div xmlns="http://www.w3.org/1999/xhtml" style="font-size:20px;color:red">Hi</div>',
+                      '<table xmlns="http://www.w3.org/1999/xhtml"><tr><td>Hi</td></tr></table>')
+    try:
+        plan_svg.svg_to_plan(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("table foreignObject should be rejected")
+
+
 def test_filter_rasterized():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
            '<defs><filter id="f"><feGaussianBlur stdDeviation="4"/></filter></defs>'
