@@ -367,6 +367,21 @@ def test_pattern_href_inherit():
     assert im.getpixel((8, 5))[2] > im.getpixel((8, 5))[0]
 
 
+def test_pattern_nested():
+    import io
+    from PIL import Image
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>'
+           '<pattern id="q" width="10" height="10" patternUnits="userSpaceOnUse">'
+           '<rect width="10" height="10" fill="#f00"/></pattern>'
+           '<pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse">'
+           '<rect width="10" height="10" fill="url(#q)"/></pattern></defs>'
+           '<rect width="100" height="100" fill="url(#p)"/></svg>')
+    d = plan_svg.svg_to_plan(svg)
+    p = d["strokes"][0]["pattern"]
+    im = Image.open(io.BytesIO(base64.b64decode(p["data"]))).convert("RGBA")
+    assert im.getpixel((5, 5))[0] > 200
+
+
 def test_filter_rasterized():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
            '<defs><filter id="f"><feGaussianBlur stdDeviation="4"/></filter></defs>'

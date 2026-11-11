@@ -1736,6 +1736,23 @@ def _pattern_tiles(root, w, h, base_dir=None):
         children = children.replace("ns0:", "").replace(' xmlns:ns0="http://www.w3.org/2000/svg"', "")
         if not children:
             continue
+        nested = []
+        seen_p = {pid}
+
+        def _collect_nested(text):
+            for rid in re.findall(r"url\(#([^)]+)\)", text):
+                if rid in seen_p or rid not in patterns:
+                    continue
+                seen_p.add(rid)
+                pn = patterns[rid]
+                x = ET.tostring(pn, encoding="unicode")
+                x = x.replace("ns0:", "").replace(' xmlns:ns0="http://www.w3.org/2000/svg"', "")
+                nested.append(x)
+                kids = "".join(ET.tostring(ch, encoding="unicode") for ch in _pchildren(rid))
+                _collect_nested(kids)
+
+        _collect_nested(children)
+        all_defs = defs_xml + "".join(nested)
         vb = _pattr(pid, "viewBox")
         content_units = _pattr(pid, "patternContentUnits", "userSpaceOnUse")
         if content_units == "objectBoundingBox" and not vb:
@@ -1745,9 +1762,9 @@ def _pattern_tiles(root, w, h, base_dir=None):
             children = ('<g transform="%s">%s</g>' % (ptrans, children))
         view_box = vb if vb else "0 0 %s %s" % (pw, ph)
         mini = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="%s" width="%s" height="%s">'
-                '<defs>%s</defs>%s</svg>' % (view_box, pw, ph, defs_xml, children))
+                '<defs>%s</defs>%s</svg>' % (view_box, pw, ph, all_defs, children))
         try:
-            d = svg_to_plan(mini, base_dir=base_dir)
+            d = _svg_to_plan_py(mini, base_dir=base_dir)
             import paint_plan as _pp
             img, _ = _pp.render_plan(d)
             from PIL import Image
@@ -1807,6 +1824,8 @@ def _gradient_colors(root):
 
 
 def needs_python_parser(svg_text):
+    if "<pattern" in svg_text:
+        return True
     if ("radialGradient" in svg_text or "linearGradient" in svg_text) and "<pattern" not in svg_text:
         return True
     if any(k in svg_text for k in ("color(", "lab(", "lch(", "oklab(", "oklch(", "icc-color(", "device-cmyk(")):
@@ -2232,6 +2251,8 @@ def _streamable_svg(svg_text):
     if "<link" in s:
         return False
     if re.search(r'<pattern\b[^>]*\bhref\s*=\s*["\']#', s):
+        return False
+    if "<pattern" in s:
         return False
     return any(k in s for k in ("<path", "<rect", "<circle", "<ellipse", "<polygon", "<polyline", "<line"))
 
