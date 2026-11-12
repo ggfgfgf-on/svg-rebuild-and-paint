@@ -3,47 +3,14 @@
   "drivers": [
     {
       "id": "v4_lighthouse",
-      "status": "reference",
+      "status": "integrated_reference",
       "path": "v4_lighthouse",
       "tags": [
         "lighthouse",
         "dusk",
         "balanced"
       ],
-      "intent": "黄昏灯塔，结构与材质参考"
-    },
-    {
-      "id": "v8_lighthouse",
-      "status": "reference",
-      "path": "v8_lighthouse",
-      "tags": [
-        "lighthouse",
-        "dusk",
-        "soft-sky"
-      ],
-      "intent": "天空柔和，结构干净"
-    },
-    {
-      "id": "v11_lighthouse",
-      "status": "reference",
-      "path": "v11_lighthouse",
-      "tags": [
-        "lighthouse",
-        "dusk",
-        "delivery"
-      ],
-      "intent": "天空与结构均衡"
-    },
-    {
-      "id": "v13_lighthouse",
-      "status": "reference",
-      "path": "v13_lighthouse",
-      "tags": [
-        "lighthouse",
-        "dusk",
-        "impasto"
-      ],
-      "intent": "高密度厚涂细节"
+      "intent": "整合参考：结构/材质/接触"
     }
   ]
 }

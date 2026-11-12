@@ -60,7 +60,7 @@ whenToUse: >-
 
 **参考优先，不是强制**：
 
-1. 绘画前查 `examples/drivers/index.json`。
+1. 绘画前查 `examples/patterns/index.json` 和 `examples/drivers/index.json`。
 2. 有 subject/style 匹配：读那个 driver 的结构和 reference.png；不复制参数。
 3. 没有匹配：自己写，不需要 spec/verifier。
 4. 有 reference 时，出图后和它并排看 100% / 25%；差异写进 gaps。
@@ -101,6 +101,7 @@ whenToUse: >-
 | docs/API.md | 21 个 ops 的参数、默认值、选区语义 |
 | docs/SHAPE_API.md | fill_polygon / tapered_stroke / ribbon 参数与边界 |
 | docs/EXAMPLES.md | plan 字段、driver 骨架、最小调用 |
+| examples/patterns/index.json | 技法 pattern：crop / snippet / metrics / known_issues |
 | docs/DRIVER.md | driver 契约 |
 | docs/PLAN_SVG.md | Plan ⇄ SVG 的保真边界、缓存、失败模式 |
 | docs/VISUAL_HELPERS.md | advisory 参考图，不写 plan |

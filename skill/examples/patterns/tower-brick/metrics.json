@@ -1,0 +1,25 @@
+{
+  "source": "v4_lighthouse",
+  "borrow": [
+    "不透明塔身底",
+    "左受光/右冷影分面",
+    "竖向刀笔而不是随机交叉",
+    "窗洞独立于砖纹",
+    "塔基 plinth 先于塔身"
+  ],
+  "avoid": [
+    "整塔用同一 fill 一次铺完",
+    "砖缝用全画面 scribble",
+    "窗和砖同层导致糊"
+  ],
+  "known_issues": [
+    "竖向笔触过密会像木纹",
+    "边缘 fill 毛边需要接受或另做 clip"
+  ],
+  "metrics": {
+    "layers": "19",
+    "strokes": "33968",
+    "tower": "9119",
+    "tower_detail": "5857"
+  }
+}

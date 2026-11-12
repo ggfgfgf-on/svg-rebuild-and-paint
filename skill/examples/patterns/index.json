@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "patterns": [
+    {
+      "id": "sky-soft",
+      "path": "sky-soft",
+      "source": "v11_lighthouse / v8_lighthouse",
+      "tags": [
+        "低对比纵向渐变",
+        "多层软云带",
+        "云底暖色只压在受光侧"
+      ]
+    },
+    {
+      "id": "tower-brick",
+      "path": "tower-brick",
+      "source": "v4_lighthouse",
+      "tags": [
+        "不透明塔身底",
+        "左受光/右冷影分面",
+        "竖向刀笔而不是随机交叉"
+      ]
+    },
+    {
+      "id": "impasto-density",
+      "path": "impasto-density",
+      "source": "v13_lighthouse",
+      "tags": [
+        "3 遍 size/opacity 递减",
+        "dry/bristle 方向性短笔",
+        "岩体大块 oil_bristle"
+      ]
+    }
+  ]
+}

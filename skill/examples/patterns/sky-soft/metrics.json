@@ -1,0 +1,22 @@
+{
+  "source": "v11_lighthouse / v8_lighthouse",
+  "borrow": [
+    "低对比纵向渐变",
+    "多层软云带",
+    "云底暖色只压在受光侧",
+    "天空笔触低透明度"
+  ],
+  "avoid": [
+    "单一大块粉色云团",
+    "全天空 uniform dry-brush 纹理"
+  ],
+  "known_issues": [
+    "云缘过度柔化会失去方向",
+    "低对比在 25% 可能显得平"
+  ],
+  "metrics": {
+    "layers": "25",
+    "strokes": "19891",
+    "sky_note": "V11 渐变 + 云带，非单点星"
+  }
+}
