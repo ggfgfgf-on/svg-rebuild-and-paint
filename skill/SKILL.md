@@ -67,7 +67,7 @@ whenToUse: >-
 
 **库增长（主动但不失控）**：
 
-- 画完并验收后，如果出现了可复用的新技法/优化，写候选到 `examples/inbox/<id>/`，不要直接改 `patterns/`。
+- 画完并验收后，如果出现了可复用的新技法/优化，写候选到 `examples/inbox/<id>/`，不要直接改 `patterns/` 或 `drivers/`。候选可以是 pattern，也可以是完整 driver（`kind: driver`）。
 - 候选要有 crop / snippet / metrics / borrow / avoid / known_issues / review；review 写清和谁比、牺牲了什么。
 - 跑 `python scripts/grow_library.py check examples/inbox/<id>`；通过后 `promote` 才进正式库。
 - 直接复制现有 driver 会被 `copy_check` 拦；细节修改写 `parent + changes`，走 revision，不新建重复 pattern；要独立复制才用 `copy_allowed` + 理由。

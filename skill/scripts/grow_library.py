@@ -93,8 +93,11 @@ def check(cdir: Path, verbose: bool = True) -> tuple[list[str], dict]:
     if c.get("copy_allowed") and not c.get("copy_allowed_reason"):
         errs.append("copy_allowed requires copy_allowed_reason")
 
+    kind = c.get("kind", "pattern")
+    info["kind"] = kind
     assets = c.get("assets", {})
-    for key in ("crop", "snippet", "metrics"):
+    required = (("driver", "driver.py"), ("reference", "reference.png"), ("manifest", "manifest.json")) if kind == "driver" else (("crop", "crop.png"), ("snippet", "snippet.py"), ("metrics", "metrics.json"))
+    for key, _std in required:
         name = assets.get(key)
         if not name:
             errs.append(f"assets.{key} is missing")
@@ -102,6 +105,15 @@ def check(cdir: Path, verbose: bool = True) -> tuple[list[str], dict]:
         p = cdir / name
         if not p.exists():
             errs.append(f"assets.{key} not found: {name}")
+    if kind == "driver":
+        mf = assets.get("manifest")
+        if mf and (cdir / mf).exists():
+            try:
+                m = load(cdir / mf)
+                if m.get("id") not in (None, cid):
+                    errs.append(f"manifest.id {m.get('id')} does not match {cid}")
+            except Exception as e:
+                errs.append(f"manifest parse error: {e}")
     if not c.get("borrow"):
         errs.append("borrow must be a non-empty list")
     if not c.get("avoid"):
@@ -113,6 +125,8 @@ def check(cdir: Path, verbose: bool = True) -> tuple[list[str], dict]:
 
     parent = c.get("parent")
     changes = c.get("changes")
+    if kind == "driver" and parent:
+        errs.append("driver candidates cannot use parent; use a new driver id")
     if parent:
         if not (PATTERNS / parent).exists():
             errs.append(f"parent pattern not found: patterns/{parent}")
@@ -123,6 +137,8 @@ def check(cdir: Path, verbose: bool = True) -> tuple[list[str], dict]:
     info["parent"] = parent
 
     driver_name = c.get("source_driver")
+    if kind == "driver" and not driver_name:
+        driver_name = assets.get("driver")
     if driver_name:
         driver = (cdir / driver_name).resolve()
         if not driver.exists():
@@ -134,12 +150,12 @@ def check(cdir: Path, verbose: bool = True) -> tuple[list[str], dict]:
             c["copy_check"]["closest"] = who
             info["overlap"] = round(overlap, 4)
             if overlap >= 0.98 and not c.get("copy_allowed"):
-                if parent and changes:
+                if kind == "pattern" and parent and changes:
                     c["copy_check"]["mode"] = "revision"
                     info["mode"] = "revision"
                 else:
                     errs.append(f"driver looks copied from {who} (overlap {overlap:.2f}); declare parent+changes for a revision, or copy_allowed+reason for an intentional copy")
-            elif parent and changes:
+            elif kind == "pattern" and parent and changes:
                 c["copy_check"]["mode"] = "revision"
                 info["mode"] = "revision"
             else:
@@ -147,7 +163,7 @@ def check(cdir: Path, verbose: bool = True) -> tuple[list[str], dict]:
                 info["mode"] = "ok"
             dump(cj, c)
 
-    if (PATTERNS / cid).exists() and (PATTERNS / cid) != cdir and cid != parent:
+    if kind == "pattern" and (PATTERNS / cid).exists() and (PATTERNS / cid) != cdir and cid != parent:
         errs.append(f"pattern already exists: patterns/{cid}")
     if verbose:
         if errs:
@@ -165,9 +181,37 @@ def promote(cdir: Path) -> int:
         return 1
     cid = info["id"]
     c = load(cdir / "candidate.json")
+    kind = c.get("kind", "pattern")
     parent = c.get("parent")
     stamp = now().replace(":", "-").replace("T", "_")
     c["promoted"] = now()
+
+    if kind == "driver":
+        dst = DRIVERS / cid
+        if dst.exists():
+            print(f"refuse: {dst} already exists")
+            return 1
+        dst.mkdir(parents=True)
+        assets = c.get("assets", {})
+        for key, std in (("driver", "driver.py"), ("reference", "reference.png"), ("manifest", "manifest.json")):
+            shutil.copy2(cdir / assets[key], dst / std)
+        c["status"] = "curated_driver"
+        dump(cdir / "candidate.json", c)
+        idxp = DRIVERS / "index.json"
+        idx = load(idxp) if idxp.exists() else {"version": 1, "drivers": []}
+        idx.setdefault("drivers", [])
+        m = load(dst / "manifest.json")
+        if not any(x.get("id") == cid for x in idx["drivers"]):
+            idx["drivers"].append({"id": cid, "status": "reference", "path": cid, "tags": m.get("tags", []), "intent": c.get("subject", "")})
+        dump(idxp, idx)
+        hist = EX / "_history" / cid / stamp
+        hist.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(cdir), str(hist))
+        with CHANGELOG.open("a", encoding="utf-8") as f:
+            f.write(f"- {now()} promote driver {cid} from {c.get('source')}\n")
+        print(f"promoted driver -> {dst.relative_to(ROOT)}")
+        return 0
+
 
     if parent:
         dst = PATTERNS / parent
@@ -223,13 +267,15 @@ def new_candidate(args) -> int:
         print(f"refuse: {cdir} exists")
         return 1
     cdir.mkdir(parents=True)
-    c = {"id": args.id, "subject": args.subject, "source": args.source, "status": "candidate",
+    assets = ({"driver": "driver.py", "reference": "reference.png", "manifest": "manifest.json"} if args.kind == "driver" else {"crop": "crop.png", "snippet": "snippet.py", "metrics": "metrics.json"})
+    c = {"id": args.id, "kind": args.kind, "subject": args.subject, "source": args.source, "status": "candidate",
          "created": now(), "tags": [],
-         "assets": {"crop": "crop.png", "snippet": "snippet.py", "metrics": "metrics.json"},
+         "assets": assets,
          "source_driver": args.driver or None, "borrow": [], "avoid": [], "known_issues": [],
          "review": "", "parent": args.parent, "changes": args.change, "copy_allowed": False, "copy_allowed_reason": ""}
     dump(cdir / "candidate.json", c)
-    print(f"created {cdir}; add crop.png / snippet.py / metrics.json, fill borrow/avoid/known_issues/review")
+    need = "driver.py / reference.png / manifest.json" if args.kind == "driver" else "crop.png / snippet.py / metrics.json"
+    print(f"created {cdir}; add {need}, fill borrow/avoid/known_issues/review")
     return 0
 
 
@@ -242,6 +288,7 @@ def main() -> int:
     p = sub.add_parser("new")
     p.add_argument("--id", required=True); p.add_argument("--subject", required=True)
     p.add_argument("--source", required=True); p.add_argument("--driver")
+    p.add_argument("--kind", choices=["pattern", "driver"], default="pattern")
     p.add_argument("--parent"); p.add_argument("--change", action="append", default=[])
     a = ap.parse_args()
 

@@ -24,6 +24,7 @@ examples/inbox/<id>/
 ```json
 {
   "id": "heron-marsh-v2",
+  "kind": "pattern",
   "subject": "heron",
   "source": "cold-heron-boat2",
   "status": "candidate",
@@ -63,10 +64,34 @@ examples/inbox/<id>/
 
 只有“真正的新技法/新主体”才用新 id；细节修改走 revision。
 
+## Driver 候选
+
+完整 driver 也能作为候选增长：
+
+```json
+{
+  "id": "sunset_soft",
+  "kind": "driver",
+  "assets": {
+    "driver": "driver.py",
+    "reference": "reference.png",
+    "manifest": "manifest.json"
+  }
+}
+```
+
+```powershell
+python scripts/grow_library.py new --id sunset_soft --subject sunset --source A11 --kind driver
+python scripts/grow_library.py check examples/inbox/sunset_soft
+python scripts/grow_library.py promote examples/inbox/sunset_soft
+```
+
+`promote` 会把这三个文件放进 `examples/drivers/<id>/`，更新 `drivers/index.json`，不写 `patterns/`。
+
 ## 两步
 
 ```powershell
-# 1. 建候选
+# 1. 建候选（pattern）
 python scripts/grow_library.py new --id heron-marsh-v2 --subject heron --source cold-heron-boat2 --driver build_heron.py
 
 # 2. 填完 crop / snippet / metrics / borrow / avoid / known_issues / review

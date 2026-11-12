@@ -1,0 +1,23 @@
+{
+  "id": "betta_fin",
+  "status": "reference",
+  "tags": [
+    "betta",
+    "fin",
+    "underwater"
+  ],
+  "canvas": [
+    1200,
+    900
+  ],
+  "stats": {
+    "layers": 29,
+    "strokes": 28799
+  },
+  "reference": "reference.png",
+  "driver": "driver.py",
+  "known_issues": [
+    "鳍条过密像梳子",
+    "尾缘过亮会割裂鱼体"
+  ]
+}

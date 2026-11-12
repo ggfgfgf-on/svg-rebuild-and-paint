@@ -2,7 +2,9 @@
 
 这里放**候选**，不是正式参考。
 
-每个子目录：`candidate.json` + `crop.png` + `snippet.py` + `metrics.json`。
+pattern 候选：`candidate.json` + `crop.png` + `snippet.py` + `metrics.json`。
+
+driver 候选：`candidate.json` + `driver.py` + `reference.png` + `manifest.json`。
 
 ```powershell
 python scripts/grow_library.py check examples/inbox/<id>

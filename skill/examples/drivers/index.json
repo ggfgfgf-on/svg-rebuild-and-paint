@@ -22,6 +22,50 @@
         "sunset"
       ],
       "intent": "整合参考：完整场景、天空/倒影"
+    },
+    {
+      "id": "sunset_soft",
+      "status": "reference",
+      "path": "sunset_soft",
+      "tags": [
+        "sunset",
+        "soft-light",
+        "reflection"
+      ],
+      "intent": "A11 黄昏海面，柔天空 + 窄反光"
+    },
+    {
+      "id": "fox_backlight",
+      "status": "reference",
+      "path": "fox_backlight",
+      "tags": [
+        "fox",
+        "backlight",
+        "forest"
+      ],
+      "intent": "C9 逆光林间狐狸，雾分层 + 边缘光"
+    },
+    {
+      "id": "betta_fin",
+      "status": "reference",
+      "path": "betta_fin",
+      "tags": [
+        "betta",
+        "fin",
+        "underwater"
+      ],
+      "intent": "C7 斗鱼，鳍膜/鳍条/尾缘分层"
+    },
+    {
+      "id": "heron_marsh",
+      "status": "reference",
+      "path": "heron_marsh",
+      "tags": [
+        "heron",
+        "marsh",
+        "reflection"
+      ],
+      "intent": "B8 苍鹭，主体五层 + 压缩倒影"
     }
   ]
 }

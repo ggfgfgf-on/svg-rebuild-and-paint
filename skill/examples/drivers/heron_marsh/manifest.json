@@ -1,0 +1,23 @@
+{
+  "id": "heron_marsh",
+  "status": "reference",
+  "tags": [
+    "heron",
+    "marsh",
+    "reflection"
+  ],
+  "canvas": [
+    1200,
+    900
+  ],
+  "stats": {
+    "layers": 20,
+    "strokes": 22266
+  },
+  "reference": "reference.png",
+  "driver": "driver.py",
+  "known_issues": [
+    "头颈比例风格化",
+    "倒影过密会脏水"
+  ]
+}

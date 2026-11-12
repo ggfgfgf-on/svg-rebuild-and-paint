@@ -1,0 +1,23 @@
+{
+  "id": "fox_backlight",
+  "status": "reference",
+  "tags": [
+    "fox",
+    "backlight",
+    "forest"
+  ],
+  "canvas": [
+    1200,
+    900
+  ],
+  "stats": {
+    "layers": 23,
+    "strokes": 47032
+  },
+  "reference": "reference.png",
+  "driver": "driver.py",
+  "known_issues": [
+    "逆光过强会吃掉固有色",
+    "雾层太多中景发灰"
+  ]
+}

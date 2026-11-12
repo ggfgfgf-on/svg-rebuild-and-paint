@@ -1,0 +1,23 @@
+{
+  "id": "sunset_soft",
+  "status": "reference",
+  "tags": [
+    "sunset",
+    "soft-light",
+    "reflection"
+  ],
+  "canvas": [
+    1280,
+    800
+  ],
+  "stats": {
+    "layers": 20,
+    "strokes": 31289
+  },
+  "reference": "reference.png",
+  "driver": "driver.py",
+  "known_issues": [
+    "地平线过柔会糊",
+    "低对比在缩略图里显平"
+  ]
+}
