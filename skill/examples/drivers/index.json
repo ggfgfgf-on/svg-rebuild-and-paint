@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "drivers": [
+    {
+      "id": "v4_lighthouse",
+      "status": "reference",
+      "path": "v4_lighthouse",
+      "tags": [
+        "lighthouse",
+        "dusk",
+        "impasto"
+      ],
+      "intent": "dusk lighthouse, thick paint, warm lamp + cool sky"
+    }
+  ]
+}

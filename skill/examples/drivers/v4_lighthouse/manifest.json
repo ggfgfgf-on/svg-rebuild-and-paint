@@ -1,0 +1,25 @@
+{
+  "id": "v4_lighthouse",
+  "status": "reference",
+  "intent": "dusk lighthouse, thick paint, warm lamp + cool sky",
+  "tags": [
+    "lighthouse",
+    "dusk",
+    "impasto"
+  ],
+  "canvas": [
+    1200,
+    900
+  ],
+  "stats": {
+    "layers": 19,
+    "strokes": 33968
+  },
+  "reference": "reference.png",
+  "driver": "driver.py",
+  "known_issues": [
+    "光束偏软",
+    "塔身比例偏瘦",
+    "左侧远岸有碎笔"
+  ]
+}
