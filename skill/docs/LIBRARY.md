@@ -34,12 +34,34 @@ examples/inbox/<id>/
   "avoid": ["倒影比主体实"],
   "known_issues": ["头颈比例容易风格化"],
   "review": "和 B7/B8 并排看过；倒影更干净，主体略简",
+  "parent": null,
+  "changes": [],
   "copy_allowed": false,
   "copy_allowed_reason": ""
 }
 ```
 
 `review` 必须写清看过什么、和谁比、牺牲了什么。空 review 不允许晋升。
+
+## 细节修改：revision，不是新 pattern
+
+如果新候选只是对已有 pattern 的局部优化，不要新建重复条目。写：
+
+```json
+"parent": "sunset-soft",
+"changes": ["反光柱更窄", "云层透明度整体降 0.02"]
+```
+
+`check` 看到 `parent + changes` 时，即使 driver 重合 ≥ 0.98，也判为 `mode=revision`，不拒绝。
+
+`promote` 会：
+
+1. 备份原 `patterns/<parent>/` 到 `examples/_history/<parent>/<timestamp>/`
+2. 用候选的 crop / snippet / metrics 更新原 pattern
+3. 把 revision 记录追加到原 `pattern.md`
+4. 不新增 `patterns/index.json` 条目
+
+只有“真正的新技法/新主体”才用新 id；细节修改走 revision。
 
 ## 两步
 
@@ -50,6 +72,9 @@ python scripts/grow_library.py new --id heron-marsh-v2 --subject heron --source 
 # 2. 填完 crop / snippet / metrics / borrow / avoid / known_issues / review
 python scripts/grow_library.py check examples/inbox/heron-marsh-v2
 python scripts/grow_library.py promote examples/inbox/heron-marsh-v2
+
+# 细节修改
+python scripts/grow_library.py new --id sunset-soft-r2 --subject sunset --source A11 --driver make_sunset.py --parent sunset-soft --change "反光柱更窄"
 ```
 
 ## 门拦什么

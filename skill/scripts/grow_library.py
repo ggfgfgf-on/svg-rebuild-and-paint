@@ -111,6 +111,17 @@ def check(cdir: Path, verbose: bool = True) -> tuple[list[str], dict]:
     if not c.get("review"):
         errs.append("review is required before promotion")
 
+    parent = c.get("parent")
+    changes = c.get("changes")
+    if parent:
+        if not (PATTERNS / parent).exists():
+            errs.append(f"parent pattern not found: patterns/{parent}")
+        if not changes:
+            errs.append("parent requires a non-empty changes list")
+    elif changes:
+        errs.append("changes requires parent")
+    info["parent"] = parent
+
     driver_name = c.get("source_driver")
     if driver_name:
         driver = (cdir / driver_name).resolve()
@@ -123,10 +134,20 @@ def check(cdir: Path, verbose: bool = True) -> tuple[list[str], dict]:
             c["copy_check"]["closest"] = who
             info["overlap"] = round(overlap, 4)
             if overlap >= 0.98 and not c.get("copy_allowed"):
-                errs.append(f"driver looks copied from {who} (overlap {overlap:.2f}); set copy_allowed + reason only if intentional")
+                if parent and changes:
+                    c["copy_check"]["mode"] = "revision"
+                    info["mode"] = "revision"
+                else:
+                    errs.append(f"driver looks copied from {who} (overlap {overlap:.2f}); declare parent+changes for a revision, or copy_allowed+reason for an intentional copy")
+            elif parent and changes:
+                c["copy_check"]["mode"] = "revision"
+                info["mode"] = "revision"
+            else:
+                c["copy_check"]["mode"] = "ok"
+                info["mode"] = "ok"
             dump(cj, c)
 
-    if (PATTERNS / cid).exists() and (PATTERNS / cid) != cdir:
+    if (PATTERNS / cid).exists() and (PATTERNS / cid) != cdir and cid != parent:
         errs.append(f"pattern already exists: patterns/{cid}")
     if verbose:
         if errs:
@@ -134,7 +155,7 @@ def check(cdir: Path, verbose: bool = True) -> tuple[list[str], dict]:
             for e in errs:
                 print(" -", e)
         else:
-            print(f"OK  {cid}  overlap={info.get('overlap', 0):.2f}")
+            print(f"OK  {cid}  overlap={info.get('overlap', 0):.2f}  mode={info.get('mode', 'ok')}")
     return errs, info
 
 
@@ -143,28 +164,58 @@ def promote(cdir: Path) -> int:
     if errs:
         return 1
     cid = info["id"]
+    c = load(cdir / "candidate.json")
+    parent = c.get("parent")
+    stamp = now().replace(":", "-").replace("T", "_")
+    c["promoted"] = now()
+
+    if parent:
+        dst = PATTERNS / parent
+        if not dst.exists():
+            print(f"refuse: parent missing {dst}")
+            return 1
+        backup = EX / "_history" / parent / stamp
+        backup.mkdir(parents=True, exist_ok=True)
+        for f in dst.iterdir():
+            if f.is_file():
+                shutil.copy2(f, backup / f.name)
+        assets = c.get("assets", {})
+        for key, std in (("crop", "crop.png"), ("snippet", "snippet.py"), ("metrics", "metrics.json")):
+            shutil.copy2(cdir / assets[key], dst / std)
+        if (cdir / "pattern.md").exists():
+            shutil.copy2(cdir / "pattern.md", dst / "pattern.md")
+        with (dst / "pattern.md").open("a", encoding="utf-8") as f:
+            f.write(f"\n## revision {now()}\n\n{c.get('review', '')}\n\n")
+            for x in c.get("changes", []):
+                f.write(f"- {x}\n")
+        c["status"] = "curated_revision"
+        c["parent"] = parent
+        hist = EX / "_history" / cid / stamp
+        hist.parent.mkdir(parents=True, exist_ok=True)
+        dump(cdir / "candidate.json", c)
+        shutil.move(str(cdir), str(hist))
+        with CHANGELOG.open("a", encoding="utf-8") as f:
+            f.write(f"- {now()} revise {parent} via {cid} from {c.get('source')}\n")
+        print(f"revised -> {dst.relative_to(ROOT)} (backup {backup.relative_to(ROOT)})")
+        return 0
+
     dst = PATTERNS / cid
     if dst.exists():
         print(f"refuse: {dst} already exists")
         return 1
-    c = load(cdir / "candidate.json")
     c["status"] = "curated"
-    c["promoted"] = now()
     dump(cdir / "candidate.json", c)
     shutil.move(str(cdir), str(dst))
-
     idxp = PATTERNS / "index.json"
     idx = load(idxp) if idxp.exists() else {"version": 1, "patterns": []}
     idx.setdefault("patterns", [])
     if not any(x.get("id") == cid for x in idx["patterns"]):
         idx["patterns"].append({"id": cid, "path": cid, "source": c.get("source"), "tags": c.get("tags", [])})
     dump(idxp, idx)
-    CHANGELOG.parent.mkdir(parents=True, exist_ok=True)
     with CHANGELOG.open("a", encoding="utf-8") as f:
         f.write(f"- {now()} promote {cid} from {c.get('source')}\n")
     print(f"promoted -> {dst.relative_to(ROOT)}")
     return 0
-
 
 def new_candidate(args) -> int:
     cdir = INBOX / args.id
@@ -176,7 +227,7 @@ def new_candidate(args) -> int:
          "created": now(), "tags": [],
          "assets": {"crop": "crop.png", "snippet": "snippet.py", "metrics": "metrics.json"},
          "source_driver": args.driver or None, "borrow": [], "avoid": [], "known_issues": [],
-         "review": "", "copy_allowed": False, "copy_allowed_reason": ""}
+         "review": "", "parent": args.parent, "changes": args.change, "copy_allowed": False, "copy_allowed_reason": ""}
     dump(cdir / "candidate.json", c)
     print(f"created {cdir}; add crop.png / snippet.py / metrics.json, fill borrow/avoid/known_issues/review")
     return 0
@@ -191,6 +242,7 @@ def main() -> int:
     p = sub.add_parser("new")
     p.add_argument("--id", required=True); p.add_argument("--subject", required=True)
     p.add_argument("--source", required=True); p.add_argument("--driver")
+    p.add_argument("--parent"); p.add_argument("--change", action="append", default=[])
     a = ap.parse_args()
 
     if a.cmd == "list":
