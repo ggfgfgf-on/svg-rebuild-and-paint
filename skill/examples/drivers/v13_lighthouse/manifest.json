@@ -1,0 +1,18 @@
+{
+  "id": "v13_lighthouse",
+  "status": "reference",
+  "tags": [
+    "lighthouse",
+    "dusk",
+    "impasto"
+  ],
+  "canvas": [
+    1200,
+    900
+  ],
+  "reference": "reference.png",
+  "driver": "driver.py",
+  "known_issues": [
+    "V13: dense impasto, blocky clouds, tower material less architectural"
+  ]
+}

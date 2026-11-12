@@ -1,4 +1,4 @@
-# Verification（builder / verifier 分离）
+# Verification（可选；builder / verifier 分离）
 
 verifier 不写 driver，不看 builder 的解释，只读：
 

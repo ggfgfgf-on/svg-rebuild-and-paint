@@ -1,0 +1,18 @@
+{
+  "id": "v8_lighthouse",
+  "status": "reference",
+  "tags": [
+    "lighthouse",
+    "dusk",
+    "soft-sky"
+  ],
+  "canvas": [
+    1200,
+    900
+  ],
+  "reference": "reference.png",
+  "driver": "driver.py",
+  "known_issues": [
+    "V8: clean sky, weak beam, smooth tower, scanline sea"
+  ]
+}

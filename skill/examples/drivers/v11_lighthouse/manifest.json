@@ -1,0 +1,18 @@
+{
+  "id": "v11_lighthouse",
+  "status": "reference",
+  "tags": [
+    "lighthouse",
+    "dusk",
+    "delivery"
+  ],
+  "canvas": [
+    1200,
+    900
+  ],
+  "reference": "reference.png",
+  "driver": "driver.py",
+  "known_issues": [
+    "V11: good sky/structure, tower brick detail weak, rock simplified"
+  ]
+}
