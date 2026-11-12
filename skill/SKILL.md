@@ -65,13 +65,21 @@ whenToUse: >-
 3. 没有匹配：自己写，不需要 spec/verifier。
 4. 有 reference 时，出图后和它并排看 100% / 25%；差异写进 gaps。
 
+**库增长（主动但不失控）**：
+
+- 画完并验收后，如果出现了可复用的新技法/优化，写候选到 `examples/inbox/<id>/`，不要直接改 `patterns/`。
+- 候选要有 crop / snippet / metrics / borrow / avoid / known_issues / review；review 写清和谁比、牺牲了什么。
+- 跑 `python scripts/grow_library.py check examples/inbox/<id>`；通过后 `promote` 才进正式库。
+- 直接复制现有 driver 会被 `copy_check` 拦；复制不是绝对不行，但必须显式 `copy_allowed` + 理由。
+- 不确定就留在 inbox。正式库的提交仍走 git，可回滚。
+
 ## 4. 执行阶段
 
 | 阶段 | 做什么 | 产物 | 通过条件 | 失败回退 |
 |---|---|---|---|---|
 | 0 自检 | python scripts/selfcheck.py | 三行 OK | 三条全 OK | 先修 Python/原生 DLL |
 | 1 选路 | 按功能路由分类 | route | 不混路线 | 需求不清先问 |
-| 2 造输入 | 查 examples/drivers/index.json；有匹配先读 driver + reference；driver 产出 plan | plan / svg / brief | driver 完成 | 没有 plan 不渲染 |
+| 2 造输入 | 查 examples/patterns/index.json 和 examples/drivers/index.json；有匹配先读 driver + pattern；driver 产出 plan | plan / svg / brief | driver 完成 | 没有 plan 不渲染 |
 | 3 执行 | host art_* 或 CLI | png / svg / mp4 | 输出非空、尺寸/帧率对 | 看最后一条错误 |
 | 4 验收 | 指标 / 复渲 / 看图 | 报告 | 机械门 + 语义门都过 | 只回退一个变量 |
 | 5 回改 | 改 plan/ops/driver | 新产物 | 比 baseline 好或至少不差 | 不如 baseline 就回滚 |
@@ -101,6 +109,7 @@ whenToUse: >-
 | docs/API.md | 21 个 ops 的参数、默认值、选区语义 |
 | docs/SHAPE_API.md | fill_polygon / tapered_stroke / ribbon 参数与边界 |
 | docs/EXAMPLES.md | plan 字段、driver 骨架、最小调用 |
+| docs/LIBRARY.md | 增长库：候选格式、检查、晋升、回滚 |
 | examples/patterns/index.json | 技法 pattern：crop / snippet / metrics / known_issues |
 | docs/DRIVER.md | driver 契约 |
 | docs/PLAN_SVG.md | Plan ⇄ SVG 的保真边界、缓存、失败模式 |
