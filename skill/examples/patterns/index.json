@@ -30,6 +30,42 @@
         "dry/bristle 方向性短笔",
         "岩体大块 oil_bristle"
       ]
+    },
+    {
+      "id": "sunset-soft",
+      "path": "sunset-soft",
+      "source": "A11 _sub_b sunset",
+      "tags": [
+        "sunset",
+        "selected"
+      ]
+    },
+    {
+      "id": "fox-backlight",
+      "path": "fox-backlight",
+      "source": "C9 svp-cold-fox",
+      "tags": [
+        "fox",
+        "selected"
+      ]
+    },
+    {
+      "id": "betta-fin",
+      "path": "betta-fin",
+      "source": "C7 betta_v2",
+      "tags": [
+        "betta",
+        "selected"
+      ]
+    },
+    {
+      "id": "heron-marsh",
+      "path": "heron-marsh",
+      "source": "B8 svp-cold-heron-boat2",
+      "tags": [
+        "heron",
+        "selected"
+      ]
     }
   ]
 }

@@ -11,6 +11,17 @@
         "balanced"
       ],
       "intent": "整合参考：结构/材质/接触"
+    },
+    {
+      "id": "v11_lighthouse",
+      "status": "integrated_reference",
+      "path": "v11_lighthouse",
+      "tags": [
+        "lighthouse",
+        "dusk",
+        "sunset"
+      ],
+      "intent": "整合参考：完整场景、天空/倒影"
     }
   ]
 }
