@@ -58,13 +58,20 @@ whenToUse: >-
 | 不固定 | 层数、层名、笔刷、遍数、风格、构图；全部由 driver 决定 |
 | 边界 | SKILL 不提供默认画法；示例只作接口，不作模板 |
 
+**正常加载后的强制顺序**：
+
+1. 先读 `docs/DELIVERY.md`。
+2. 有匹配 reference 就写 `delivery.reference`；没有就写 `delivery.target`。
+3. 没有 delivery，不得标完成。
+4. 有 reference：structure pass → 100%/25% 看图对比 → detail pass → 写 gaps。
+
 ## 4. 执行阶段
 
 | 阶段 | 做什么 | 产物 | 通过条件 | 失败回退 |
 |---|---|---|---|---|
 | 0 自检 | python scripts/selfcheck.py | 三行 OK | 三条全 OK | 先修 Python/原生 DLL |
 | 1 选路 | 按功能路由分类 | route | 不混路线 | 需求不清先问 |
-| 2 造输入 | driver 产出 plan；或 auto.py / brief | plan / svg / brief | 文件存在且可读 | 没有 plan 不渲染 |
+| 2 造输入 | 读 docs/DELIVERY.md，选 reference 或写 target；driver 产出 plan；或 auto.py / brief | delivery / plan / svg / brief | delivery 有 reference 或 target；文件存在 | 没有 delivery 不进入渲染 |
 | 3 执行 | host art_* 或 CLI | png / svg / mp4 | 输出非空、尺寸/帧率对 | 看最后一条错误 |
 | 4 验收 | 指标 / 复渲 / 看图 | 报告 | 机械门 + 语义门都过 | 只回退一个变量 |
 | 5 回改 | 改 plan/ops/driver | 新产物 | 比 baseline 好或至少不差 | 不如 baseline 就回滚 |

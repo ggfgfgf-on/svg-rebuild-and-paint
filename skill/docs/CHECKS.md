@@ -33,6 +33,7 @@ driver 输出 manifest，声明自己要检查什么：
 | deterministic | 同 plan 复渲一致 | — | maxdiff |
 | alpha_coverage | 无透明空洞 | — | uncovered 像素数 |
 | pixel_diff | 与参照图逐像素差 | ref | mean / max |
+| reference_diff | 与 reference 的结构/明暗/密度差 | reference, region | 分区域差值 |
 | stroke_filter | 按笔触属性筛异常集 | layer, size_min/max, single_point | 命中数 |
 | region_contrast | 区域内明度/对比 | box | luma / 对比 |
 | mask_overlap | 形状与掩膜交叠 | mask_file | 命中数 |
