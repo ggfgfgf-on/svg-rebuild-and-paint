@@ -1,59 +1,61 @@
-# Delivery Contract（driver 自声明）
+# Delivery Contract（spec 先行，不规定画法）
 
-平台只校验字段存在；不规定画面标准，也不规定题材必须满足什么。
+平台只校验字段和顺序；不规定题材必须满足什么。
 
-## 必填字段
+## 顺序
+
+1. 先写 `spec`，引用用户原话。
+2. 渲染前冻结 `spec_hash`；plan 开始后不得改 spec。
+3. `target` 每条必须引用 spec clause。
+4. `checks` 每条必须有 `spec_clause`。
+5. builder 出 plan/png。
+6. verifier（不同 agent/上下文）只看 spec + 图 + reference，逐条判 pass/fail。
+7. 没有 verifier 签字，不得标完成。
+
+## spec
 
 | 字段 | 含义 |
 |---|---|
-| intent | 这次要交什么 |
-| reference | 可选：拿哪个 driver 当参照 |
-| target | 这次“做到什么程度”算交付；没有 reference 时必填 |
-| accept | 平台门 + driver 自声明 checks |
-| review | 实际看过的图（100% / 25%）与结论 |
-| gaps | 明知还差什么；不许隐瞒 |
+| user_prompt | 用户原话，不改写 |
+| style | 用户明确要的风格 |
+| subject | 用户明确要的主体 |
+| constraints | 用户明确要保留/避免的东西 |
+| unknowns | 用户没说、由 driver 决定的项 |
+| spec_hash | 冻结后的哈希 |
 
-## manifest 示例
+## target
 
-{
-  "id": "lighthouse_v10",
-  "delivery": {
-    "intent": "黄昏灯塔，厚涂",
-    "reference": "v4_lighthouse",
-    "target": "结构接近参考，细节按本图需要取舍",
-    "accept": ["platform_gates", "driver_checks"],
-    "review": ["100%: ok", "25%: ok"],
-    "gaps": ["光束比参考软"]
-  },
-  "checks": []
-}
+target 是数组，每条必须对应 spec clause：
 
-## 规则
+{ "clause": "constraints", "value": "天空保留空气感" }
 
-- 没有 delivery 或没有 target/reference 的 driver，不得标记完成。
-- reference 是数据，不是模板；可以读、对比，不能复制参数冒充原创。
-- gaps 必须写；写“无”就表示你愿意为没有已知缺陷负责。
-- accept 里可以引用 docs/CHECKS.md 的 kind，但具体参数由 driver 定。
-- 平台不要求接地、主体、焦点、25% 这些词；driver 自己决定要不要写进 target。
+没有 spec clause 的 target，不允许写。
 
-## 与 CHECKS 的关系
+## checks
 
-- DELIVERY：这次要交什么、做到什么程度、还差什么。
-- CHECKS：怎么执行检查、怎么记录结果。
+每条 check 必须有 `spec_clause`：
 
-## reference fidelity
+{ "id": "sky_atmosphere", "spec_clause": "constraints", "kind": "custom" }
 
-选了 reference 时，按两段走；不规定层、笔刷、步骤。
+## review
 
-1. structure pass：先把主体、承托、焦点、画幅关系做到可读。
-2. 渲染后看 100% 和 25%，与 reference 并排比；只记录差异，不改参数。
-3. detail pass：只改你写进 gaps 的具体差异；结构门不能退。
-4. 再看一次；detail 仍低于 reference 且没有理由，不得标完成。
+由 verifier 写，不是 builder 自评。
 
-对比只回答：
+## 失败处理
 
-- 结构关系是否接近
-- 明暗/材质密度是否接近
-- 哪些差异是主动取舍
+- 没有 spec 或没有 spec_hash：不得开始 plan。
+- target/check 引用不存在的 clause：gate 失败。
+- builder 和 verifier 相同：不得标完成。
+- verifier 判 fail：回 builder，不许改 spec 迁就结果。
 
-reference 不是模板；坐标、颜色、笔触参数不能直接复制。
+## 可执行门
+
+```powershell
+python scripts/delivery_check.py manifest.json
+```
+
+检查 spec_hash、target clause、check spec_clause、builder/verifier 是否分离；只查结构，不查画法。
+
+## reference
+
+reference 可选；是数据，不是模板。

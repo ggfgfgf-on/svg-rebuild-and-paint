@@ -12,6 +12,8 @@
 
 ## 2. driver 自声明 checks
 
+每条 check 必须有 `spec_clause`，对应 DELIVERY spec/target 里的 clause；没有 clause 的 check 不得进 manifest。
+
 driver 输出 manifest，声明自己要检查什么：
 
 {

@@ -54,24 +54,29 @@ whenToUse: >-
 | 输出 | plan（layers + strokes）+ PNG |
 | 固定 | plan_io / render_plan / 确定性 / 平台门 |
 | 验收 | 平台门 + driver 自声明 checks；协议见 docs/CHECKS.md |
-| 交付声明 | intent / reference / target / accept / review / gaps；协议见 docs/DELIVERY.md |
+| 交付声明 | spec / spec_hash / target / checks；协议见 docs/DELIVERY.md |
+| 验收分离 | builder ≠ verifier；协议见 docs/VERIFY.md |
 | 不固定 | 层数、层名、笔刷、遍数、风格、构图；全部由 driver 决定 |
 | 边界 | SKILL 不提供默认画法；示例只作接口，不作模板 |
 
 **正常加载后的强制顺序**：
 
+0. 写 spec，冻结 spec_hash；没有 spec 不得开始。
+
 1. 先读 `docs/DELIVERY.md`。
 2. 有匹配 reference 就写 `delivery.reference`；没有就写 `delivery.target`。
 3. 没有 delivery，不得标完成。
 4. 有 reference：structure pass → 100%/25% 看图对比 → detail pass → 写 gaps。
+5. builder ≠ verifier；verifier 逐条 clause 判 pass/fail；没有签字不得标完成。
 
 ## 4. 执行阶段
 
 | 阶段 | 做什么 | 产物 | 通过条件 | 失败回退 |
 |---|---|---|---|---|
 | 0 自检 | python scripts/selfcheck.py | 三行 OK | 三条全 OK | 先修 Python/原生 DLL |
+| 0.5 规格 | 写 spec、冻结 spec_hash | spec | 有 spec_hash | 没有 spec 不进入 plan |
 | 1 选路 | 按功能路由分类 | route | 不混路线 | 需求不清先问 |
-| 2 造输入 | 读 docs/DELIVERY.md，选 reference 或写 target；driver 产出 plan；或 auto.py / brief | delivery / plan / svg / brief | delivery 有 reference 或 target；文件存在 | 没有 delivery 不进入渲染 |
+| 2 造输入 | 读 docs/DELIVERY.md；spec 先行，target/check 绑定 clause；driver 产出 plan | spec / plan / svg / brief | spec_hash 存在，clause 映射完整 | 没有 spec 不进入渲染 |
 | 3 执行 | host art_* 或 CLI | png / svg / mp4 | 输出非空、尺寸/帧率对 | 看最后一条错误 |
 | 4 验收 | 指标 / 复渲 / 看图 | 报告 | 机械门 + 语义门都过 | 只回退一个变量 |
 | 5 回改 | 改 plan/ops/driver | 新产物 | 比 baseline 好或至少不差 | 不如 baseline 就回滚 |
@@ -105,7 +110,8 @@ whenToUse: >-
 | docs/PLAN_SVG.md | Plan ⇄ SVG 的保真边界、缓存、失败模式 |
 | docs/VISUAL_HELPERS.md | advisory 参考图，不写 plan |
 | docs/CHECKS.md | 画面验收协议：平台门 + driver 自声明 checks |
-| docs/DELIVERY.md | Delivery Contract：这次交什么、做到什么程度、还差什么 |
+| docs/DELIVERY.md | spec 先行、target/check 绑定 clause、交付声明 |
+| docs/VERIFY.md | builder/verifier 分离与逐条验收 |
 | docs/COMPOSITION.md | 可选构图观察清单，不是流程/合格线 |
 | SKILL_REFERENCE.md | 完整细节快照：算法、坑位、历史参数 |
 
